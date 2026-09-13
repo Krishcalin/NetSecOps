@@ -135,6 +135,47 @@ def cmd_reset_password(
         console.print(f"[yellow]New password:[/yellow] {secret}")
 
 
+@app.command("reset-mfa")
+def cmd_reset_mfa(
+    username: Annotated[str, typer.Argument()],
+) -> None:
+    """Clear a user's MFA enrolment out-of-band (break-glass recovery).
+
+    Disabling MFA through the API needs an authenticated session, which is exactly
+    what a lost authenticator denies you — so this path exists for an operator with
+    server access. The user signs in with their password alone afterwards, and can
+    re-enrol from their profile.
+
+    The action is recorded in the audit log like any other MFA change (FR-AUD-01).
+    """
+    configure_logging()
+
+    async def _run() -> None:
+        from netsecops.core.rbac import Principal, Scope
+        from netsecops.db.session import session_scope
+        from netsecops.services.auth import AuthService
+        from netsecops.services.users import UserService
+
+        async with session_scope() as session:
+            user = await UserService(session).get_by_username(username)
+            if user is None:
+                err_console.print(f"[red]No such user: {username}[/red]")
+                raise typer.Exit(code=1)
+
+            if not user.mfa_enabled and user.mfa_secret is None:
+                console.print(f"[yellow]MFA is not enabled for {username}; nothing to do.[/yellow]")
+                return
+
+            actor = Principal(
+                id=user.id, username="cli", roles=frozenset({Role.SUPER_ADMIN}), scope=Scope.all()
+            )
+            await AuthService(session).disable_mfa(user, actor)
+
+    asyncio.run(_run())
+    console.print(f"[green]MFA cleared for:[/green] {username}")
+    console.print("[dim]They can sign in with their password and re-enrol from Profile.[/dim]")
+
+
 # ──────────────────────────────── audit ─────────────────────────────────────
 
 

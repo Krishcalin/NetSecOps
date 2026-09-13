@@ -115,6 +115,32 @@ wholesale, so rotation is fast even with thousands of credentials.
 
 ---
 
+## Account recovery (break-glass)
+
+Both of these need server access, deliberately: they are the paths that exist precisely
+because the normal ones are unavailable.
+
+```bash
+COMPOSE="docker compose -f deploy/docker-compose.yml"
+
+# Lost authenticator — clear MFA so the user can sign in with a password and re-enrol.
+$COMPOSE exec api netsecops-cli reset-mfa <username>
+
+# Forgotten password — set a new one; the user must change it at next sign-in.
+$COMPOSE exec api netsecops-cli reset-password <username>
+```
+
+Both are written to the audit log (`mfa.disabled`, `password.reset`) with the actor
+recorded as `cli`, so out-of-band recovery is as visible as anything done in the UI.
+
+A password reset also revokes every live session for that account.
+
+> **Recovery codes are the first resort, not this.** Each user is issued ten single-use
+> codes at MFA enrolment and shown them exactly once. A user who kept theirs can sign in
+> without an administrator.
+
+---
+
 ## Backup and restore
 
 ```bash

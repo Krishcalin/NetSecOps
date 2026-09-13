@@ -203,12 +203,7 @@ class AuthService:
         if user is None or not user.is_active:
             raise AuthenticationError("Invalid username or password.")
 
-        # Query the row rather than reading user.mfa_secret: the relationship may have
-        # been populated before enrolment happened in this same session, and a stale
-        # None there would look identical to "MFA was never set up".
-        secret_row = (
-            await self.session.execute(select(MFASecret).where(MFASecret.user_id == user.id))
-        ).scalar_one_or_none()
+        secret_row = await self._mfa_secret_for(user)
 
         if secret_row is None or secret_row.confirmed_at is None:
             raise AuthenticationError("MFA is not configured for this account.")
@@ -402,6 +397,17 @@ class AuthService:
 
     # ──────────────────────────────── MFA ───────────────────────────────
 
+    async def _mfa_secret_for(self, user: User) -> MFASecret | None:
+        """Load the MFA row by query.
+
+        ``user.mfa_secret`` is populated when the User is first loaded, so it goes
+        stale the moment enrolment changes within the same session — and a stale None
+        is indistinguishable from "never enrolled".
+        """
+        return (
+            await self.session.execute(select(MFASecret).where(MFASecret.user_id == user.id))
+        ).scalar_one_or_none()
+
     async def begin_mfa_enrolment(self, user: User) -> MFAEnrolment:
         if user.mfa_enabled:
             raise ConflictError("MFA is already enabled for this account.")
@@ -414,9 +420,10 @@ class AuthService:
             json.dumps([hash_token(c) for c in recovery_codes]), aad=str(user.id)
         )
 
-        if user.mfa_secret is not None:
-            # Replace an abandoned, unconfirmed enrolment.
-            await self.session.delete(user.mfa_secret)
+        # Replace an abandoned, unconfirmed enrolment. Query rather than trusting the
+        # relationship, which may be stale within this session.
+        if (existing := await self._mfa_secret_for(user)) is not None:
+            await self.session.delete(existing)
             await self.session.flush()
 
         self.session.add(
@@ -444,9 +451,7 @@ class AuthService:
 
     async def confirm_mfa_enrolment(self, user: User, code: str) -> None:
         """Enrolment only takes effect once the user proves the authenticator works."""
-        secret_row = (
-            await self.session.execute(select(MFASecret).where(MFASecret.user_id == user.id))
-        ).scalar_one_or_none()
+        secret_row = await self._mfa_secret_for(user)
         if secret_row is None:
             raise NotFoundError("No pending MFA enrolment for this account.")
 
@@ -469,8 +474,10 @@ class AuthService:
         if not (actor.id == user.id or actor.is_super_admin):
             raise PermissionDeniedError("Only the account owner or a Super Admin may disable MFA.")
 
-        if user.mfa_secret is not None:
-            await self.session.delete(user.mfa_secret)
+        # Query rather than trusting the relationship: a stale None here would leave
+        # an orphaned secret row behind while the account reported MFA as off.
+        if (secret_row := await self._mfa_secret_for(user)) is not None:
+            await self.session.delete(secret_row)
         user.mfa_enabled = False
         await self.session.flush()
 

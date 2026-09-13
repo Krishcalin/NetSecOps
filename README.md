@@ -183,10 +183,40 @@ netsecops-cli generate-master-key    # generate a credential-vault master key
 netsecops-cli generate-secret-key    # generate a JWT signing key
 netsecops-cli verify-audit-chain     # replay the hash chain, detect tampering
 netsecops-cli rotate-master-key      # re-wrap every stored secret
+netsecops-cli reset-password <user>  # break-glass password reset
+netsecops-cli reset-mfa <user>       # break-glass: clear a lost authenticator
 netsecops-cli permissions            # print the role × permission matrix
 netsecops-cli health-check           # database reachability + schema revision
 netsecops-cli show-config            # effective configuration, secrets masked
 ```
+
+### Locked out of MFA?
+
+Disabling MFA through the API needs a session, and MFA is what blocks sign-in — so
+recovery runs on the server:
+
+```bash
+docker compose -f deploy/docker-compose.yml exec api netsecops-cli reset-mfa admin
+```
+
+The user then signs in with their password alone and re-enrols from **Profile →
+Two-factor authentication**. The reset is recorded in the audit log. Recovery codes
+issued at enrolment also work as a second factor — each one once.
+
+---
+
+## Smoke-testing a deployment
+
+```bash
+python scripts/smoke_test.py \
+    --api http://localhost:8000 --ui http://localhost:8080 \
+    --admin-user admin --admin-password '...'
+```
+
+33 checks over the live stack: unauthenticated rejection, security headers, cookie
+flags, RBAC, MFA enrolment and challenge, refresh rotation, audit-chain integrity and
+the SPA. It creates a throwaway user for the destructive parts and deletes it
+afterwards, so it never alters the account it signs in with.
 
 ---
 
