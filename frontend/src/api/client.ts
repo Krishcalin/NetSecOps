@@ -55,7 +55,16 @@ function readCookie(name: string): string | null {
   return value === undefined ? null : decodeURIComponent(value);
 }
 
-type RequestOptions = Omit<RequestInit, 'body'> & { body?: unknown; skipRefresh?: boolean };
+type RequestOptions = Omit<RequestInit, 'body'> & {
+  body?: unknown;
+  skipRefresh?: boolean;
+  /**
+   * Send `body` as-is instead of JSON-encoding it. Needed for FormData uploads: the
+   * browser must set its own multipart Content-Type boundary, and overriding it makes
+   * the request unparseable on the server.
+   */
+  rawBody?: boolean;
+};
 
 /** Shared in-flight refresh, so parallel 401s cause exactly one rotation. */
 let refreshInFlight: Promise<boolean> | null = null;
@@ -89,18 +98,18 @@ function csrfHeaders(): Record<string, string> {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, skipRefresh, headers, ...rest } = options;
+  const { body, skipRefresh, rawBody, headers, ...rest } = options;
 
   const send = (): Promise<Response> =>
     fetch(`${API_BASE}${path}`, {
       ...rest,
       credentials: 'include',
       headers: {
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(body !== undefined && !rawBody ? { 'Content-Type': 'application/json' } : {}),
         ...csrfHeaders(),
         ...(headers as Record<string, string> | undefined),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body === undefined ? undefined : rawBody ? (body as BodyInit) : JSON.stringify(body),
     });
 
   let response = await send();

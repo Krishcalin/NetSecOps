@@ -19,8 +19,8 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/' },
-  { label: 'Inventory', phase: 'Phase 1' },
-  { label: 'Assessments', phase: 'Phase 1' },
+  { label: 'Inventory', to: '/inventory', permission: 'device:read' },
+  { label: 'Assessments', to: '/jobs', permission: 'job:read' },
   { label: 'Findings', phase: 'Phase 3' },
   { label: 'Vulnerabilities', phase: 'Phase 6' },
   { label: 'Firewall Analysis', phase: 'Phase 4' },

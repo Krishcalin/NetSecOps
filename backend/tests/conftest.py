@@ -171,10 +171,9 @@ def vault(test_settings: Settings) -> SecretVault:
 @pytest.fixture
 async def app(test_settings: Settings, session: AsyncSession, vault: SecretVault):
     """FastAPI app with the database and settings dependencies pointed at the test session."""
-    from netsecops.api.deps import db_session, settings_dep
+    from netsecops.api.deps import db_session, settings_dep, vault_dep
     from netsecops.core.config import get_settings
     from netsecops.main import create_app
-    from netsecops.services.auth import AuthService
 
     get_settings.cache_clear()
     application = create_app(test_settings)
@@ -182,21 +181,15 @@ async def app(test_settings: Settings, session: AsyncSession, vault: SecretVault
     async def _override_session() -> AsyncIterator[AsyncSession]:
         yield session
 
-    def _override_settings() -> Settings:
-        return test_settings
-
     application.dependency_overrides[db_session] = _override_session
-    application.dependency_overrides[settings_dep] = _override_settings
+    application.dependency_overrides[settings_dep] = lambda: test_settings
+    # The vault is injected rather than built from global config, so tests supply one
+    # backed by a throwaway master key.
+    application.dependency_overrides[vault_dep] = lambda: vault
 
-    # Services built inside request handlers need the test vault, not one from a
-    # master key the test environment does not have.
-    original_vault_property = AuthService.vault
-
-    AuthService.vault = property(lambda self: vault)  # type: ignore[assignment]
     try:
         yield application
     finally:
-        AuthService.vault = original_vault_property  # type: ignore[assignment]
         application.dependency_overrides.clear()
         get_settings.cache_clear()
 

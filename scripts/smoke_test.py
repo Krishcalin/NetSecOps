@@ -149,6 +149,9 @@ def main() -> int:
         if created:
             _run_user_checks(args.api, temp_name, r)
 
+        # ── Inventory and credential vault (Phase 1) ────────────────────
+        _run_inventory_checks(admin, r)
+
         # ── Audit log (FR-AUD-01/02) ────────────────────────────────────
         r.section("Audit log")
         resp = admin.get("/api/v1/audit-log?limit=20")
@@ -186,6 +189,133 @@ def main() -> int:
 
     print(f"\n{'=' * 46}\n  {r.passed} passed, {r.failed} failed\n{'=' * 46}")
     return 1 if r.failed else 0
+
+
+def _run_inventory_checks(admin: httpx.Client, r: Results) -> None:
+    """Inventory, CSV import and the credential vault (FR-INV, FR-CRED).
+
+    Everything created here is namespaced with a random tag, so repeated runs against a
+    live deployment do not collide with each other or with real inventory.
+    """
+    tag = uuid.uuid4().hex[:6]
+    headers = csrf_headers(admin)
+
+    r.section("Inventory")
+    resp = admin.post("/api/v1/device-groups", json={"name": f"smoke-{tag}"}, headers=headers)
+    r.check("create device group", resp.status_code == 201, resp.text[:160])
+    group = resp.json() if resp.status_code == 201 else {}
+    r.check("group carries an ltree path", bool(group.get("path")))
+
+    resp = admin.post(
+        "/api/v1/devices",
+        json={
+            "mgmt_ip": f"203.0.113.{(int(tag, 16) % 200) + 10}",
+            "hostname": f"smoke-{tag}",
+            "vendor": "cisco",
+            "platform": "cisco_ios",
+            "device_class": "switch",
+            "group_ids": [group["id"]] if group else [],
+            "tags": [f"smoke-{tag}"],
+        },
+        headers=headers,
+    )
+    r.check("create device", resp.status_code == 201, f"{resp.status_code} {resp.text[:160]}")
+    device = resp.json() if resp.status_code == 201 else {}
+
+    resp = admin.post(
+        "/api/v1/devices",
+        json={"mgmt_ip": "203.0.113.251", "platform": "acme_router_9000"},
+        headers=headers,
+    )
+    r.check(
+        "a platform with no read-only policy is refused",
+        resp.status_code == 422,
+        str(resp.status_code),
+    )
+
+    r.section("CSV import (FR-INV-02)")
+    bad_csv = b"mgmt_ip\n203.0.113.240\nnot-an-ip\n"
+    resp = admin.post(
+        "/api/v1/devices/import/preview",
+        files={"file": ("bad.csv", bad_csv, "text/csv")},
+        headers=headers,
+    )
+    body = resp.json() if resp.status_code == 200 else {}
+    r.check("preview reports invalid rows", body.get("invalid") == 1, resp.text[:160])
+    r.check(
+        "the offending line number is reported",
+        any(row["line"] == 3 and not row["valid"] for row in body.get("rows", [])),
+        resp.text[:200],
+    )
+
+    r.section("Credential vault (FR-CRED)")
+    secret = f"smoke-secret-{uuid.uuid4().hex}"
+    resp = admin.post(
+        "/api/v1/credentials",
+        json={
+            "name": f"smoke-cred-{tag}",
+            "credential_type": "ssh_password",
+            "secret_data": {"username": "readonly", "password": secret},
+        },
+        headers=headers,
+    )
+    r.check("create credential", resp.status_code == 201, f"{resp.status_code} {resp.text[:160]}")
+    credential = resp.json() if resp.status_code == 201 else {}
+
+    # The whole point of the vault: the secret goes in and never comes back out.
+    r.check("the secret is not echoed back", secret not in resp.text, "SECRET LEAKED IN RESPONSE")
+    r.check(
+        "listing credentials returns no secrets",
+        secret not in admin.get("/api/v1/credentials").text,
+        "SECRET LEAKED IN LIST",
+    )
+    r.check(
+        "an unrecognised secret field is refused",
+        admin.post(
+            "/api/v1/credentials",
+            json={
+                "name": f"smoke-sneaky-{tag}",
+                "credential_type": "ssh_password",
+                "secret_data": {"username": "u", "password": "p", "extra": "x"},
+            },
+            headers=headers,
+        ).status_code
+        == 422,
+    )
+
+    if credential and device:
+        resp = admin.post(
+            f"/api/v1/credentials/{credential['id']}/assignments",
+            json={"device_id": device["id"], "priority": 10},
+            headers=headers,
+        )
+        r.check("assign credential to device", resp.status_code == 201, resp.text[:160])
+
+    r.section("Jobs (FR-JOB)")
+    r.check("job history reachable", admin.get("/api/v1/jobs").status_code == 200)
+    r.check(
+        "a scope matching nothing is refused",
+        admin.post(
+            "/api/v1/jobs",
+            json={"job_type": "collect", "scope": {"device_ids": [str(uuid.uuid4())]}},
+            headers=headers,
+        ).status_code
+        == 422,
+    )
+
+    r.check(
+        "no secret reaches the audit log",
+        secret not in admin.get("/api/v1/audit-log?limit=200").text,
+        "SECRET LEAKED IN AUDIT LOG",
+    )
+
+    # Leave the deployment as we found it.
+    for path in (
+        f"/api/v1/credentials/{credential['id']}" if credential else None,
+        f"/api/v1/devices/{device['id']}" if device else None,
+    ):
+        if path:
+            admin.request("DELETE", path, headers=headers)
 
 
 def _run_user_checks(api: str, username: str, r: Results) -> None:

@@ -14,6 +14,7 @@ from fastapi import Cookie, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.core.config import Settings, get_settings
+from netsecops.core.crypto import SecretVault, build_vault
 from netsecops.core.errors import AuthenticationError, PermissionDeniedError
 from netsecops.core.rbac import Permission, Principal
 from netsecops.core.security import API_TOKEN_PREFIX, TokenType, decode_token
@@ -44,8 +45,20 @@ def settings_dep() -> Settings:
 SettingsDep = Annotated[Settings, Depends(settings_dep)]
 
 
-def auth_service(session: SessionDep) -> AuthService:
-    return AuthService(session)
+def vault_dep(settings: SettingsDep) -> SecretVault:
+    """The credential vault (FR-CRED-02).
+
+    Injected rather than constructed inside services so a test can supply a vault built
+    from a throwaway master key, instead of every service reaching for global config.
+    """
+    return build_vault(settings)
+
+
+VaultDep = Annotated[SecretVault, Depends(vault_dep)]
+
+
+def auth_service(session: SessionDep, vault: VaultDep) -> AuthService:
+    return AuthService(session, vault=vault)
 
 
 def user_service(session: SessionDep) -> UserService:

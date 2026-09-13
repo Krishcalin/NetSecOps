@@ -13,6 +13,9 @@ import { useAuth } from '../features/auth/useAuth';
 import { LoginPage } from '../features/auth/LoginPage';
 import { AppLayout } from '../components/AppLayout';
 import { DashboardPage } from './DashboardPage';
+import { InventoryPage } from './InventoryPage';
+import { ImportPage } from './ImportPage';
+import { JobsPage } from './JobsPage';
 import { AuditLogPage } from './AuditLogPage';
 import { ProfilePage } from './ProfilePage';
 import { NotFoundPage } from './NotFoundPage';
@@ -76,6 +79,9 @@ export function App() {
               }
             >
               <Route index element={<DashboardPage />} />
+              <Route path="inventory" element={<InventoryPage />} />
+              <Route path="inventory/import" element={<ImportPage />} />
+              <Route path="jobs" element={<JobsPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="*" element={<NotFoundPage />} />
