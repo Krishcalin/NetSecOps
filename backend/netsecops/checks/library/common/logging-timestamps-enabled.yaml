@@ -1,0 +1,31 @@
+id: logging-timestamps-enabled
+title: Log messages carry timestamps
+description: >-
+  Log entries include a timestamp, ideally to sub-second precision and in a fixed
+  time zone.
+rationale: >-
+  Correlating a device's logs with a firewall's, a server's and an authentication
+  system's is the entire activity of an incident investigation, and it is impossible
+  without timestamps. Uptime-relative stamps, which several platforms use by default,
+  are worse than useless once the device has rebooted.
+severity: medium
+
+logic:
+  type: ncm
+  expression: logging.timestamps
+  assert:
+    not_equals: null
+  missing: fail
+
+remediation: >-
+  Enable timestamps in a fixed reference frame — on Cisco IOS,
+  `service timestamps log datetime msec show-timezone`. Pair this with authenticated
+  NTP, because a timestamp from an unsynchronised clock correlates with nothing.
+
+references:
+  cis: ["2.1.2"]
+  nist_800_53: ["AU-3", "AU-8"]
+  pci_dss: ["10.3.1", "10.6"]
+  iso_27001: ["A.8.15", "A.8.17"]
+
+tags: [logging, forensics, cis-level-1]

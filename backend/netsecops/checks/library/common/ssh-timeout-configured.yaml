@@ -1,0 +1,30 @@
+id: ssh-timeout-configured
+title: The SSH negotiation timeout is set
+description: >-
+  A timeout applies to the SSH login phase, so half-open sessions do not accumulate.
+rationale: >-
+  Without a negotiation timeout, a client that connects and never authenticates holds
+  a VTY slot indefinitely. A device typically offers five to fifteen of them, so a
+  handful of connections that stop after the TCP handshake can exhaust management
+  access entirely — a denial of service against the very channel an operator would use
+  to respond to it.
+severity: low
+
+logic:
+  type: ncm
+  expression: management.services.ssh.timeout_s
+  assert:
+    lte: 120
+  requires: [management.services.ssh.enabled]
+
+remediation: >-
+  Set a short SSH negotiation timeout — `ip ssh time-out 60` on Cisco IOS — and pair
+  it with `ip ssh authentication-retries 3`.
+
+references:
+  cis: ["1.5.6"]
+  nist_800_53: ["SC-5", "AC-12"]
+  iso_27001: ["A.8.6"]
+  cwe: ["CWE-400"]
+
+tags: [management-plane, availability, ssh]

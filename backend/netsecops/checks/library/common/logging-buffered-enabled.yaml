@@ -1,0 +1,30 @@
+id: logging-buffered-enabled
+title: Local buffered logging is enabled
+description: >-
+  The device keeps a local log buffer in addition to sending logs remotely.
+rationale: >-
+  The remote syslog destination is the authoritative record, but it is reached over
+  the network — and the incidents most worth investigating are often the ones that
+  broke the network. A local buffer is what remains readable when the path to the
+  syslog server is down, and it is frequently the only record of the minutes either
+  side of a failure.
+severity: low
+
+logic:
+  type: ncm
+  expression: logging.buffered.enabled
+  assert:
+    equals: true
+  missing: not_evaluated
+
+remediation: >-
+  Enable buffered logging with a sensible size — `logging buffered 64000 informational`
+  on Cisco IOS. Size it to hold a few hours of normal message volume; the buffer is
+  circular, so an oversized one costs memory and an undersized one loses the context.
+
+references:
+  cis: ["2.1.3"]
+  nist_800_53: ["AU-4", "AU-11"]
+  iso_27001: ["A.8.15"]
+
+tags: [logging, forensics, cis-level-1]

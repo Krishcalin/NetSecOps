@@ -1,0 +1,32 @@
+id: cisco-no-tcp-small-servers
+title: TCP small servers are disabled
+description: >-
+  `no service tcp-small-servers` is configured.
+rationale: >-
+  The small servers are echo, discard, daytime and chargen — diagnostic services from
+  the 1980s. Chargen in particular generates a continuous stream of characters in
+  response to a single packet, which makes the device an amplifier for a reflected
+  denial-of-service attack against someone else. They have no diagnostic value today.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.tcp_small_servers
+  assert:
+    equals: false
+  missing: fail
+
+remediation: >-
+  Configure `no service tcp-small-servers`.
+
+references:
+  cis: ["1.4.3"]
+  nist_800_53: ["CM-7", "SC-5"]
+  pci_dss: ["2.2.4"]
+  cwe: ["CWE-406"]
+
+tags: [attack-surface, cisco, cis-level-1]

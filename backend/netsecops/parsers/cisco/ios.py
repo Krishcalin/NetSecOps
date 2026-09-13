@@ -431,6 +431,14 @@ class CiscoIosParser(CiscoStyleParser):
             )
             result.record(f"ntp.servers.{len(ntp.servers) - 1}", line=self.line_number(obj))
 
+        if source := self.first(parse, r"^ntp\s+source\s"):
+            ntp.source_interface = self.capture(source, r"^ntp\s+source\s+(\S+)")
+            result.record("ntp.source_interface", line=self.line_number(source))
+
+        if timezone := self.first(parse, r"^clock\s+timezone\s"):
+            ntp.timezone = self.capture(timezone, r"^clock\s+timezone\s+(\S+)")
+            result.record("ntp.timezone", line=self.line_number(timezone))
+
         if authenticate := self.first(parse, r"^ntp\s+authenticate\s*$"):
             ntp.authenticated = True
             result.record("ntp.authenticated", line=self.line_number(authenticate))
@@ -786,7 +794,10 @@ class CiscoIosParser(CiscoStyleParser):
         if features.cdp is None and result.ncm.interfaces:
             features.cdp = True
 
-        if smart_install := self.first(parse, r"^vstack"):
+        # `no vstack` is the *secure* state and the one worth recording, so the pattern
+        # has to admit the negated form. Anchoring on `^vstack` alone matched only the
+        # insecure case and left a hardened device reporting "not evaluated".
+        if smart_install := self.first(parse, r"^(?:no\s+)?vstack"):
             features.smart_install = "no vstack" not in smart_install.text
             result.record("features.smart_install", line=self.line_number(smart_install))
 

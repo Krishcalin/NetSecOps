@@ -1,0 +1,33 @@
+id: cisco-access-ports-bpduguard
+title: Access ports have BPDU guard enabled
+description: >-
+  Every enabled access port has BPDU guard, whether from the global default or
+  per-interface configuration.
+rationale: >-
+  This is the per-port counterpart to the global default, and it is what catches the
+  gap between them: a port configured with `spanning-tree portfast` but explicitly
+  exempted from BPDU guard, or a port on a switch where the global default was never
+  set. The global setting is the intent; this check reports the ports where the intent
+  did not take effect.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+  device_classes: [switch]
+
+logic:
+  type: python
+  function: access_ports_bpduguard
+
+remediation: >-
+  Add `spanning-tree bpduguard enable` to the affected interfaces, or set the global
+  default `spanning-tree portfast bpduguard default` so new ports inherit it.
+
+references:
+  cis: ["3.2.3"]
+  nist_800_53: ["SC-7", "PE-3"]
+  iso_27001: ["A.8.22"]
+  cwe: ["CWE-284"]
+
+tags: [layer2, edge-security, cisco, cis-level-2]

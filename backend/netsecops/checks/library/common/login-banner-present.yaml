@@ -1,0 +1,33 @@
+id: login-banner-present
+title: A login banner is configured
+description: >-
+  The device presents a banner before or at login stating that access is restricted
+  and monitored.
+rationale: >-
+  The reason for this control is legal rather than technical. In many jurisdictions a
+  prosecution for unauthorised access is materially harder when the system presented
+  no notice that access was restricted, and monitoring without notice can itself be
+  unlawful. The banner must not disclose the vendor, model or software version: that
+  information helps an attacker choose an exploit and helps nobody else.
+severity: low
+
+logic:
+  type: ncm
+  expression: management.banners.login
+  assert:
+    not_equals: null
+  missing: fail
+
+remediation: >-
+  Configure a login banner approved by your legal function — `banner login ^C ... ^C`
+  on Cisco IOS. State that the system is restricted to authorised users and that
+  activity may be monitored. Do not include the hostname, model or software version,
+  and do not use the word "welcome".
+
+references:
+  cis: ["1.1.1"]
+  nist_800_53: ["AC-8"]
+  pci_dss: ["2.2.1"]
+  iso_27001: ["A.5.36"]
+
+tags: [management-plane, legal, cis-level-1]

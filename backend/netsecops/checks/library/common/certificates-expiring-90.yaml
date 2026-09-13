@@ -1,0 +1,27 @@
+id: certificates-expiring-90
+title: No certificate expires within 90 days
+description: >-
+  Installed certificates have more than 90 days of validity remaining. This is the
+  early-warning counterpart to the 30-day check.
+rationale: >-
+  Ninety days is roughly the lead time a change process needs: raise the request,
+  obtain the certificate, schedule the window, apply it. Reporting at thirty days
+  leaves no room for a change advisory board, and reporting only at expiry leaves none
+  at all. This check is informational by design so it does not compete with the
+  thirty-day one for attention.
+severity: low
+
+logic:
+  type: python
+  function: certificates_expiring_90
+
+remediation: >-
+  Begin the renewal process now so the change lands well before the expiry date.
+  Nothing is broken yet; this is the window in which renewal is routine rather than
+  urgent.
+
+references:
+  nist_800_53: ["SC-12", "SC-17"]
+  iso_27001: ["A.8.24"]
+
+tags: [certificates, availability, early-warning]

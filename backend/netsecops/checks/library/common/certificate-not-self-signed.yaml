@@ -1,0 +1,33 @@
+id: certificate-not-self-signed
+title: Management certificates are not self-signed
+description: >-
+  Certificates presented on the management interface are issued by a certificate
+  authority the organisation trusts.
+rationale: >-
+  A self-signed certificate cannot be verified, so every administrator learns to click
+  through the browser warning. That habit is the actual vulnerability: once warnings
+  are routinely dismissed, a genuine interception attack produces the same warning and
+  the same dismissal. The certificate being self-signed is a minor issue; the trained
+  response to it is not.
+severity: low
+
+logic:
+  type: ncm
+  expression: "certificates[?self_signed == `true`].name"
+  assert:
+    empty: true
+  requires: [certificates]
+
+remediation: >-
+  Enrol the device with your internal certificate authority and install the issued
+  certificate, ensuring the administrators' trust stores contain the CA root. Where an
+  internal CA is not available, this may be an accepted risk — record it as an
+  exception with a review date rather than leaving it as an open finding.
+
+references:
+  nist_800_53: ["SC-17"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-295"]
+
+tags: [certificates, trust]
+enabled_by_default: false

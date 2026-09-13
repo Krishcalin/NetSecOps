@@ -1,0 +1,35 @@
+id: cisco-logging-source-interface
+title: Syslog uses a fixed source interface
+description: >-
+  `logging source-interface` names a stable interface, usually the loopback or
+  management interface.
+rationale: >-
+  Without a fixed source, the device stamps log messages with whichever interface the
+  route to the collector happens to use. That address changes when a link fails over,
+  which breaks correlation at exactly the moment the logs matter most, and makes
+  source-address filtering on the syslog server unreliable. A loopback is stable as
+  long as the device is up.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+
+logic:
+  type: ncm
+  expression: logging.source_interface
+  assert:
+    not_equals: null
+  requires: [logging.syslog_servers]
+  missing: fail
+
+remediation: >-
+  Configure `logging source-interface Loopback0` (or the management interface) and
+  make sure the syslog server's firewall rules permit that address.
+
+references:
+  cis: ["2.2.2"]
+  nist_800_53: ["AU-3", "AU-4"]
+  iso_27001: ["A.8.15"]
+
+tags: [logging, cisco, cis-level-2]

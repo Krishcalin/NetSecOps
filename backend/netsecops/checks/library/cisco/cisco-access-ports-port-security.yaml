@@ -1,0 +1,36 @@
+id: cisco-access-ports-port-security
+title: Access ports have port security configured
+description: >-
+  Every enabled access port limits the number of MAC addresses it will learn.
+rationale: >-
+  Port security bounds what a single physical port can do. Without it, an attacker can
+  flood the CAM table with fabricated MAC addresses until the switch fails open and
+  floods all traffic to every port — turning a switched network into a hub and making
+  every conversation on that VLAN readable. A limit of one or two addresses per access
+  port also makes an unauthorised device behind a desk visible.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+  device_classes: [switch]
+
+logic:
+  type: python
+  function: access_ports_port_security
+
+remediation: >-
+  Configure `switchport port-security` with a small `maximum` and
+  `violation restrict` on access ports. Prefer `restrict` over `shutdown` for a first
+  rollout: it logs and drops rather than disabling the port, which avoids a wave of
+  errdisabled ports on the morning you deploy it. Allow for IP phones, which present
+  two MAC addresses.
+
+references:
+  cis: ["3.4.1"]
+  nist_800_53: ["SC-7", "PE-3", "IA-3"]
+  pci_dss: ["1.3.1", "9.1.2"]
+  iso_27001: ["A.8.22", "A.7.2"]
+  cwe: ["CWE-284"]
+
+tags: [layer2, edge-security, cisco, cis-level-2]

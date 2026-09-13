@@ -1,0 +1,34 @@
+id: cisco-stp-mode-rapid
+title: Spanning tree runs in a rapid mode
+description: >-
+  The spanning-tree mode is rapid-PVST+ or MST rather than legacy PVST+.
+rationale: >-
+  Classic 802.1D convergence takes up to fifty seconds, during which the network is
+  partly unusable. That is long enough for a link flap to look like an outage, and long
+  enough that operators disable spanning tree on ports to "fix" it — which is how
+  bridging loops happen. Rapid modes converge in a few seconds, which removes the
+  incentive to switch the protection off.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+  device_classes: [switch]
+
+logic:
+  type: ncm
+  expression: l2.spanning_tree.mode
+  assert:
+    in: [rapid-pvst, mst, rstp]
+  missing: not_evaluated
+
+remediation: >-
+  Configure `spanning-tree mode rapid-pvst` or migrate to MST. Change the mode during
+  a maintenance window: the transition causes a brief reconvergence.
+
+references:
+  cis: ["3.2.1"]
+  nist_800_53: ["SC-5", "CP-2"]
+  iso_27001: ["A.8.6"]
+
+tags: [layer2, availability, cisco]

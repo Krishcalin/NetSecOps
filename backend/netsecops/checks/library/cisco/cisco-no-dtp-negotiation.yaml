@@ -1,0 +1,36 @@
+id: cisco-no-dtp-negotiation
+title: Dynamic trunking is disabled on access ports
+description: >-
+  No access port is left in a dynamic DTP mode that could negotiate a trunk.
+rationale: >-
+  In `dynamic desirable` or `dynamic auto`, a port will negotiate a trunk with whatever
+  is plugged into it. An attacker who sends DTP frames turns their access port into a
+  trunk and gains reachability to every VLAN the switch carries — the flat network the
+  VLANs were supposed to prevent, obtained from a desk socket.
+severity: high
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+  device_classes: [switch]
+
+logic:
+  type: ncm
+  expression: "interfaces[?dtp_mode && dtp_mode != 'nonegotiate'].name"
+  assert:
+    empty: true
+  requires: [interfaces]
+
+remediation: >-
+  Set access ports explicitly with `switchport mode access` and add
+  `switchport nonegotiate`. Configure trunks explicitly with `switchport mode trunk`
+  rather than relying on negotiation.
+
+references:
+  cis: ["3.5.2"]
+  nist_800_53: ["SC-7", "CM-7"]
+  pci_dss: ["1.3.1"]
+  iso_27001: ["A.8.22"]
+  cwe: ["CWE-284"]
+
+tags: [layer2, vlan-hopping, cisco, cis-level-1]

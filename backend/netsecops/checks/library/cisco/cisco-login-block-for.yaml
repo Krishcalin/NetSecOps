@@ -1,0 +1,36 @@
+id: cisco-login-block-for
+title: Repeated failed logins are throttled
+description: >-
+  `login block-for` is configured, so a burst of failed authentications pauses further
+  attempts.
+rationale: >-
+  Without throttling, the device will accept password guesses as fast as the network
+  delivers them. `login block-for` turns an online brute-force attack from hours into
+  years, and — more usefully — generates a log event at the moment an attack starts
+  rather than after it succeeds. It applies to the SSH login path, which is where the
+  attempts will come from.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: regex
+  pattern: '^login block-for \d+ attempts \d+ within \d+'
+  expect: present
+
+remediation: >-
+  Configure `login block-for 120 attempts 5 within 60` and pair it with
+  `login on-failure log` and `login quiet-mode access-class <acl>` so management
+  networks are exempt from the quiet period and cannot be locked out by an attacker
+  deliberately tripping it.
+
+references:
+  cis: ["1.1.8"]
+  nist_800_53: ["AC-7", "SC-5"]
+  pci_dss: ["8.3.4"]
+  iso_27001: ["A.8.5"]
+  cwe: ["CWE-307"]
+
+tags: [management-plane, brute-force, cisco, cis-level-1]

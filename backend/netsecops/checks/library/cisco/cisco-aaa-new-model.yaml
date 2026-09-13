@@ -1,0 +1,36 @@
+id: cisco-aaa-new-model
+title: AAA is enabled
+description: >-
+  `aaa new-model` is configured, enabling the AAA subsystem that method lists depend
+  on.
+rationale: >-
+  Without `aaa new-model` the device falls back to the legacy authentication path,
+  where the VTY line password is the credential and there is no per-user
+  accountability, no authorization model and no command accounting. Every other AAA
+  control in this policy is inert until this one is set — method lists configured on a
+  device without it are simply ignored.
+severity: high
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+
+logic:
+  type: ncm
+  expression: aaa.new_model
+  assert:
+    equals: true
+  missing: fail
+
+remediation: >-
+  Configure `aaa new-model`, then immediately define `aaa authentication login default`
+  with a local fallback. Enabling AAA changes how the device authenticates the session
+  you are currently using, so have console access available before you apply it.
+
+references:
+  cis: ["1.3.1"]
+  nist_800_53: ["AC-2", "IA-2", "AU-2"]
+  pci_dss: ["8.2.1"]
+  iso_27001: ["A.5.16"]
+
+tags: [aaa, cisco, cis-level-1]

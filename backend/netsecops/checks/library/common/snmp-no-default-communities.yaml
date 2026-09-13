@@ -1,0 +1,29 @@
+id: snmp-no-default-communities
+title: No default SNMP community strings are configured
+description: >-
+  Community strings such as `public`, `private` and `cisco` must not be present.
+rationale: >-
+  Default community strings are the first thing any scanner tries, and they are tried
+  constantly. `public` typically grants read access to the entire device
+  configuration — interfaces, routes, ARP tables, and on many platforms the
+  configuration file itself via TFTP. `private` usually grants write. Neither requires
+  an exploit; they require only that nobody changed the default.
+severity: critical
+
+logic:
+  type: python
+  function: snmp_no_default_communities
+
+remediation: >-
+  Remove the default community strings entirely. If SNMP monitoring is required,
+  configure SNMPv3 with authPriv instead. Changing `public` to another guessable
+  string is not a fix — the string is transmitted in clear text regardless.
+
+references:
+  cis: ["2.4.2"]
+  nist_800_53: ["IA-5", "CM-6"]
+  pci_dss: ["2.2.2", "8.3.1"]
+  iso_27001: ["A.5.17"]
+  cwe: ["CWE-1392", "CWE-798"]
+
+tags: [snmp, default-credentials, cis-level-1]

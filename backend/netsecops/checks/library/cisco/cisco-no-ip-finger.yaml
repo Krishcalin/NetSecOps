@@ -1,0 +1,32 @@
+id: cisco-no-ip-finger
+title: The finger service is disabled
+description: >-
+  `no ip finger` is configured.
+rationale: >-
+  Finger reports who is currently logged in to the device, without authentication. It
+  hands an attacker the account names actually in use — which turns a password-guessing
+  attack from a search over two unknowns into a search over one — and tells them when
+  an administrator is present and might notice.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.finger
+  assert:
+    equals: false
+  missing: fail
+
+remediation: >-
+  Configure `no ip finger`. Older images may also need `no service finger`.
+
+references:
+  cis: ["1.4.5"]
+  nist_800_53: ["CM-7", "AC-14"]
+  pci_dss: ["2.2.4"]
+  cwe: ["CWE-200"]
+
+tags: [attack-surface, information-disclosure, cisco, cis-level-1]

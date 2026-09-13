@@ -1,0 +1,33 @@
+id: aaa-local-fallback
+title: Authentication falls back to local credentials
+description: >-
+  The default authentication method list names a local fallback after the AAA server
+  group.
+rationale: >-
+  This check exists for availability rather than confidentiality, and it is the one
+  case where the safe answer is *more* local access rather than less. If the TACACS+
+  or RADIUS servers are unreachable — a routing failure, a certificate expiry, a
+  maintenance window — a device with no fallback cannot be logged into at all, and
+  the outage it is part of cannot be diagnosed. Without it the recovery path is
+  console access and a password reset.
+severity: medium
+
+logic:
+  type: ncm
+  expression: aaa.local_fallback
+  assert:
+    equals: true
+  requires: [aaa.servers]
+
+remediation: >-
+  Append `local` to the default authentication method list — on Cisco IOS,
+  `aaa authentication login default group TACACS-GRP local`. Make sure a local account
+  with a strong, stored password actually exists, since the fallback is useless
+  otherwise.
+
+references:
+  cis: ["1.3.1"]
+  nist_800_53: ["CP-2", "IA-2"]
+  iso_27001: ["A.5.29"]
+
+tags: [aaa, availability, cis-level-1]

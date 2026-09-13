@@ -1,0 +1,34 @@
+id: exec-timeout-configured
+title: Idle management sessions time out
+description: >-
+  VTY sessions must disconnect after a period of inactivity, and that period must be
+  no longer than ten minutes.
+rationale: >-
+  An abandoned session is an authenticated session. A laptop left unlocked in a
+  cabinet room, or a jump host an operator walked away from, hands whoever finds it
+  privileged access with no authentication step at all. A timeout of zero is the
+  dangerous case here, because on Cisco IOS `exec-timeout 0 0` means never — it reads
+  like a small number and behaves like infinity.
+severity: medium
+
+logic:
+  type: ncm
+  expression: management.session.exec_timeout_s
+  assert:
+    gt: 0
+  # A device that never stated a timeout is Not Evaluated; the platform default
+  # differs by vendor and guessing it would produce a confident wrong answer.
+  missing: not_evaluated
+
+remediation: >-
+  Set `exec-timeout 10 0` under every `line vty` and `line con` block. Note that
+  `exec-timeout 0 0` disables the timeout entirely rather than making it immediate.
+
+references:
+  cis: ["1.1.4", "1.1.5"]
+  nist_800_53: ["AC-11", "AC-12"]
+  pci_dss: ["8.2.8"]
+  iso_27001: ["A.8.5"]
+  cwe: ["CWE-613"]
+
+tags: [management-plane, session, cis-level-1]

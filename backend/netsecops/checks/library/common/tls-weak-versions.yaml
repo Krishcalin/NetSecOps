@@ -1,0 +1,30 @@
+id: tls-weak-versions
+title: No TLS version below 1.2 is offered
+description: >-
+  The HTTPS management interface does not accept SSL 3.0, TLS 1.0 or TLS 1.1.
+rationale: >-
+  SSL 3.0 fell to POODLE, and TLS 1.0 and 1.1 depend on MD5 and SHA-1 in their
+  signature and PRF constructions with no mechanism to negotiate away from them. All
+  three are formally deprecated (RFC 8996). A server that still offers them allows a
+  downgrade: an attacker who can influence the handshake pulls a modern client back to
+  a broken protocol.
+severity: high
+
+logic:
+  type: python
+  function: tls_weak_versions
+  requires: [management.services.https.enabled]
+
+remediation: >-
+  Restrict the HTTPS server to TLS 1.2 and above — `ip http tls-version TLSv1.2` on
+  Cisco IOS. Confirm that the browsers and monitoring tools used to reach the device
+  support TLS 1.2, which anything current does.
+
+references:
+  cis: ["1.2.5"]
+  nist_800_53: ["SC-8", "SC-13"]
+  pci_dss: ["4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327", "CWE-757"]
+
+tags: [management-plane, crypto, tls]

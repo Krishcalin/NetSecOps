@@ -1,0 +1,31 @@
+id: snmp-v3-authpriv
+title: SNMPv3 users use the authPriv security level
+description: >-
+  Every SNMPv3 user authenticates and encrypts, rather than using noAuthNoPriv or
+  authNoPriv.
+rationale: >-
+  Running SNMPv3 is not by itself protection: the version brings three security levels
+  and only one of them encrypts. At authNoPriv the request and response are
+  authenticated but sent in clear, so an observer still reads the configuration data
+  being polled. noAuthNoPriv is v3 with the security switched off entirely, and is
+  indistinguishable in effect from v2c.
+severity: high
+
+logic:
+  type: python
+  function: snmp_v3_authpriv_only
+
+remediation: >-
+  Recreate each SNMPv3 user with both authentication and privacy — on Cisco IOS,
+  `snmp-server user <name> <group> v3 auth sha <key> priv aes 256 <key>`. Update the
+  monitoring platform's credentials at the same time, since the change is not backward
+  compatible.
+
+references:
+  cis: ["2.4.4"]
+  nist_800_53: ["SC-8", "SC-13", "IA-5"]
+  pci_dss: ["4.1", "8.3.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-319"]
+
+tags: [snmp, crypto, cis-level-1]

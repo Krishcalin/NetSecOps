@@ -1,0 +1,34 @@
+id: cisco-ssh-authentication-retries
+title: SSH authentication retries are limited
+description: >-
+  `ip ssh authentication-retries` is set to three or fewer.
+rationale: >-
+  Each SSH connection may offer several authentication attempts before it is closed.
+  A high retry count multiplies the guesses an attacker gets per connection, which
+  matters because connection setup is the expensive part of an online brute-force
+  attack and the retry count is the cheap part. Three is enough for an operator who
+  mistypes.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: management.services.ssh.authentication_retries
+  assert:
+    lte: 3
+  requires: [management.services.ssh.enabled]
+
+remediation: >-
+  Configure `ip ssh authentication-retries 3`. Combine with `login block-for` so
+  repeated connections are throttled as well as repeated attempts within one.
+
+references:
+  cis: ["1.5.7"]
+  nist_800_53: ["AC-7"]
+  pci_dss: ["8.3.4"]
+  cwe: ["CWE-307"]
+
+tags: [management-plane, brute-force, ssh, cisco, cis-level-1]

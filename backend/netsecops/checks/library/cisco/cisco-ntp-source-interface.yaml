@@ -1,0 +1,34 @@
+id: cisco-ntp-source-interface
+title: NTP uses a fixed source interface
+description: >-
+  `ntp source` names a stable interface for outbound time queries.
+rationale: >-
+  The same reasoning as the syslog source interface, with an extra consequence: NTP
+  servers and the firewalls in front of them are commonly restricted by source address.
+  A device whose NTP source changes on failover stops synchronising at that point, and
+  the resulting clock drift is not noticed until timestamps stop lining up during an
+  investigation.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+
+logic:
+  type: ncm
+  expression: ntp.source_interface
+  assert:
+    not_equals: null
+  requires: [ntp.servers]
+  missing: fail
+
+remediation: >-
+  Configure `ntp source Loopback0` (or the management interface), and confirm the NTP
+  servers permit that address.
+
+references:
+  cis: ["2.3.3"]
+  nist_800_53: ["AU-8", "SC-45"]
+  iso_27001: ["A.8.17"]
+
+tags: [time, cisco, cis-level-2]

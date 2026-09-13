@@ -1,0 +1,34 @@
+id: cisco-no-ip-source-route
+title: IP source routing is disabled
+description: >-
+  `no ip source-route` is configured.
+rationale: >-
+  Source routing lets the sender of a packet dictate the path it takes through the
+  network, which is precisely the decision routing exists to make. An attacker uses it
+  to steer traffic around a firewall or through a segment they control, and to receive
+  replies at an address that is not theirs. It has no legitimate modern use; it is
+  enabled by default on older IOS images purely for historical reasons.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.ip_source_routing
+  assert:
+    equals: false
+  missing: fail
+
+remediation: >-
+  Configure `no ip source-route`. There is no compatibility risk worth weighing here;
+  nothing in a modern network depends on it.
+
+references:
+  cis: ["1.4.1"]
+  nist_800_53: ["SC-7", "CM-7"]
+  pci_dss: ["1.3.1"]
+  cwe: ["CWE-346"]
+
+tags: [control-plane, cisco, cis-level-1]

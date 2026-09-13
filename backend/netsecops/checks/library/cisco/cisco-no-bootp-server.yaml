@@ -1,0 +1,32 @@
+id: cisco-no-bootp-server
+title: The BOOTP server is disabled
+description: >-
+  `no ip bootp server` is configured.
+rationale: >-
+  The BOOTP server responds to boot requests and can serve the device's own IOS image
+  to anything that asks. That gives an attacker a copy of the running software — useful
+  for finding an exploitable version — and it is a service almost no network has used
+  since DHCP replaced BOOTP. It remains on by default.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.bootp_server
+  assert:
+    equals: false
+  missing: fail
+
+remediation: >-
+  Configure `no ip bootp server`.
+
+references:
+  cis: ["1.4.2"]
+  nist_800_53: ["CM-7"]
+  pci_dss: ["2.2.4"]
+  cwe: ["CWE-1327"]
+
+tags: [attack-surface, cisco, cis-level-1]

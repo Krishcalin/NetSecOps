@@ -1,0 +1,32 @@
+id: cisco-no-service-pad
+title: The PAD service is disabled
+description: >-
+  `no service pad` is configured.
+rationale: >-
+  PAD is the packet assembler/disassembler for X.25, a protocol that has been
+  commercially dead for decades. It remains enabled by default on many IOS images, so
+  it is a listening service maintained by nobody, exercised by nobody, and reviewed by
+  nobody — which is the profile of code where vulnerabilities go unnoticed longest.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.pad
+  assert:
+    equals: false
+  missing: fail
+
+remediation: >-
+  Configure `no service pad`.
+
+references:
+  cis: ["1.4.6"]
+  nist_800_53: ["CM-7"]
+  pci_dss: ["2.2.4"]
+  cwe: ["CWE-1327"]
+
+tags: [attack-surface, cisco, cis-level-1]

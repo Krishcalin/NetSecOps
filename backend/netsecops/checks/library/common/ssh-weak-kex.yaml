@@ -1,0 +1,33 @@
+id: ssh-weak-kex
+title: No weak SSH key-exchange algorithms are permitted
+description: >-
+  The SSH server must not offer key-exchange algorithms that rely on SHA-1 or on
+  Diffie-Hellman groups below 2048 bits.
+rationale: >-
+  The key exchange establishes the session key that protects everything after it. A
+  SHA-1-based exchange is vulnerable to chosen-prefix collision attacks, and
+  `diffie-hellman-group1-sha1` uses a 1024-bit group that is within reach of a
+  well-resourced attacker precomputing against the small number of fixed primes in
+  common use. Compromising the exchange compromises the session regardless of how
+  strong the negotiated cipher is.
+severity: medium
+
+logic:
+  type: python
+  function: ssh_weak_kex
+  requires: [management.services.ssh.enabled]
+
+remediation: >-
+  Restrict the key-exchange list to modern algorithms — on Cisco IOS,
+  `ip ssh server algorithm kex diffie-hellman-group14-sha256` or better, preferring
+  `ecdh-sha2-nistp384` and `curve25519-sha256` where the platform supports them.
+  Verify your management jump hosts support the retained algorithms before applying.
+
+references:
+  cis: ["1.5.4"]
+  nist_800_53: ["SC-13", "SC-8"]
+  pci_dss: ["2.2.5", "4.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327"]
+
+tags: [management-plane, crypto, ssh]

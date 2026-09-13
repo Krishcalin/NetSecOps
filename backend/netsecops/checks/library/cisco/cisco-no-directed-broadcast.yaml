@@ -1,0 +1,35 @@
+id: cisco-no-directed-broadcast
+title: IP directed broadcast is disabled
+description: >-
+  No interface forwards directed broadcasts onto its attached subnet.
+rationale: >-
+  A directed broadcast is a unicast packet addressed to a subnet's broadcast address,
+  which the last-hop router expands to every host on that subnet. It is the mechanism
+  behind the Smurf amplification attack: one spoofed ICMP echo produces a reply from
+  every host on the segment, all directed at the forged source. The amplification
+  factor is the size of the subnet.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: "interfaces[?directed_broadcast == `true`].name"
+  assert:
+    empty: true
+  requires: [interfaces]
+
+remediation: >-
+  Configure `no ip directed-broadcast` on each listed interface. This is the default on
+  IOS 12.0 and later, so its presence means someone enabled it deliberately — find out
+  why before removing it.
+
+references:
+  cis: ["1.4.8"]
+  nist_800_53: ["SC-5", "CM-7"]
+  pci_dss: ["1.3.1"]
+  cwe: ["CWE-406"]
+
+tags: [control-plane, dos, cisco, cis-level-1]

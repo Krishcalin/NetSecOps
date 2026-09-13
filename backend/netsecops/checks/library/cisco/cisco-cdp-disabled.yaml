@@ -1,0 +1,36 @@
+id: cisco-cdp-disabled
+title: CDP is disabled where it is not required
+description: >-
+  Cisco Discovery Protocol is not running globally.
+rationale: >-
+  CDP announces the device's hostname, model, software version, management address and
+  the native VLAN of the port, unauthenticated, to anything on the segment. That is a
+  ready-made target profile: the version alone tells an attacker which advisories
+  apply. The counter-argument is real — CDP is needed for IP phone provisioning and is
+  genuinely useful for troubleshooting — which is why this check ships disabled by
+  default and should be enabled only where the estate does not depend on it.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+
+logic:
+  type: ncm
+  expression: features.cdp
+  assert:
+    equals: false
+  missing: not_evaluated
+
+remediation: >-
+  Disable CDP globally with `no cdp run`, or leave it on where IP telephony requires it
+  and disable it per interface on ports facing users and untrusted networks with
+  `no cdp enable`. The second option is usually the practical one.
+
+references:
+  cis: ["1.4.11"]
+  nist_800_53: ["CM-7", "SC-7"]
+  cwe: ["CWE-200"]
+
+tags: [control-plane, information-disclosure, cisco]
+enabled_by_default: false

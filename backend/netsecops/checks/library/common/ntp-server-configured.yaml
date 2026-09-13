@@ -1,0 +1,31 @@
+id: ntp-server-configured
+title: At least one NTP server is configured
+description: >-
+  The device synchronises its clock from a network time source.
+rationale: >-
+  Every timestamp the device produces is only as trustworthy as its clock. An
+  unsynchronised device drifts, and a device whose clock is wrong produces logs that
+  cannot be correlated, certificates that appear valid when they are not, and Kerberos
+  or time-based authentication failures that look like attacks. Two or more sources
+  protect against a single bad one.
+severity: medium
+
+logic:
+  type: ncm
+  expression: ntp.servers
+  assert:
+    count_gte: 1
+  missing: fail
+
+remediation: >-
+  Configure at least two NTP servers (`ntp server <ip>` on Cisco IOS), preferably
+  reaching different upstream strata, and set an NTP source interface so the source
+  address is predictable for firewall rules.
+
+references:
+  cis: ["2.3.1"]
+  nist_800_53: ["AU-8", "SC-45"]
+  pci_dss: ["10.6.1"]
+  iso_27001: ["A.8.17"]
+
+tags: [time, logging, cis-level-1]
