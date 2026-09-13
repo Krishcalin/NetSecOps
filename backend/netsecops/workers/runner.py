@@ -38,6 +38,7 @@ from netsecops.db.models.inventory import Credential, CredentialType, Device
 from netsecops.db.models.jobs import ErrorClass, Job, JobDevice, JobStatus, JobType
 from netsecops.db.session import session_scope
 from netsecops.ncm.models import NCM_VERSION
+from netsecops.services.assessment import AssessmentService
 from netsecops.services.audit import AuditService
 from netsecops.services.credentials import CredentialService, ResolvedCredential
 from netsecops.services.jobs import JobService, classify_error
@@ -77,6 +78,11 @@ class DeviceOutcome:
     #: Some supplementary command failed; the configuration still arrived (FR-COL-08).
     partial: bool = False
     drift_detected: bool = False
+    #: Phase 3 results. Zero for a job type that does not assess.
+    checks_run: int = 0
+    findings_opened: int = 0
+    findings_resolved: int = 0
+    risk_score: int | None = None
 
 
 async def run_job(job_id: uuid.UUID, **context: Any) -> None:
@@ -148,8 +154,15 @@ async def _run_one_device(
     credentials = CredentialService(session, vault=vault)
 
     device = await inventory.get_device(job_device.device_id)
+    job_type = JobType(job.job_type)
 
     try:
+        if job_type is JobType.ASSESS_ONLY:
+            # Re-run checks against the stored snapshot. No session is opened, which is
+            # the point: an assessment after a policy change should not mean touching
+            # five hundred devices again (FR-JOB-01).
+            return await _assess_stored_snapshot(session, job, device, vault)
+
         candidates = await credentials.resolve_for_device(device)
         if not candidates:
             return DeviceOutcome(
@@ -411,7 +424,7 @@ async def _collect_profile(
 
     await session.flush()
 
-    return DeviceOutcome(
+    outcome = DeviceOutcome(
         device_id=device.id,
         # Partial is a success: the configuration arrived and the device is assessable.
         succeeded=True,
@@ -421,6 +434,20 @@ async def _collect_profile(
         partial=collection.partial,
         drift_detected=drift.changed,
     )
+
+    if JobType(job.job_type) is JobType.COLLECT_AND_ASSESS:
+        # A partial collection is still assessed. The checks whose data is missing
+        # report Not Evaluated, which is the honest answer and the one FR-COL-08 asks
+        # for — far better than skipping the assessment and reporting nothing at all.
+        assessment = await AssessmentService(session).assess(
+            device, snapshot, job_id=job.id, config_text=config_text
+        )
+        outcome.checks_run = len(assessment.results)
+        outcome.findings_opened = assessment.findings_opened
+        outcome.findings_resolved = assessment.findings_resolved
+        outcome.risk_score = assessment.risk.score if assessment.risk else None
+
+    return outcome
 
 
 def _build_transport(
@@ -471,6 +498,41 @@ def _probe_commands(platform: str) -> list[str]:
     if probe is None:
         raise ValidationProblem(f"No probe command is defined for platform '{platform}'.")
     return [probe]
+
+
+async def _assess_stored_snapshot(
+    session: AsyncSession, job: Job, device: Device, vault: SecretVault | None
+) -> DeviceOutcome:
+    """Run the device's policy against its latest snapshot, without contacting it."""
+    snapshots = SnapshotService(session, vault=vault)
+    snapshot = await snapshots.latest(device)
+
+    if snapshot is None:
+        return DeviceOutcome(
+            device_id=device.id,
+            succeeded=False,
+            error_class=ErrorClass.INTERNAL_ERROR,
+            error_message=(
+                "This device has no configuration snapshot to assess. Run a collection "
+                "first, or upload a configuration."
+            ),
+        )
+
+    outcome = await AssessmentService(session).assess(device, snapshot, job_id=job.id)
+    return _assessed_outcome(device, snapshot.id, outcome)
+
+
+def _assessed_outcome(device: Device, snapshot_id: uuid.UUID, assessment: Any) -> DeviceOutcome:
+    return DeviceOutcome(
+        device_id=device.id,
+        succeeded=True,
+        snapshot_id=snapshot_id,
+        output=f"{len(assessment.results)} checks",
+        checks_run=len(assessment.results),
+        findings_opened=assessment.findings_opened,
+        findings_resolved=assessment.findings_resolved,
+        risk_score=assessment.risk.score if assessment.risk else None,
+    )
 
 
 def _system_principal(job: Job) -> Principal:
