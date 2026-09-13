@@ -51,6 +51,11 @@ class FindingKind(StrEnum):
     VULN = "vuln"
     DRIFT = "drift"
     HOSTKEY = "hostkey"
+    #: Rulebase analysis (FR-FW-02 … FR-FW-05). Separate from CONFIG because it is not
+    #: produced by a check and carries no check_id — and because it closes differently:
+    #: a config finding is resolved only when its check passes, while a rulebase finding
+    #: is resolved when it is absent from a rulebase that was fully re-analysed.
+    FIREWALL = "firewall"
 
 
 class FindingSeverity(StrEnum):

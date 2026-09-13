@@ -45,6 +45,10 @@ from netsecops.db.models.policy import (
     PolicyAssignment,
     RiskScore,
 )
+from netsecops.services.firewall_assessment import (
+    FirewallAssessment,
+    FirewallAssessmentService,
+)
 from netsecops.services.risk import RiskBreakdown, score_device
 
 log = get_logger(__name__)
@@ -62,6 +66,9 @@ class AssessmentOutcome:
     findings_resolved: int = 0
     findings_suppressed: int = 0
     risk: RiskBreakdown | None = None
+    #: Rulebase analysis, on devices that carry one (FR-FW). None where the platform has
+    #: no firewall policy — which is not the same as a clean one.
+    firewall: FirewallAssessment | None = None
 
     @property
     def counts(self) -> dict[str, int]:
@@ -360,6 +367,20 @@ class AssessmentService:
                 if await self._resolve_finding(device, result.check_id):
                     outcome.findings_resolved += 1
 
+        # Rulebase analysis, on devices that carry one. Deliberately after the checks and
+        # in its own try: a rulebase is attacker-influenced data of unbounded size, and a
+        # surprise in one must not cost the device its entire configuration assessment.
+        try:
+            outcome.firewall = await FirewallAssessmentService(self.session).assess(
+                device, snapshot
+            )
+        except Exception as exc:
+            log.exception(
+                "assessment.firewall_analysis_failed",
+                device_id=str(device.id),
+                error=str(exc),
+            )
+
         outcome.risk = await self._store_risk(device, results, job_id)
         await self.session.flush()
 
@@ -370,6 +391,7 @@ class AssessmentService:
             checks=len(results),
             **outcome.counts,
             risk=outcome.risk.score if outcome.risk else None,
+            firewall_rules=outcome.firewall.rules_analysed if outcome.firewall else 0,
         )
         return outcome
 
