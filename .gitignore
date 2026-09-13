@@ -1,23 +1,105 @@
-### AL ###
-#Template for AL projects for Dynamics 365 Business Central
-#launch.json folder
+# ─────────────────────────────────────────────────────────────
+# NetSecOps — Python backend / React frontend monorepo
+# ─────────────────────────────────────────────────────────────
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Test / coverage / type caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+nosetests.xml
+junit*.xml
+.tox/
+.nox/
+
+# --- Node / frontend ---
+node_modules/
+.pnp
+.pnp.js
+frontend/dist/
+frontend/build/
+frontend/.vite/
+frontend/coverage/
+frontend/test-results/
+frontend/playwright-report/
+frontend/blob-report/
+frontend/.playwright/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+
+# Generated API client types (regenerated from OpenAPI)
+frontend/src/api/generated/
+
+# --- Secrets & runtime config (SEC-08: never commit secrets) ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+master.key
+
+# --- Application runtime output ---
+reports/
+artifacts/
+uploads/
+backups/
+*.log
+logs/
+
+# --- Database ---
+*.sqlite3
+*.db
+pgdata/
+
+# --- Docker / deploy local overrides ---
+deploy/docker-compose.override.yml
+deploy/caddy/data/
+deploy/caddy/config/
+
+# --- Editors / OS ---
 .vscode/
-#Cache folder
-.alcache/
-#Symbols folder
-.alpackages/
-#Snapshots folder
-.snapshots/
-#Testing Output folder
-.output/
-#Extension App-file
-*.app
-#Rapid Application Development File
-rad.json
-#Translation Base-file
-*.g.xlf
-#License-files
-*.bclicense
-*.flf
-#Test results file
-TestResults.xml
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini

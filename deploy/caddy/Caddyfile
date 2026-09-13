@@ -1,0 +1,62 @@
+# NetSecOps reverse proxy (SRS §9, SEC-02).
+#
+# One origin serves both the SPA and the API, which is what keeps the auth cookies
+# first-party and lets SameSite=Strict actually work (FR-AUTH-02, SEC-03).
+#
+# For a real deployment, replace `:8080` with your hostname and remove `auto_https off`
+# so Caddy provisions a certificate automatically.
+
+{
+	admin off
+	auto_https off
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
+:8080 {
+	encode zstd gzip
+
+	# ── Security headers (SEC-02) ───────────────────────────────────────
+	header {
+		# The SPA needs its own bundle; everything else is denied. No inline
+		# scripts are used, so no 'unsafe-inline' is granted.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "geolocation=(), microphone=(), camera=(), payment=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		# Enable once TLS is terminated here:
+		# Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		-Server
+	}
+
+	# ── Rate limiting note ──────────────────────────────────────────────
+	# The API applies a per-process limit on auth endpoints (SEC-05). For a
+	# multi-replica deployment add a global limit here with the
+	# caddy-ratelimit plugin, keyed on client_ip for /api/v1/auth/*.
+
+	# ── API and probes go to the backend ────────────────────────────────
+	@backend path /api/* /healthz /readyz /metrics
+	handle @backend {
+		reverse_proxy api:8000 {
+			header_up X-Forwarded-For {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# ── Everything else is the SPA ──────────────────────────────────────
+	handle {
+		root * /srv
+
+		# Hashed asset filenames are immutable; index.html must never be cached
+		# or users get a stale shell pointing at deleted bundles.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-cache"
+
+		try_files {path} /index.html
+		file_server
+	}
+}

@@ -1,0 +1,235 @@
+# NetSecOps CI (SRS Phase 0 acceptance: lint, type, test, security scans).
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: '3.12'
+  NODE_VERSION: '22'
+
+jobs:
+  backend:
+    name: Backend (lint, types, tests)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: netsecops
+          POSTGRES_PASSWORD: netsecops
+          POSTGRES_DB: netsecops
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U netsecops"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://netsecops:netsecops@localhost:5432/netsecops_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Ruff lint
+        working-directory: backend
+        run: ruff check . --output-format=github
+
+      - name: Ruff format check
+        working-directory: backend
+        run: ruff format --check .
+
+      - name: mypy (strict)
+        working-directory: backend
+        run: mypy netsecops
+
+      - name: Tests with coverage
+        working-directory: backend
+        run: pytest --cov --cov-report=term-missing --cov-report=xml
+
+      # The authorization matrix is the Phase 0 acceptance gate (TEST-06). Running it
+      # again on its own makes a failure there unmistakable in the job summary.
+      - name: Authorization matrix (TEST-06)
+        working-directory: backend
+        run: pytest -m authz -q
+
+      - name: Verify migrations are complete
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql+asyncpg://netsecops:netsecops@localhost:5432/netsecops
+        run: |
+          alembic upgrade head
+          # Autogenerate must produce an empty migration; anything else means a model
+          # changed without a matching migration (C-5).
+          alembic check
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+          if-no-files-found: ignore
+
+  frontend:
+    name: Frontend (lint, types, tests, build)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Prettier check
+        working-directory: frontend
+        run: npm run format:check
+
+      - name: TypeScript
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Tests
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  security:
+    name: Security scans (SEC-07)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Bandit (static analysis)
+        working-directory: backend
+        run: bandit -c pyproject.toml -r netsecops -ll
+
+      - name: pip-audit (dependency CVEs)
+        working-directory: backend
+        run: pip-audit --skip-editable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+      # SEC-07 also calls for a CycloneDX SBOM per release. Generated on tags only,
+      # so ordinary pull requests are not slowed by it.
+      - name: Generate SBOM
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: backend
+        run: |
+          pip install cyclonedx-bom
+          cyclonedx-py environment -o ../netsecops-sbom.json
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: sbom
+          path: netsecops-sbom.json
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Container build
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.backend
+          push: false
+          load: true
+          tags: netsecops-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile.frontend
+          push: false
+          load: true
+          tags: netsecops-ui:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Trivy image scan (SEC-07)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: netsecops-api:ci
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
