@@ -103,7 +103,7 @@ class PolicyThresholds:
 DEFAULT_THRESHOLDS = PolicyThresholds()
 
 #: Port → the name an operator will recognise in a finding.
-_PORT_NAMES: dict[tuple[int, int], str] = {
+PORT_NAMES: dict[tuple[int, int], str] = {
     (6, 23): "Telnet",
     (6, 21): "FTP",
     (6, 512): "rexec",
@@ -170,7 +170,7 @@ def _insecure_services(rule: ResolvedRule, thresholds: PolicyThresholds) -> list
     for protocol, port in sorted(thresholds.insecure_ports):
         ports = rule.services.by_protocol.get(protocol)
         if ports is not None and ports.covers_value(port):
-            found.append(_PORT_NAMES.get((protocol, port), f"proto {protocol}/{port}"))
+            found.append(PORT_NAMES.get((protocol, port), f"proto {protocol}/{port}"))
     return found
 
 
@@ -401,6 +401,7 @@ __all__ = [
     "DEFAULT_THRESHOLDS",
     "IPV4_MAX",
     "ISSUE_SEVERITY",
+    "PORT_NAMES",
     "PolicyReport",
     "PolicyThresholds",
     "RuleFinding",

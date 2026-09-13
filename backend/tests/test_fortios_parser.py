@@ -222,6 +222,36 @@ class TestTheFirewallBlock:
     def test_zones_are_collected_from_the_policies(self, ncm: dict[str, Any]) -> None:
         assert set(ncm["firewall"]["zones"]) >= {"wan1", "internal", "dmz", "mgmt"}
 
+    def test_vips_become_nat_rules(self, ncm: dict[str, Any]) -> None:
+        """A FortiGate has no separate NAT rulebase — a VIP *is* its destination NAT.
+
+        Nothing read this section before, so the FR-FW-04 analysis saw zero NAT rules on
+        every FortiGate and reported no exposure anywhere. The translations were all
+        here.
+        """
+        nat = {r["name"]: r for r in ncm["firewall"]["nat_rules"]}
+
+        assert set(nat) == {"web-vip", "rdp-vip", "orphan-vip"}
+        assert nat["web-vip"]["original"] == "203.0.113.10"
+        assert nat["web-vip"]["translated"] == "10.20.0.10:443"
+        # Every VIP translates the destination. That is what a VIP is.
+        assert nat["web-vip"]["direction"] == "destination"
+
+    def test_a_vip_without_port_forwarding_keeps_the_port(self, ncm: dict[str, Any]) -> None:
+        """`portforward` is off, so the VIP maps the address and leaves the port alone.
+        Appending a port here would make the NAT match only that one port."""
+        nat = {r["name"]: r for r in ncm["firewall"]["nat_rules"]}
+        assert nat["orphan-vip"]["translated"] == "10.20.0.50"
+
+    def test_a_vip_also_resolves_as_an_address_object(self, ncm: dict[str, Any]) -> None:
+        """Policies name the VIP as their destination. Without an object of that name
+        every publishing policy reports an unresolved destination and drops out of the
+        overlap analysis."""
+        objects = {o["name"]: o for o in ncm["firewall"]["address_objects"]}
+
+        assert objects["web-vip"]["value"] == "203.0.113.10"
+        assert objects["web-vip"]["type"] == "vip"
+
 
 # ──────────────────────── parser health (the tripwire) ──────────────────────
 

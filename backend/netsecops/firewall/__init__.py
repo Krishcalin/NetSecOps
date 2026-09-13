@@ -8,6 +8,8 @@ Four modules, in the order the data moves through them:
 ``analysis``   how rules relate to each other: shadowing, redundancy, correlation,
                generalisation (FR-FW-03), plus the FR-FW-06 rule query.
 ``policy``     what is wrong with a rule on its own terms (FR-FW-02).
+``nat``        what the NAT and security rulebases publish *together* (FR-FW-04) —
+               exposure is invisible in either one alone.
 ``hygiene``    the state of the object catalogue behind the rules (FR-FW-05).
 
 All of it is vendor-neutral and works on the NCM, so a Palo Alto, a FortiGate and a
@@ -33,6 +35,8 @@ from netsecops.firewall.model import (
     ServiceSet,
     resolve_rulebase,
 )
+from netsecops.firewall.nat import NatFinding, NatIssue, NatReport, external_zones_from
+from netsecops.firewall.nat import examine as examine_nat
 from netsecops.firewall.policy import PolicyReport, PolicyThresholds, RuleIssue
 from netsecops.firewall.policy import examine as examine_policy
 
@@ -42,6 +46,9 @@ __all__ = [
     "HygieneIssue",
     "HygieneReport",
     "IntervalSet",
+    "NatFinding",
+    "NatIssue",
+    "NatReport",
     "ObjectResolver",
     "PolicyReport",
     "PolicyThresholds",
@@ -53,7 +60,9 @@ __all__ = [
     "ServiceSet",
     "analyse",
     "examine_hygiene",
+    "examine_nat",
     "examine_policy",
+    "external_zones_from",
     "first_match",
     "parse_address",
     "parse_port_range",

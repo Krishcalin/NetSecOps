@@ -14,8 +14,10 @@ from netsecops.core.logging import get_logger
 from netsecops.ncm.models import (
     AaaServer,
     Certificate,
+    Firewall,
     Interface,
     LocalUser,
+    NatRule,
     NetworkObject,
     NormalisedConfig,
     NtpServer,
@@ -461,6 +463,8 @@ class FortiOsParser(ConfigParser):
                     line_end=entry.line_end,
                 )
 
+        self._parse_vips(config, firewall, result)
+
         policies = config.section("firewall policy")
         if policies:
             zones: set[str] = set()
@@ -505,6 +509,60 @@ class FortiOsParser(ConfigParser):
             firewall.zones = sorted(z for z in zones if z)
             if firewall.zones:
                 result.record("firewall.zones", line=policies.line, line_end=policies.line_end)
+
+    def _parse_vips(self, config: ParsedConfig, firewall: Firewall, result: ParseResult) -> None:
+        """FortiGate virtual IPs, which are its destination NAT (FR-FW-04).
+
+        A FortiGate does not have a separate NAT rulebase. A VIP maps an external address
+        to an internal one, and a policy publishes it by naming the VIP as its
+        destination. That indirection is why the NAT analysis saw zero NAT rules on every
+        FortiGate: the translations were all here, in a section nothing read.
+
+        A VIP is recorded twice on purpose — as a NAT rule, because that is what it does,
+        and as an address object under its own name, because the policies reference it by
+        name and would otherwise resolve to nothing.
+        """
+        vips = config.section("firewall vip")
+        if not vips:
+            return
+
+        for entry in vips.entries():
+            external_ip = entry.get("extip")
+            mapped = entry.get("mappedip") or ""
+            # FortiOS 6.4+ writes the mapped address as a quoted range `10.0.0.1-10.0.0.1`
+            # even for a single host. Both ends being equal is the normal case.
+            mapped = mapped.strip().strip('"')
+            if not external_ip or not mapped:
+                continue
+
+            mapped_port = entry.get("mappedport")
+            port_forward = (entry.get("portforward") or "").lower() == "enable"
+
+            firewall.nat_rules.append(
+                NatRule(
+                    order=len(firewall.nat_rules) + 1,
+                    name=entry.name,
+                    original=external_ip,
+                    translated=f"{mapped}:{mapped_port}"
+                    if port_forward and mapped_port
+                    else mapped,
+                    service=entry.get("extport") or "any",
+                    # A VIP always translates the destination. That is what a VIP is.
+                    direction="destination",
+                )
+            )
+            result.record(
+                f"firewall.nat_rules.{len(firewall.nat_rules) - 1}",
+                line=entry.line,
+                line_end=entry.line_end,
+            )
+
+            # The policies name the VIP as a destination, so it has to resolve. Without
+            # this every policy publishing a service reports its destination as an
+            # unresolved object and drops out of the overlap analysis entirely.
+            firewall.address_objects.append(
+                NetworkObject(name=entry.name, type="vip", value=external_ip)
+            )
 
     # ── certificates ────────────────────────────────────────────────────
 
