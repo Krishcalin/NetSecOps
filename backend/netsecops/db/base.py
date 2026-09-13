@@ -59,14 +59,28 @@ class OrgMixin:
 
 
 class TimestampMixin:
-    """DATA-03 — creation and update stamps in UTC."""
+    """DATA-03 — creation and update stamps in UTC.
+
+    ``clock_timestamp()``, not ``now()``. PostgreSQL's ``now()`` is
+    ``transaction_timestamp()``: every row written inside one transaction gets the
+    *same* value, to the microsecond. That makes ``ORDER BY created_at DESC LIMIT 1``
+    a tie, resolved however the planner feels, and several places depend on it meaning
+    "the most recent":
+
+    - ``SnapshotService.latest`` decides which configuration drift is measured against.
+    - the device check-results endpoint picks the newest assessment's snapshot id, and
+      every result in one assessment is written in a single transaction.
+
+    Both were returning an arbitrary row. It surfaced as an intermittent test failure,
+    which is the kindest way a bug like this can announce itself.
+    """
 
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True), nullable=False, server_default=func.clock_timestamp()
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
+        server_default=func.clock_timestamp(),
+        onupdate=func.clock_timestamp(),
     )

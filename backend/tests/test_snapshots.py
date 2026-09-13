@@ -242,6 +242,29 @@ class TestSnapshotStorage:
         latest = await snapshots.latest(device)
         assert latest is not None and latest.id == second.id
 
+    async def test_rows_written_in_one_transaction_still_order_correctly(
+        self, snapshots: SnapshotService, device: Device, session: AsyncSession
+    ) -> None:
+        """`created_at` defaults to clock_timestamp(), not now().
+
+        PostgreSQL's now() is transaction_timestamp(): every row written in one
+        transaction gets an identical value, so ordering by it is a tie broken however
+        the planner likes. `latest()` decides which snapshot drift is measured against,
+        so an arbitrary answer there is a wrong answer. This surfaced as an intermittent
+        test failure before it was understood.
+        """
+        first = await snapshots.create_snapshot(device, config_text=read(HARDENED))
+        second = await snapshots.create_snapshot(device, config_text=read(WEAK))
+        third = await snapshots.create_snapshot(
+            device, config_text=read(WEAK).replace("hostname core-sw-01", "hostname core-sw-02")
+        )
+
+        assert first.created_at < second.created_at < third.created_at
+
+        # And the ordering holds through the query `latest()` actually runs.
+        rows, _ = await snapshots.list_for_device(device)
+        assert [r.id for r in rows] == [third.id, second.id, first.id]
+
     async def test_a_device_without_a_platform_is_refused(
         self, snapshots: SnapshotService, session: AsyncSession, actor: Principal
     ) -> None:

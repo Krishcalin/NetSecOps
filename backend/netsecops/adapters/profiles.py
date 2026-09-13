@@ -139,12 +139,38 @@ CISCO_ASA_PROFILE: Final = CollectionProfile(
     ),
 )
 
+FORTIOS_PROFILE: Final = CollectionProfile(
+    platform="fortios",
+    # No paging command: SRS §8.2 forbids piping on FortiGate, and `show
+    # full-configuration` is not paged over SSH in the first place.
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "show full-configuration",
+            "The configuration itself — everything the parser reads",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("get system status", "Firmware version, model and serial"),
+        CollectionCommand("get system ha status", "HA cluster role and peer state"),
+        CollectionCommand(
+            "get system interface physical", "Physical interface state, absent from config"
+        ),
+        CollectionCommand("get system admin list", "Administrators currently logged in"),
+        CollectionCommand("get user radius", "RADIUS server reachability"),
+        CollectionCommand(
+            "get router info routing-table all", "Routing table, for reachability context"
+        ),
+    ),
+)
+
 #: IOS-XE shares IOS's configuration syntax and its command set.
 PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ios": CISCO_IOS_PROFILE,
     "cisco_iosxe": CISCO_IOS_PROFILE,
     "cisco_nxos": CISCO_NXOS_PROFILE,
     "cisco_asa": CISCO_ASA_PROFILE,
+    "fortios": FORTIOS_PROFILE,
 }
 
 
