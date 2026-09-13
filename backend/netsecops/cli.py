@@ -176,6 +176,55 @@ def cmd_reset_mfa(
     console.print("[dim]They can sign in with their password and re-enrol from Profile.[/dim]")
 
 
+@app.command("audit-commands")
+def cmd_audit_commands(
+    platform: Annotated[
+        str | None, typer.Option(help="Limit to one platform; omit for all")
+    ] = None,
+) -> None:
+    """Print the effective read-only allow-list per adapter (SRS §8.1 item 7).
+
+    This is the transparency mechanism: a customer's security reviewer can read exactly
+    what NetSecOps is permitted to send to their equipment before approving onboarding.
+    Nothing outside this list ever reaches a device — the conformance tests in CI fail
+    the build otherwise.
+    """
+    from netsecops.adapters.policies import POLICIES
+
+    selected = {platform: POLICIES[platform]} if platform else POLICIES
+    if platform and platform not in POLICIES:
+        err_console.print(f"[red]No policy for platform '{platform}'.[/red]")
+        err_console.print(f"Known platforms: {', '.join(sorted(POLICIES))}")
+        raise typer.Exit(code=1)
+
+    for name in sorted(selected):
+        policy = selected[name]
+        console.print(f"\n[bold cyan]{name}[/bold cyan]")
+
+        if policy.commands:
+            console.print("  [dim]commands[/dim]")
+            for rule in policy.commands:
+                marker = " [yellow](session-only)[/yellow]" if rule.session_only else ""
+                console.print(f"    {rule.pattern}{marker}")
+                if rule.note:
+                    console.print(f"      [dim]{rule.note}[/dim]")
+
+        if policy.http:
+            console.print("  [dim]HTTP[/dim]")
+            for http_rule in policy.http:
+                console.print(f"    {http_rule.method} {http_rule.path_prefix}")
+                if http_rule.reason:
+                    console.print(f"      [dim]{http_rule.reason}[/dim]")
+
+        if policy.forbid_pipe:
+            console.print("  [dim]piping command output is forbidden on this platform[/dim]")
+
+    console.print(
+        "\n[dim]Anything not listed above is rejected before transmission "
+        "and recorded as a critical audit event.[/dim]"
+    )
+
+
 # ──────────────────────────────── audit ─────────────────────────────────────
 
 

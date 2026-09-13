@@ -14,7 +14,7 @@ from netsecops.core.rbac import Permission, Principal, Role, Scope
 from netsecops.core.security import API_TOKEN_PREFIX, hash_token, verify_password
 from netsecops.db.models import ApiToken, AuditLog, User
 from netsecops.services.users import UserService
-from tests.conftest import TEST_PASSWORD, make_user
+from tests.conftest import TEST_PASSWORD, make_group, make_user
 
 
 def principal(user: User) -> Principal:
@@ -271,16 +271,31 @@ class TestGroupScopes:
         self, service: UserService, super_admin: User, session: AsyncSession
     ) -> None:
         user = await make_user(session, username="scoped", roles={Role.NETWORK_ENGINEER})
-        groups = {uuid.uuid4(), uuid.uuid4()}
+        groups = {
+            (await make_group(session)).id,
+            (await make_group(session)).id,
+        }
 
         updated = await service.set_group_scopes(user, groups, actor=principal(super_admin))
         assert {s.device_group_id for s in updated.group_scopes} == groups
+
+    async def test_scope_must_reference_a_real_group(
+        self, service: UserService, super_admin: User, session: AsyncSession
+    ) -> None:
+        """A scope pointing at a group that does not exist grants nothing meaningful."""
+        from sqlalchemy.exc import IntegrityError
+
+        user = await make_user(session, username="bogus_scope", roles={Role.AUDITOR})
+
+        with pytest.raises(IntegrityError):
+            await service.set_group_scopes(user, {uuid.uuid4()}, actor=principal(super_admin))
 
     async def test_replaces_rather_than_appends(
         self, service: UserService, super_admin: User, session: AsyncSession
     ) -> None:
         user = await make_user(session, username="rescoped", roles={Role.AUDITOR})
-        first, second = uuid.uuid4(), uuid.uuid4()
+        first = (await make_group(session)).id
+        second = (await make_group(session)).id
 
         await service.set_group_scopes(user, {first}, actor=principal(super_admin))
         updated = await service.set_group_scopes(user, {second}, actor=principal(super_admin))
@@ -291,7 +306,9 @@ class TestGroupScopes:
         self, service: UserService, super_admin: User, session: AsyncSession
     ) -> None:
         user = await make_user(session, username="auditscope", roles={Role.AUDITOR})
-        await service.set_group_scopes(user, {uuid.uuid4()}, actor=principal(super_admin))
+        group = await make_group(session)
+
+        await service.set_group_scopes(user, {group.id}, actor=principal(super_admin))
         await session.flush()
         assert "scope.changed" in await actions_for(session, user.id)
 
@@ -532,12 +549,12 @@ class TestScopeResolution:
         from netsecops.services.auth import AuthService
 
         engineer = await make_user(session, username="scoped_eng", roles={Role.NETWORK_ENGINEER})
-        group = uuid.uuid4()
-        await UserService(session).set_group_scopes(engineer, {group}, actor=principal(engineer))
+        group = await make_group(session)
+        await UserService(session).set_group_scopes(engineer, {group.id}, actor=principal(engineer))
 
         scope = await AuthService(session).scope_for_user(engineer)
         assert scope.unrestricted is False
-        assert scope.allows_group(group)
+        assert scope.allows_group(group.id)
         assert not scope.allows_group(uuid.uuid4())
 
     async def test_a_second_unrestricted_role_lifts_scoping(self, session: AsyncSession) -> None:

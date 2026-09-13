@@ -32,7 +32,7 @@ from netsecops.core.config import Environment, Settings
 from netsecops.core.crypto import SecretVault, generate_master_key
 from netsecops.core.rbac import Permission, Principal, Role, Scope
 from netsecops.db.base import Base
-from netsecops.db.models import User, UserRole
+from netsecops.db.models import DeviceGroup, User, UserRole
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
@@ -246,6 +246,39 @@ async def make_user(
 def user_factory(session: AsyncSession):
     async def _factory(**kwargs) -> User:
         return await make_user(session, **kwargs)
+
+    return _factory
+
+
+async def make_group(
+    session: AsyncSession,
+    *,
+    name: str | None = None,
+    parent: DeviceGroup | None = None,
+) -> DeviceGroup:
+    """Create a Device Group with a valid ltree path.
+
+    Group scopes carry a real foreign key from Phase 1 onward, so a test that assigns
+    one needs an actual group rather than a bare UUID.
+    """
+    group = DeviceGroup(
+        name=name or f"group-{uuid.uuid4().hex[:8]}",
+        parent_id=parent.id if parent else None,
+        path="pending",  # replaced below: the path is built from the row's own id
+    )
+    session.add(group)
+    await session.flush()
+
+    label = DeviceGroup.label_for(group.id)
+    group.path = f"{parent.path}.{label}" if parent else label
+    await session.flush()
+    return group
+
+
+@pytest.fixture
+def group_factory(session: AsyncSession):
+    async def _factory(**kwargs) -> DeviceGroup:
+        return await make_group(session, **kwargs)
 
     return _factory
 
