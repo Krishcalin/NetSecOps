@@ -1,0 +1,183 @@
+"""Application settings (SRS Appendix C).
+
+All configuration arrives via environment variables so that no secret ever lives in
+the repository or an image layer (SEC-08). Values are validated by Pydantic at import
+time, so a misconfigured deployment fails fast at boot rather than mid-assessment.
+"""
+
+from __future__ import annotations
+
+import json
+import secrets
+from enum import StrEnum
+from functools import lru_cache
+from typing import Annotated, Literal, Self
+
+from pydantic import (
+    AliasChoices,
+    Field,
+    PostgresDsn,
+    SecretStr,
+    field_validator,
+    model_validator,
+)
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+
+
+class Environment(StrEnum):
+    DEV = "dev"
+    TEST = "test"
+    STAGING = "staging"
+    PROD = "prod"
+
+
+class MasterKeyProvider(StrEnum):
+    """Where the credential-vault master key comes from (FR-CRED-02)."""
+
+    ENV = "env"
+    FILE = "file"
+    VAULT = "vault"
+    AWSKMS = "awskms"
+    AZUREKV = "azurekv"
+    GCPKMS = "gcpkms"
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="NETSECOPS_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    # ── Core ────────────────────────────────────────────────────────────────
+    env: Environment = Environment.DEV
+    debug: bool = False
+    app_name: str = "NetSecOps"
+    api_v1_prefix: str = "/api/v1"
+
+    # ── Database (DATA-03) ──────────────────────────────────────────────────
+    # AliasChoices, not a bare validation_alias: with a single alias the field name
+    # itself stops being accepted, so `Settings(database_url=...)` in tests and scripts
+    # would be silently ignored in favour of whatever the environment holds.
+    database_url: PostgresDsn = Field(
+        default=PostgresDsn("postgresql+asyncpg://netsecops:netsecops@localhost:5442/netsecops"),
+        validation_alias=AliasChoices("database_url", "DATABASE_URL"),
+    )
+    db_pool_size: int = Field(default=10, ge=1, le=100)
+    db_max_overflow: int = Field(default=20, ge=0, le=200)
+    db_echo: bool = False
+
+    # ── Auth / JWT (FR-AUTH-02) ─────────────────────────────────────────────
+    secret_key: SecretStr = Field(
+        default_factory=lambda: SecretStr(secrets.token_urlsafe(64)),
+        validation_alias=AliasChoices("secret_key", "SECRET_KEY"),
+    )
+    jwt_algorithm: Literal["HS256", "HS384", "HS512"] = "HS256"
+    access_token_ttl_minutes: int = Field(default=15, ge=1, le=15)
+    refresh_token_ttl_hours: int = Field(default=8, ge=1, le=8)
+
+    # ── Password policy (FR-AUTH-01) ────────────────────────────────────────
+    password_min_length: int = Field(default=12, ge=12)
+    password_require_upper: bool = True
+    password_require_lower: bool = True
+    password_require_digit: bool = True
+    password_require_symbol: bool = True
+    password_history: int = Field(default=5, ge=0)
+    password_max_age_days: int = Field(default=90, ge=0)
+
+    # ── Lockout (FR-AUTH-06) ────────────────────────────────────────────────
+    lockout_max_attempts: int = Field(default=5, ge=1)
+    lockout_duration_minutes: int = Field(default=15, ge=1)
+
+    # ── MFA (FR-AUTH-03) ────────────────────────────────────────────────────
+    mfa_issuer: str = "NetSecOps"
+    mfa_totp_period_seconds: int = 30
+    mfa_totp_digits: int = 6
+    # RFC 6238 clock drift tolerance, in periods either side of "now".
+    mfa_totp_valid_window: int = Field(default=1, ge=0, le=2)
+
+    # ── Credential vault master key (FR-CRED-02) ────────────────────────────
+    master_key_provider: MasterKeyProvider = MasterKeyProvider.ENV
+    master_key: SecretStr | None = Field(
+        default=None, validation_alias=AliasChoices("master_key", "MASTER_KEY")
+    )
+    master_key_path: str | None = Field(
+        default=None, validation_alias=AliasChoices("master_key_path", "MASTER_KEY_PATH")
+    )
+
+    # ── Cookies / CORS / web tier (SEC-02, SEC-03) ──────────────────────────
+    cookie_secure: bool = True
+    cookie_domain: str | None = None
+    cookie_samesite: Literal["strict", "lax", "none"] = "strict"
+    # NoDecode stops pydantic-settings from JSON-decoding this before validation runs.
+    # Without it a comma-separated NETSECOPS_CORS_ORIGINS raises at import time, and
+    # the process never starts.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:5173"]
+    )
+
+    # ── Device access defaults (SRS §3.5, used from Phase 1) ────────────────
+    device_connect_timeout: int = Field(default=15, ge=1)
+    device_command_timeout: int = Field(default=60, ge=1)
+    worker_concurrency: int = Field(default=20, ge=1)
+    allow_legacy_ssh_ciphers: bool = False
+
+    # ── Vulnerability feeds (FR-VUL-07/08, used from Phase 6) ───────────────
+    feeds_offline_mode: bool = False
+    nvd_api_key: SecretStr | None = None
+
+    # ── Observability (NFR-LOG-01, NFR-OBS-01) ──────────────────────────────
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_format: Literal["json", "console"] = "json"
+    metrics_enabled: bool = True
+
+    # ── Audit (FR-AUD-02) ───────────────────────────────────────────────────
+    audit_retention_days: int = Field(default=730, ge=1)
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _split_origins(cls, v: object) -> object:
+        """Parse CORS origins from a JSON array or a comma-separated string.
+
+        With NoDecode on the field, this validator is the only parser, so it must
+        handle both forms. Operators reach for `a,b` far more often than `["a","b"]`.
+        """
+        if not isinstance(v, str):
+            return v
+
+        text = v.strip()
+        if text.startswith("["):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"cors_origins looks like JSON but does not parse: {exc}") from exc
+
+        return [origin.strip() for origin in text.split(",") if origin.strip()]
+
+    @model_validator(mode="after")
+    def _guard_production(self) -> Self:
+        """Fail closed on unsafe production configuration."""
+        if self.env is Environment.PROD:
+            if self.debug:
+                raise ValueError("debug must be False in production")
+            if not self.cookie_secure:
+                raise ValueError("cookie_secure must be True in production")
+            if "*" in self.cors_origins:
+                raise ValueError("wildcard CORS origin is not permitted in production")
+        return self
+
+    @property
+    def is_production(self) -> bool:
+        return self.env is Environment.PROD
+
+    @property
+    def sync_database_url(self) -> str:
+        """Alembic runs synchronously; strip the asyncpg driver suffix."""
+        return str(self.database_url).replace("+asyncpg", "")
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

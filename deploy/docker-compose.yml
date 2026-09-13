@@ -1,0 +1,116 @@
+# NetSecOps — development / single-host deployment (SRS §9).
+#
+# Every published host port is overridable, because a workstation running several
+# projects will otherwise collide. Defaults are the conventional ones except PostgreSQL,
+# which publishes 5442 so it never fights a local 5432. Inside the compose network
+# services always talk on their standard ports.
+#
+#   DB_PORT   (default 5442)  PostgreSQL
+#   API_PORT  (default 8000)  FastAPI
+#   UI_PORT   (default 8080)  SPA / reverse proxy
+
+name: netsecops
+
+x-common-env: &common-env
+  NETSECOPS_ENV: ${NETSECOPS_ENV:-dev}
+  DATABASE_URL: postgresql+asyncpg://netsecops:${POSTGRES_PASSWORD:-netsecops}@db:5432/netsecops
+  # Quoted: the failure messages contain ": ", which would otherwise be parsed as YAML.
+  SECRET_KEY: "${SECRET_KEY:?SECRET_KEY must be set — see .env.example}"
+  MASTER_KEY: "${MASTER_KEY:?MASTER_KEY must be set — generate with netsecops-cli generate-master-key}"
+  NETSECOPS_MASTER_KEY_PROVIDER: env
+  NETSECOPS_LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  NETSECOPS_LOG_FORMAT: ${LOG_FORMAT:-json}
+  NETSECOPS_CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:8080}
+  NETSECOPS_COOKIE_SECURE: ${COOKIE_SECURE:-false}
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: netsecops-db
+    environment:
+      POSTGRES_USER: netsecops
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-netsecops}
+      POSTGRES_DB: netsecops
+      # Deterministic collation so index ordering does not shift between hosts.
+      POSTGRES_INITDB_ARGS: "--locale-provider=icu --icu-locale=en-US --encoding=UTF8"
+    ports:
+      - "127.0.0.1:${DB_PORT:-5442}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U netsecops -d netsecops"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    container_name: netsecops-api
+    environment:
+      <<: *common-env
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${API_PORT:-8000}:8000"
+    # SEC-10: unprivileged, read-only root filesystem, no new privileges.
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3).status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # Worker and scheduler are defined from Phase 1, when the job engine exists.
+  # They are declared here behind a profile so the compose file is already shaped
+  # for them and `make up` stays unchanged when they arrive.
+  worker:
+    profiles: ["workers"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    command: ["netsecops-cli", "worker"]
+    environment:
+      <<: *common-env
+    depends_on:
+      db:
+        condition: service_healthy
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.frontend
+    container_name: netsecops-frontend
+    ports:
+      - "127.0.0.1:${UI_PORT:-8080}:8080"
+    depends_on:
+      - api
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+    name: netsecops-pgdata
