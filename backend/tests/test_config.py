@@ -28,6 +28,9 @@ def build(monkeypatch: pytest.MonkeyPatch, **env: str) -> Settings:
         "NETSECOPS_DEBUG",
         "NETSECOPS_COOKIE_SECURE",
         "MASTER_KEY",
+        "NVD_API_KEY",
+        "CISCO_PSIRT_CLIENT_ID",
+        "CISCO_PSIRT_CLIENT_SECRET",
     ]:
         monkeypatch.delenv(key, raising=False)
 
@@ -36,6 +39,83 @@ def build(monkeypatch: pytest.MonkeyPatch, **env: str) -> Settings:
 
     # _env_file="" stops a developer's local .env from leaking into the test.
     return Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+class TestVulnerabilityFeedCredentials:
+    """Appendix C names these without the NETSECOPS_ prefix (FR-VUL-02, FR-VUL-08)."""
+
+    def test_psirt_credentials_load_under_their_appendix_c_names(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        settings = build(
+            monkeypatch,
+            CISCO_PSIRT_CLIENT_ID="client-id-from-the-api-console",
+            CISCO_PSIRT_CLIENT_SECRET="the-client-secret",
+            NVD_API_KEY="an-nvd-key",
+        )
+
+        assert settings.cisco_psirt_client_id is not None
+        assert (
+            settings.cisco_psirt_client_secret.get_secret_value()  # type: ignore[union-attr]
+            == "the-client-secret"
+        )
+        assert settings.nvd_api_key is not None
+        assert settings.cisco_psirt_configured is True
+
+    def test_the_prefixed_spelling_still_works(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """.env.example has documented NETSECOPS_NVD_API_KEY since Phase 0. Setting a
+        validation_alias stops env_prefix applying, so both spellings are listed — and
+        this asserts the documented one did not quietly stop working."""
+        monkeypatch.setenv("NETSECOPS_NVD_API_KEY", "prefixed")
+        monkeypatch.setenv("NETSECOPS_CISCO_PSIRT_CLIENT_ID", "prefixed-id")
+        settings = Settings(_env_file=None, **BASE_ENV)  # type: ignore[call-arg,arg-type]
+
+        assert settings.nvd_api_key is not None
+        assert settings.cisco_psirt_client_id is not None
+
+    def test_the_secret_is_not_in_the_repr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """SecretStr, so a settings object logged or included in a traceback cannot
+        disclose the credential (C-2)."""
+        settings = build(monkeypatch, CISCO_PSIRT_CLIENT_SECRET="do-not-print-me")
+
+        assert "do-not-print-me" not in repr(settings)
+        assert "do-not-print-me" not in str(settings.cisco_psirt_client_secret)
+
+    def test_feeds_are_optional(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """FR-VUL-08: an air-gapped deployment runs from imported bundles, so missing
+        feed credentials must never stop the application starting."""
+        settings = build(monkeypatch)
+
+        assert settings.cisco_psirt_client_id is None
+        assert settings.cisco_psirt_configured is False
+        assert settings.feeds_offline_mode is False
+
+    def test_empty_environment_variables_read_as_unset(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`docker compose` renders `${CISCO_PSIRT_CLIENT_ID:-}` as an empty string,
+        which is what the shipped compose file produces when the operator has not set
+        one. Without this, the credentials would be SecretStr('') and the system would
+        believe it could authenticate."""
+        settings = build(
+            monkeypatch,
+            CISCO_PSIRT_CLIENT_ID="",
+            CISCO_PSIRT_CLIENT_SECRET="   ",
+            NVD_API_KEY="",
+        )
+
+        assert settings.cisco_psirt_client_id is None
+        assert settings.cisco_psirt_client_secret is None
+        assert settings.nvd_api_key is None
+        assert settings.cisco_psirt_configured is False
+
+    def test_half_configured_credentials_do_not_count_as_configured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A client id with no secret cannot obtain a token. Reporting it as configured
+        would turn a setup mistake into a runtime failure four phases later."""
+        settings = build(monkeypatch, CISCO_PSIRT_CLIENT_ID="only-the-id")
+        assert settings.cisco_psirt_configured is False
 
 
 class TestCorsOrigins:

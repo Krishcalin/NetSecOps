@@ -340,7 +340,16 @@ def cmd_show_config() -> None:
     table.add_column("Setting", style="cyan")
     table.add_column("Value")
 
-    secret_fields = {"secret_key", "master_key", "nvd_api_key", "database_url"}
+    # Derived from the field types, not a hand-kept list. A list has to be remembered
+    # every time a credential is added, and the failure mode is printing it.
+    secret_fields = {
+        name
+        for name, field in type(settings).model_fields.items()
+        if "SecretStr" in str(field.annotation)
+    }
+    # database_url is not a SecretStr — it is a DSN type — but it carries a password.
+    secret_fields.add("database_url")
+
     for name, value in settings.model_dump().items():
         rendered = "***" if name in secret_fields and value else str(value)
         table.add_row(name, rendered)
