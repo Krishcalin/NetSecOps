@@ -467,6 +467,43 @@ a {
   color: var(--error);
 }
 
+/* Device criticality (FR-INV-01). Critical and high share the alert palette so the
+   two that matter read as one visual group at a glance. */
+.pill--critical {
+  background: var(--error-soft);
+  color: var(--error);
+  font-weight: 650;
+}
+
+.pill--high {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.pill--medium,
+.pill--low {
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.muted {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--surface-muted);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* File inputs render their own button; strip the field padding so it lines up. */
+.field__input[type='file'] {
+  padding: 6px;
+}
+
 .pager {
   display: flex;
   align-items: center;

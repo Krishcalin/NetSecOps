@@ -53,15 +53,34 @@ class Case:
     #: Roles that must be allowed through authorization.
     allowed: frozenset[Role]
     body: dict | None = None
+    #: True for multipart upload endpoints, which reject a JSON body outright and so
+    #: would 422 before authorization is ever consulted.
+    files: bool = False
 
     @property
     def key(self) -> tuple[str, str]:
         return (self.method, self.path)
 
+    def request_kwargs(self) -> dict:
+        if self.files:
+            return {"files": {"file": ("devices.csv", b"mgmt_ip\n198.51.100.9\n", "text/csv")}}
+        return {"json": self.body}
+
 
 _ADMIN_ONLY = frozenset({Role.SUPER_ADMIN})
 _USER_READERS = frozenset({Role.SUPER_ADMIN})
 _AUDIT_READERS = frozenset({Role.SUPER_ADMIN, Role.AUDITOR})
+
+#: Every read role may reach the inventory; which *rows* they see is narrowed by Device
+#: Group scope, tested separately in test_inventory.py. Authorization and scoping are
+#: different questions and conflating them would hide a failure in either.
+_DEVICE_READERS = frozenset(
+    {Role.SUPER_ADMIN, Role.SECURITY_ANALYST, Role.NETWORK_ENGINEER, Role.AUDITOR}
+)
+_DEVICE_WRITERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+#: SRS §2.3 is explicit that a Network Engineer must not touch credentials.
+_CREDENTIAL_USERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+_JOB_RUNNERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 
 MATRIX: list[Case] = [
     # ── User administration ─────────────────────────────────────────────────
@@ -92,13 +111,94 @@ MATRIX: list[Case] = [
     Case("GET", "/api/v1/audit-log", _AUDIT_READERS),
     Case("GET", "/api/v1/audit-log/verify", _AUDIT_READERS),
     Case("GET", "/api/v1/audit-log/export", _AUDIT_READERS),
+    # ── Inventory (FR-INV) ──────────────────────────────────────────────────
+    Case("GET", "/api/v1/devices", _DEVICE_READERS),
+    Case(
+        "POST",
+        "/api/v1/devices",
+        _DEVICE_WRITERS,
+        body={"mgmt_ip": "198.51.100.42", "hostname": "matrix-device"},
+    ),
+    Case("GET", "/api/v1/devices/{device_id}", _DEVICE_READERS),
+    Case("PATCH", "/api/v1/devices/{device_id}", _DEVICE_WRITERS, body={"hostname": "renamed"}),
+    Case("POST", "/api/v1/devices/{device_id}/archive", _DEVICE_WRITERS),
+    Case("DELETE", "/api/v1/devices/{device_id}", _DEVICE_WRITERS),
+    Case("POST", "/api/v1/devices/import/preview", _DEVICE_WRITERS, files=True),
+    Case("POST", "/api/v1/devices/import", _DEVICE_WRITERS, files=True),
+    Case("GET", "/api/v1/device-groups", _DEVICE_READERS),
+    Case("POST", "/api/v1/device-groups", _DEVICE_WRITERS, body={"name": "matrix-group"}),
+    Case(
+        "PUT",
+        "/api/v1/device-groups/{group_id}/parent",
+        _DEVICE_WRITERS,
+        body={"parent_id": None},
+    ),
+    Case("GET", "/api/v1/sites", _DEVICE_READERS),
+    Case("POST", "/api/v1/sites", _DEVICE_WRITERS, body={"name": "matrix-site"}),
+    Case("GET", "/api/v1/tags", _DEVICE_READERS),
+    # ── Credential vault (FR-CRED) ──────────────────────────────────────────
+    Case("GET", "/api/v1/credentials", _CREDENTIAL_USERS),
+    Case(
+        "POST",
+        "/api/v1/credentials",
+        _CREDENTIAL_USERS,
+        body={
+            "name": "matrix-credential",
+            "credential_type": "ssh_password",
+            "secret_data": {"username": "ro", "password": "s3cret"},
+        },
+    ),
+    Case("GET", "/api/v1/credentials/{credential_id}", _CREDENTIAL_USERS),
+    Case(
+        "PATCH",
+        "/api/v1/credentials/{credential_id}",
+        _CREDENTIAL_USERS,
+        body={"description": "changed"},
+    ),
+    Case("DELETE", "/api/v1/credentials/{credential_id}", _CREDENTIAL_USERS),
+    Case(
+        "POST",
+        "/api/v1/credentials/{credential_id}/assignments",
+        _CREDENTIAL_USERS,
+        body={"device_id": None, "group_id": None, "priority": 100},
+    ),
+    Case("DELETE", "/api/v1/credentials/assignments/{assignment_id}", _CREDENTIAL_USERS),
+    Case(
+        "POST",
+        "/api/v1/credentials/{credential_id}/test",
+        _CREDENTIAL_USERS,
+        body={"device_id": "00000000-0000-0000-0000-000000000000"},
+    ),
+    # ── Jobs (FR-JOB) ───────────────────────────────────────────────────────
+    Case("GET", "/api/v1/jobs", _DEVICE_READERS),
+    Case(
+        "POST",
+        "/api/v1/jobs",
+        _JOB_RUNNERS,
+        body={
+            "job_type": "collect",
+            "scope": {"device_ids": ["00000000-0000-0000-0000-000000000000"]},
+        },
+    ),
+    Case("GET", "/api/v1/jobs/{job_id}", _DEVICE_READERS),
+    Case("POST", "/api/v1/jobs/{job_id}/cancel", _JOB_RUNNERS),
+    Case("POST", "/api/v1/jobs/{job_id}/rerun-failed", _JOB_RUNNERS),
+    Case("GET", "/api/v1/jobs/{job_id}/progress", _DEVICE_READERS),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS
 
 
 def _resolve(path: str, target: User) -> str:
-    return path.replace("{user_id}", str(target.id)).replace("{token_id}", str(uuid.uuid4()))
+    return (
+        path.replace("{user_id}", str(target.id))
+        .replace("{token_id}", str(uuid.uuid4()))
+        .replace("{device_id}", str(uuid.uuid4()))
+        .replace("{group_id}", str(uuid.uuid4()))
+        .replace("{credential_id}", str(uuid.uuid4()))
+        .replace("{assignment_id}", str(uuid.uuid4()))
+        .replace("{job_id}", str(uuid.uuid4()))
+    )
 
 
 @pytest.mark.authz
@@ -152,7 +252,9 @@ class TestRoleAccess:
         target = await make_user(session, username=f"t_{uuid.uuid4().hex[:8]}")
         authenticate(caller)
 
-        response = await client.request(case.method, _resolve(case.path, target), json=case.body)
+        response = await client.request(
+            case.method, _resolve(case.path, target), **case.request_kwargs()
+        )
 
         if role in case.allowed:
             assert response.status_code != 403, (
@@ -177,7 +279,9 @@ class TestUnauthenticatedAccess:
         from tests.conftest import make_user
 
         target = await make_user(session, username=f"anon_t_{uuid.uuid4().hex[:8]}")
-        response = await client.request(case.method, _resolve(case.path, target), json=case.body)
+        response = await client.request(
+            case.method, _resolve(case.path, target), **case.request_kwargs()
+        )
         assert response.status_code == 401
 
     @pytest.mark.parametrize(

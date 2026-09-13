@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phase-0%20of%207-orange?style=flat-square" alt="Phase 0"/>
+  <img src="https://img.shields.io/badge/phase-1%20of%207-orange?style=flat-square" alt="Phase 1"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -39,28 +39,51 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
   that are POST-only by design (Check Point `show-*`, FortiManager `method: "get"`).
 - **No side effects.** Adapters never run `ping`, `test aaa`, `debug`, or anything that
   writes a file or sends a packet from the device.
-- **Proven in CI.** A transcript-replay test asserts that every command any adapter
-  emits is on its allow-list. The build fails otherwise.
+- **No unchecked path.** Adapters hold a guarded session, not a transport. An adapter
+  author cannot forget to check, because there is nothing unchecked to reach for.
+- **Proven in CI.** 271 conformance assertions check what the guard *decides*, and a
+  fake SSH device that records every byte it receives checks what actually *arrives*.
+  The build fails on either.
 - **Transparent.** Every command sent to a device is recorded in a tamper-evident audit
   log, so customers can see exactly what ran.
 
 ---
 
-## Status — Phase 0 (Foundation) complete
+## Status — Phase 1 complete
 
-Development follows the phase plan in [SRS §12](docs/SRS.md). Phase 0 is the platform
-foundation everything else is built on; device access begins in Phase 1.
+Development follows the phase plan in [SRS §12](docs/SRS.md), strictly in order: no
+phase starts before the previous one's acceptance criteria pass.
 
 | Phase | Scope | Status |
 |:-----:|-------|--------|
 | **0** | Monorepo, auth/MFA/RBAC, credential vault, audit chain, CI, Docker | **Complete** |
-| 1 | Inventory, credentials, job engine, read-only enforcement framework | Next |
-| 2 | Cisco IOS/IOS-XE/NX-OS/ASA collection, parsing, drift | Planned |
+| **1** | Inventory, credentials, job engine, read-only enforcement framework | **Complete** |
+| 2 | Cisco IOS/IOS-XE/NX-OS/ASA collection, parsing, drift | Next |
 | 3 | Check engine + baseline library, findings, compliance mapping | Planned |
 | 4 | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | Planned |
 | 5 | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | Planned |
 | 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | Planned |
 | 7 | Discovery, reporting, integrations, hardening | Planned |
+
+### What Phase 1 delivers
+
+- **Read-only enforcement** — the four-layer guard described above, 16 platform
+  policies, and `netsecops-cli audit-commands` to print them for review.
+- **Device sessions** — adapters hold a guarded session, never a transport, so there is
+  no unchecked path to a device. SSH with host-key pin-on-first-use, jump hosts and
+  per-device timeouts.
+- **Inventory** — devices, hierarchical Device Groups (ltree), sites, tags, and CSV
+  import with a dry-run preview that reports the offending line before anything is
+  written.
+- **Credential vault** — typed credentials whose secret fields are sealed and whose
+  unknown fields are rejected, so a password cannot land in searchable metadata.
+  Device assignments override inherited group ones, and group credentials are inherited
+  down the hierarchy.
+- **Job engine** — scope resolution, per-device outcomes with FR-COL-07 error classes,
+  credential fallback, graceful cancel, re-run-failed, idempotency keys, and a
+  WebSocket progress stream.
+- **Scope enforcement** — Device Group visibility applied in the query, not by the
+  caller, so a group-scoped user cannot widen their reach.
 
 ### What Phase 0 delivers
 
@@ -131,21 +154,33 @@ make dev-ui          # http://localhost:5173
 netsecops/
 ├─ backend/
 │  ├─ netsecops/
+│  │  ├─ adapters/     # read-only guard, platform policies, sessions, transports
 │  │  ├─ api/          # FastAPI routers, dependencies, middleware
 │  │  ├─ core/         # config, logging, crypto, security, RBAC, errors
 │  │  ├─ db/           # declarative base, session, models, Alembic migrations
 │  │  ├─ schemas/      # Pydantic request/response models
 │  │  ├─ services/     # business logic, independent of HTTP
+│  │  ├─ workers/      # job runner, credential probe, queue abstraction
 │  │  └─ cli.py        # netsecops-cli
 │  └─ tests/
 ├─ frontend/           # Vite + React 18 + TypeScript SPA
+├─ scripts/            # smoke_test.py — post-deployment verification
 ├─ deploy/             # Dockerfiles, docker-compose, Caddy, Postgres init
 └─ docs/               # SRS, ADRs, device-account guidance, deployment
 ```
 
-Later phases add `adapters/` (per vendor), `parsers/`, `ncm/`, `checks/`, `vuln/` and
-`workers/` under `backend/netsecops/`. Vendor-specific logic stays inside the adapter
-and parser packages; core services remain vendor-agnostic.
+Later phases add `parsers/`, `ncm/`, `checks/` and `vuln/`. Vendor-specific logic stays
+inside `adapters/` and `parsers/`; core services remain vendor-agnostic (C-6).
+
+### The files worth reading first
+
+| File | Why |
+|---|---|
+| [`adapters/readonly.py`](backend/netsecops/adapters/readonly.py) | The four-layer guard that enforces SRS §8 |
+| [`adapters/policies.py`](backend/netsecops/adapters/policies.py) | Exactly what NetSecOps may send to each platform |
+| [`adapters/session.py`](backend/netsecops/adapters/session.py) | Why there is no unchecked path to a device |
+| [`tests/test_readonly.py`](backend/tests/test_readonly.py) | 271 assertions that the guard decides correctly |
+| [`tests/test_device_session.py`](backend/tests/test_device_session.py) | That nothing else reaches a real SSH server |
 
 ---
 
@@ -185,6 +220,7 @@ netsecops-cli verify-audit-chain     # replay the hash chain, detect tampering
 netsecops-cli rotate-master-key      # re-wrap every stored secret
 netsecops-cli reset-password <user>  # break-glass password reset
 netsecops-cli reset-mfa <user>       # break-glass: clear a lost authenticator
+netsecops-cli audit-commands         # print the read-only allow-list per platform
 netsecops-cli permissions            # print the role × permission matrix
 netsecops-cli health-check           # database reachability + schema revision
 netsecops-cli show-config            # effective configuration, secrets masked
