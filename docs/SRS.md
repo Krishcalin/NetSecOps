@@ -685,11 +685,30 @@ Discovery & fingerprinting; PDF/XLSX reports & scheduling; dashboards; SMTP/webh
 
 ## Appendix D — Open questions to resolve before Phase 4
 
-1. Confirm licensing/availability of Cisco PSIRT openVuln API credentials for the deployment.
-2. Confirm whether expert-mode read access on Check Point Gaia will be permitted (default off).
+Answers are recorded here as they are given. The original question is kept alongside
+each so the register stays readable as a decision history rather than a to-do list.
+
+1. ~~Confirm licensing/availability of Cisco PSIRT openVuln API credentials for the deployment.~~
+   **Resolved 2026-09-13.** Credentials will be obtained from the Cisco API Console as a
+   Service application using the Client Credentials grant. `CISCO_PSIRT_CLIENT_ID` and
+   `CISCO_PSIRT_CLIENT_SECRET` are wired through `.env`, compose and `Settings`; both
+   remain optional so an air-gapped installation still runs from imported bundles
+   (FR-VUL-08). Consumed in Phase 6.
+2. ~~Confirm whether expert-mode read access on Check Point Gaia will be permitted (default off).~~
+   **Resolved 2026-09-13: permitted, per-device opt-in.** See
+   [ADR-002](adr/ADR-002-checkpoint-expert-mode.md). `allow_expert` stays false until an
+   operator sets it on a named device.
 3. Decide on Procrastinate vs Celery/Redis after Phase 1 load test (ADR-001).
+   *Still open.* ADR-001 is Accepted provisionally; the load test that would confirm or
+   overturn it has not been run.
 4. Confirm branding/report classification labels and which regulatory framework packs ship enabled by default.
-5. Confirm whether FortiSwitch/FortiAP data should be pulled via the parent FortiGate only (default) or also directly.
+   *Still open.* Does not block Phase 4 — it affects Phase 7 reporting and the default
+   policy selection. The check library already carries CIS, NIST 800-53, PCI DSS and
+   ISO 27001 mappings, so this is a question of defaults rather than of coverage.
+5. ~~Confirm whether FortiSwitch/FortiAP data should be pulled via the parent FortiGate only (default) or also directly.~~
+   **Resolved 2026-09-13: via the parent FortiGate only.** See
+   [ADR-003](adr/ADR-003-fortiswitch-fortiap-collection.md). NetSecOps stores no
+   credential for a managed unit and never opens a session to one.
 
 ---
 *End of document.*

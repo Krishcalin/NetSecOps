@@ -136,6 +136,17 @@ NetSecOps will not change console settings, because that is configuration mode.
 FortiManager: a JSON-RPC user restricted to `get`. NetSecOps uses `exec` only for
 `/sys/login/user` and `/sys/logout`.
 
+**FortiSwitch and FortiAP need no account.** As of 2026-09-13
+([ADR-003](adr/ADR-003-fortiswitch-fortiap-collection.md)) their data is read through the
+managing FortiGate — NetSecOps never opens a session to a managed switch or access
+point, and stores no credential for one. The `wifi read` and `secfabgrp read` scopes
+above are what make that data visible, so do not trim them if you use fabric-managed
+units.
+
+A unit that is *not* fabric-managed therefore has no collection path. It will appear in
+inventory unassessed rather than clean; if you have standalone units, either bring them
+into the fabric or accept that they are out of scope and record that decision.
+
 ### Check Point Management Server / Multi-Domain
 
 Management API with the built-in **Read Only** permission profile:
@@ -159,7 +170,25 @@ set user netsecops password
 
 **Expert mode is disabled by default** in NetSecOps and stays that way unless you set
 `allow_expert=true` on the device — and even then only a small allow-list of read
-commands is permitted. This is SRS Appendix D open question 2; the default is off.
+commands is permitted.
+
+Expert-mode read access is **permitted for this deployment** as of 2026-09-13
+([ADR-002](adr/ADR-002-checkpoint-expert-mode.md)), but permitted is not the same as
+enabled. It remains per-device opt-in, because expert mode is a root shell on the
+gateway: turning it on for a named device keeps the consequences of any future adapter
+defect bounded to devices somebody has thought about.
+
+If you enable it, note that the expert password is a **second credential**, separate
+from the clish account's:
+
+```
+set expert-password
+```
+
+Store it in the vault alongside the clish password rather than sharing one secret
+between them, and give it the same rotation treatment. A device with `allow_expert=true`
+but no expert credential will report the expert-only checks as *Not Evaluated*, which is
+the correct outcome — it is not a pass.
 
 ### Linux AAA hosts (FreeRADIUS, tac_plus)
 
