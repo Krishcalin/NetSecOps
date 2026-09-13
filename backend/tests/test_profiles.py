@@ -50,6 +50,19 @@ class TestProfilesStayInsideThePolicy:
                 )
             return
 
+        if profile.transport is Transport.RPC:
+            # Everything is a POST here, so the body is the only thing that distinguishes
+            # a read from a write. Checking these without one would pass vacuously and
+            # prove nothing about the read-only guarantee.
+            for entry in profile.commands:
+                method, path = entry.as_request()
+                assert guard.permits_request(method, path, body=entry.as_body()), (
+                    f"{platform}: the collection profile issues {method} {path} with body "
+                    f"{entry.as_body()}, which the platform's rules in policies.py do "
+                    f"not permit."
+                )
+            return
+
         for command in profile.all_commands():
             assert guard.permits_command(command), (
                 f"{platform}: the collection profile sends {command!r}, which is not "
@@ -100,13 +113,32 @@ class TestProfilesStayInsideThePolicy:
         """
         profile = PROFILES[platform]
         if profile.transport is not Transport.HTTP:
-            pytest.skip("not an API-collected platform")
+            pytest.skip("not a GET-collected API platform")
 
         for entry in profile.commands:
             method, _ = entry.as_request()
             assert method == "GET", (
                 f"{platform}: profile entry {entry.command!r} uses {method}. Collection "
                 "over an API is GET-only."
+            )
+
+    def test_rpc_profiles_only_ever_issue_read_operations(self, platform: str) -> None:
+        """The RPC equivalent of the GET-only rule, and it matters more.
+
+        On a POST-only API every request looks identical from the outside, so nothing
+        about the method says whether a call reads or writes. `delete-access-rule` is the
+        same shape as `show-access-rulebase`. The operation name is the entire guarantee,
+        which is why it is asserted here as well as enforced by the body predicate.
+        """
+        profile = PROFILES[platform]
+        if profile.transport is not Transport.RPC:
+            pytest.skip("not an RPC-collected platform")
+
+        for entry in profile.commands:
+            command = entry.as_body()["command"]
+            assert command.startswith("show-"), (
+                f"{platform}: profile entry {entry.command!r} issues {command!r}, which "
+                "is not a read. Collection over the Management API is show-only."
             )
 
     def test_setup_commands_are_session_only(self, platform: str) -> None:
@@ -168,10 +200,10 @@ class TestProfilesAgainstTheDenyList:
         fail here (SRS §8.1 item 2)."""
         from netsecops.adapters.readonly import DENY_PATTERN, normalise
 
-        if PROFILES[platform].transport is Transport.HTTP:
+        if PROFILES[platform].transport is not Transport.CLI:
             # The deny-list is a CLI construct. An API profile is constrained instead by
-            # the method: the next test asserts every entry is a read.
-            pytest.skip("HTTP profiles are governed by method and path, not verbs")
+            # the method and path, or for RPC by the body operation — both asserted above.
+            pytest.skip("API profiles are governed by method, path and body, not verbs")
 
         for entry in PROFILES[platform].commands:
             assert not DENY_PATTERN.match(normalise(entry.command)), (

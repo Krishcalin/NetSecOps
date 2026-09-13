@@ -28,6 +28,8 @@ from netsecops.firewall.intervals import (
     ANY_IPV6,
     ANY_PORT,
     EMPTY_INTERVALS,
+    IPV4_MAX,
+    IPV6_MAX,
     IntervalSet,
     parse_address,
     parse_port_range,
@@ -158,6 +160,18 @@ class AddressSet:
 
     def union(self, other: AddressSet) -> AddressSet:
         return AddressSet(v4=self.v4.union(other.v4), v6=self.v6.union(other.v6))
+
+    def negated(self) -> AddressSet:
+        """Everything this set does not cover, in both families.
+
+        Check Point rules can negate a source or destination. Each family is
+        complemented against its own maximum — complementing v6 against the IPv4 bound
+        would silently truncate the result to the first four billion addresses.
+        """
+        return AddressSet(
+            v4=self.v4.complement(IPV4_MAX),
+            v6=self.v6.complement(IPV6_MAX),
+        )
 
 
 ANY_ADDRESS = AddressSet(v4=ANY_IPV4, v6=ANY_IPV6)
@@ -473,6 +487,15 @@ def resolve_rulebase(firewall: Mapping[str, Any]) -> tuple[list[ResolvedRule], O
         source, missing_src = resolver.resolve_addresses(raw.get("src") or ["any"])
         destination, missing_dst = resolver.resolve_addresses(raw.get("dst") or ["any"])
         services, missing_svc = resolver.resolve_services(raw.get("services") or ["any"])
+
+        # Check Point rules can mean "anything *except* these addresses". The flag has
+        # to be applied here rather than in the parser, because it inverts the resolved
+        # set and the parser only ever sees object names. An unapplied negation would
+        # make the rule read as its exact opposite.
+        if raw.get("src_negate"):
+            source = source.negated()
+        if raw.get("dst_negate"):
+            destination = destination.negated()
 
         rules.append(
             ResolvedRule(

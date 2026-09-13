@@ -90,6 +90,48 @@ class TestAgainstBruteForce:
     def test_covers_value_agrees_with_membership(self, s: IntervalSet, value: int) -> None:
         assert s.covers_value(value) == (value in brute(s))
 
+    @given(interval_sets)
+    def test_complement_agrees_with_set_difference(self, s: IntervalSet) -> None:
+        """Complement is what makes a negated Check Point rule expressible. Getting it
+        wrong would not fail loudly — it would report a rule covering the exact opposite
+        of its real scope, which reads as a perfectly plausible finding."""
+        universe = set(range(SMALL))
+        assert brute(s.complement(SMALL - 1)) == universe - brute(s)
+
+
+class TestComplement:
+    """The operation Check Point negation depends on."""
+
+    @given(interval_sets)
+    def test_complementing_twice_is_the_identity(self, s: IntervalSet) -> None:
+        assert s.complement(SMALL - 1).complement(SMALL - 1) == s
+
+    @given(interval_sets)
+    def test_a_set_and_its_complement_never_overlap(self, s: IntervalSet) -> None:
+        assert not s.intersects(s.complement(SMALL - 1))
+
+    @given(interval_sets)
+    def test_together_they_cover_the_universe(self, s: IntervalSet) -> None:
+        whole = IntervalSet.of((0, SMALL - 1))
+        assert s.union(s.complement(SMALL - 1)) == whole
+
+    def test_the_empty_set_complements_to_everything(self) -> None:
+        assert IntervalSet.empty().complement(IPV4_MAX) == ANY_IPV4
+
+    def test_everything_complements_to_the_empty_set(self) -> None:
+        assert not ANY_IPV4.complement(IPV4_MAX)
+
+    def test_the_universe_bound_is_respected(self) -> None:
+        """A port set complemented against the IPv4 maximum would produce a set covering
+        four billion "ports". The bound is a parameter precisely so that cannot happen
+        by accident."""
+        ports = IntervalSet.of((80, 80))
+        complemented = ports.complement(65535)
+
+        assert complemented.size == 65535
+        assert not complemented.covers_value(80)
+        assert not complemented.covers_value(65536)
+
 
 class TestLaws:
     @given(interval_sets)

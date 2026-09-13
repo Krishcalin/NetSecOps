@@ -10,6 +10,8 @@ from __future__ import annotations
 from typing import Final
 
 from netsecops.parsers.base import ConfigParser
+from netsecops.parsers.checkpoint.gaia import CheckPointGaiaParser
+from netsecops.parsers.checkpoint.mgmt import CheckPointMgmtParser
 from netsecops.parsers.cisco.asa import CiscoAsaParser
 from netsecops.parsers.cisco.ios import CiscoIosParser
 from netsecops.parsers.cisco.nxos import CiscoNxosParser
@@ -25,6 +27,12 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     "cisco_asa": CiscoAsaParser,
     "fortios": FortiOsParser,
     "panos": PanOsParser,
+    # Check Point splits in two: the security policy lives on the management server and
+    # is read over its API, while the gateway itself only holds the Gaia OS
+    # configuration. Neither can answer the other's questions, so they are separate
+    # platforms rather than one parser guessing which it was handed.
+    "checkpoint_mgmt": CheckPointMgmtParser,
+    "checkpoint_gaia": CheckPointGaiaParser,
 }
 
 

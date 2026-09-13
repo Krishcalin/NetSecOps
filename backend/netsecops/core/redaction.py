@@ -107,10 +107,17 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # excerpt: the rules above are Cisco-shaped and `set secret ENC <value>` matched
     # none of them. A new vendor's syntax slipping past redaction is the failure mode
     # this whole module exists to prevent.
+    #
+    # The keyword must *end* the setting name, give or take a one-letter suffix — FortiOS
+    # writes `set auth-pwd-l` for the local SNMP password. A trailing `\S*` was tried
+    # first and was wrong in the other direction: it matched `set password-controls 12`
+    # and `set password-expiration-days 90`, which are Gaia *policy settings*, and
+    # redacted the minimum password length as though it were a credential. Over-redaction
+    # is the safer failure, but it destroys the evidence a finding is supposed to show.
     _rule(
         "fortios_secret",
-        r"^(\s*set\s+(?:\S*-)?(?:password|passwd|secret|pwd|key|psksecret|privatekey)"
-        r"\S*\s+(?:ENC\s+)?)(\S+)",
+        r"^(\s*set\s+(?:\S+[-_])?(?:password|passwd|secret|pwd|key|psksecret|privatekey)"
+        r"(?:[-_][a-z])?\s+(?:ENC\s+)?)(\S+)",
     ),
     # `set member` on a user group can carry a token; `set ppk-secret`, `set ssl-key`
     # and friends are covered by the rule above. Community strings on FortiOS use the

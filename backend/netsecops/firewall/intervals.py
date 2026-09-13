@@ -193,6 +193,38 @@ class IntervalSet:
             return self
         return IntervalSet.from_pairs(self._intervals + other._intervals)
 
+    def complement(self, universe_hi: int, universe_lo: int = 0) -> IntervalSet:
+        """Everything in [universe_lo, universe_hi] that this set does not cover.
+
+        Check Point rules may negate a source or destination — "anything except the
+        internal network". There is no way to express that as a positive interval set
+        without this, and the alternative of ignoring the negation flag would read the
+        rule as its own exact opposite: a rule protecting everything *but* the internal
+        range would be reported as applying *only* to it.
+
+        The universe has to be supplied because the same class covers IPv4, IPv6 and
+        ports, and complementing a port set against the IPv4 maximum would silently
+        produce a set covering four billion "ports".
+        """
+        result: list[tuple[int, int]] = []
+        cursor = universe_lo
+
+        for lo, hi in self._intervals:
+            if lo > universe_hi:
+                break
+            if lo > cursor:
+                result.append((cursor, min(lo - 1, universe_hi)))
+            cursor = max(cursor, hi + 1)
+            if cursor > universe_hi:
+                break
+
+        if cursor <= universe_hi:
+            result.append((cursor, universe_hi))
+
+        # Already sorted, merged and non-adjacent by construction — the gaps between
+        # normalised intervals cannot touch — so the constructor is used directly.
+        return IntervalSet(tuple(result)) if result else _EMPTY
+
     def covers_value(self, value: int) -> bool:
         """Point membership, for the FR-FW-06 rule query."""
         lo_index, high_index = 0, len(self._intervals) - 1

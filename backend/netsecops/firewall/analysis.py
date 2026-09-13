@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from typing import Any
 
@@ -100,6 +100,9 @@ class RuleRelationship:
     #: traffic and reaches the same verdict. Reporting the broad rule there would send
     #: someone to delete the wrong one.
     subject_is_later: bool = True
+    #: Rules the subject is currently shadowing. Only set on redundancy findings, where
+    #: it is the difference between safe advice and advice that opens a firewall.
+    subject_shadows: tuple[int, ...] = ()
     #: Set for the cases whose wording cannot be derived from the pair alone.
     note: str = ""
 
@@ -150,11 +153,20 @@ class RuleRelationship:
                 )
             case Relationship.REDUNDANT:
                 where = "above it" if self.subject_is_later else "below it"
-                return (
+                text = (
                     f"#{cause.order} {where} already matches everything "
                     f"#{subject.order} does, with the same action"
                     + _redundancy_caveat(subject, cause)
                 )
+                if self.subject_shadows:
+                    shadowed = ", ".join(f"#{order}" for order in self.subject_shadows)
+                    text += (
+                        f". Do not remove it without checking {shadowed} first: "
+                        f"#{subject.order} is currently the only thing stopping "
+                        f"{'them' if len(self.subject_shadows) > 1 else 'it'} "
+                        "from taking effect"
+                    )
+                return text
             case Relationship.GENERALISATION:
                 return (
                     f"#{later.order} is broader than #{earlier.order}, which acts as a "
@@ -256,6 +268,50 @@ def _covers(outer: ResolvedRule, inner: ResolvedRule) -> bool:
     )
 
 
+def _cleanup_rule(rules: Sequence[ResolvedRule]) -> ResolvedRule | None:
+    """The final catch-all deny, if the last active rule is one.
+
+    Deliberately a local copy of the same test `policy.find_cleanup_rule` makes, rather
+    than an import: analysis is the lower layer and must not depend on the policy
+    findings that are built on top of it.
+    """
+    if not rules:
+        return None
+    last = rules[-1]
+    if not last.permits and last.source.is_any and last.destination.is_any and last.services.is_any:
+        return last
+    return None
+
+
+def _flag_load_bearing_redundancies(result: AnalysisResult) -> None:
+    """Note redundant rules that are the only thing holding a later rule shut.
+
+    A rule can be redundant on the permit/deny verdict *and* be the reason some rule
+    below it never fires. Rule 2 drops RDP everywhere and rule 3 would allow it from a
+    partner range; rule 2 is redundant against the cleanup deny at the bottom, so the
+    plain finding says it can go — and deleting it silently opens RDP from the partner
+    range to the internet.
+
+    That is the most dangerous advice this module could give, so the finding says so.
+    """
+    shadowing: dict[int, list[int]] = {}
+    for relationship in result.relationships:
+        if relationship.kind is Relationship.SHADOWED:
+            shadowing.setdefault(relationship.cause.order, []).append(relationship.subject.order)
+
+    if not shadowing:
+        return
+
+    for index, relationship in enumerate(result.relationships):
+        if relationship.kind is not Relationship.REDUNDANT:
+            continue
+        shadowed = shadowing.get(relationship.subject.order)
+        if shadowed:
+            result.relationships[index] = replace(
+                relationship, subject_shadows=tuple(sorted(shadowed))
+            )
+
+
 def _redundancy_caveat(subject: ResolvedRule, cause: ResolvedRule) -> str:
     """Say when removing a redundant rule would still change something.
 
@@ -304,6 +360,12 @@ def analyse(
     active = [r for r in rules if include_disabled or r.enabled]
     result = AnalysisResult(rules_analysed=len(active))
 
+    # A final catch-all deny is broader than every rule above it, by design. Left in, it
+    # generalises the whole rulebase and produces one Info finding per rule — noise that
+    # scales with the policy and says only "you have a cleanup rule", which is good
+    # practice rather than a defect.
+    cleanup = _cleanup_rule(active)
+
     for later_index in range(1, len(active)):
         later = active[later_index]
 
@@ -340,6 +402,8 @@ def analyse(
             if earlier_covers:
                 kind = Relationship.REDUNDANT if same_action else Relationship.SHADOWED
             elif later_covers and not same_action:
+                if later is cleanup:
+                    continue
                 # The later rule is broader. A specific exception above a general rule
                 # is the normal shape of a good rulebase, so this is informational.
                 kind = Relationship.GENERALISATION
@@ -379,6 +443,7 @@ def analyse(
             if kind is Relationship.SHADOWED:
                 break
 
+    _flag_load_bearing_redundancies(result)
     result.duration_ms = int((time.perf_counter() - started) * 1000)
 
     log.info(

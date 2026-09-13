@@ -1,0 +1,255 @@
+{
+  "show-access-rulebase": {
+    "uid": "9423d36f-2d66-4754-b9e2-e9f4493751d3",
+    "name": "Corporate-Policy Network",
+    "total": 8,
+    "rulebase": [
+      {
+        "type": "access-section",
+        "uid": "aa11-section-inbound",
+        "name": "Inbound from the internet",
+        "rulebase": [
+          {
+            "type": "access-rule",
+            "uid": "rule-0001",
+            "name": "Mgmt to DMZ SSH",
+            "rule-number": 1,
+            "enabled": true,
+            "source": [{"uid": "obj-mgmt-net", "name": "Mgmt_Net", "type": "network"}],
+            "source-negate": false,
+            "destination": [{"uid": "obj-dmz-net", "name": "DMZ_Net", "type": "network"}],
+            "destination-negate": false,
+            "service": [{"uid": "svc-ssh", "name": "ssh", "type": "service-tcp"}],
+            "action": {"uid": "act-accept", "name": "Accept", "type": "RulebaseAction"},
+            "track": {"type": "Track", "track-type": {"name": "Log"}},
+            "hits": {"value": 148223, "last-date": {"iso-8601": "2026-09-12T09:14+0100"}},
+            "comments": "Jump host access"
+          },
+          {
+            "type": "access-rule",
+            "uid": "rule-0002",
+            "name": "Block inbound RDP",
+            "rule-number": 2,
+            "enabled": true,
+            "source": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "source-negate": false,
+            "destination": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "destination-negate": false,
+            "service": [{"uid": "svc-rdp", "name": "rdp", "type": "service-tcp"}],
+            "action": {"uid": "act-drop", "name": "Drop", "type": "RulebaseAction"},
+            "track": {"type": "Track", "track-type": {"name": "Log"}},
+            "hits": {"value": 9021, "last-date": {"iso-8601": "2026-09-13T07:02+0100"}}
+          },
+          {
+            "type": "access-rule",
+            "uid": "rule-0003",
+            "name": "Partner RDP to web",
+            "rule-number": 3,
+            "enabled": true,
+            "source": [{"uid": "obj-partner", "name": "Partner_Range", "type": "address-range"}],
+            "source-negate": false,
+            "destination": [{"uid": "obj-web-01", "name": "Web_01", "type": "host"}],
+            "destination-negate": false,
+            "service": [{"uid": "svc-rdp", "name": "rdp", "type": "service-tcp"}],
+            "action": {"uid": "act-accept", "name": "Accept", "type": "RulebaseAction"},
+            "track": {"type": "Track", "track-type": {"name": "Log"}},
+            "hits": {"value": 0}
+          },
+          {
+            "type": "access-rule",
+            "uid": "rule-0004",
+            "name": "Inbound web",
+            "rule-number": 4,
+            "enabled": true,
+            "source": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "source-negate": false,
+            "destination": [{"uid": "grp-web", "name": "Web_Servers", "type": "group"}],
+            "destination-negate": false,
+            "service": [
+              {"uid": "svc-http", "name": "http", "type": "service-tcp"},
+              {"uid": "svc-https", "name": "https", "type": "service-tcp"}
+            ],
+            "action": {"uid": "act-accept", "name": "Accept", "type": "RulebaseAction"},
+            "track": {"type": "Track", "track-type": {"name": "Log"}},
+            "inspection-settings": {
+              "ips-profile": {"name": "Optimized", "type": "threat-profile"}
+            },
+            "hits": {"value": 4410233, "last-date": {"iso-8601": "2026-09-13T07:30+0100"}}
+          }
+        ]
+      },
+      {
+        "type": "access-section",
+        "uid": "bb22-section-outbound",
+        "name": "Outbound and internal",
+        "rulebase": [
+          {
+            "type": "access-rule",
+            "uid": "rule-0005",
+            "name": "Quarantine egress",
+            "rule-number": 5,
+            "enabled": true,
+            "source": [{"uid": "obj-quarantine", "name": "Quarantine_Net", "type": "network"}],
+            "source-negate": true,
+            "destination": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "destination-negate": false,
+            "service": [{"uid": "svc-https", "name": "https", "type": "service-tcp"}],
+            "action": {"uid": "act-accept", "name": "Accept", "type": "RulebaseAction"},
+            "track": {"type": "Track", "track-type": {"name": "Log"}},
+            "comments": "Everything except the quarantine VLAN may browse"
+          },
+          {
+            "type": "access-rule",
+            "uid": "rule-0006",
+            "rule-number": 6,
+            "enabled": true,
+            "source": [{"uid": "obj-internal", "name": "Internal_Net", "type": "network"}],
+            "source-negate": false,
+            "destination": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "destination-negate": false,
+            "service": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "action": {"uid": "act-inner", "name": "Inner Layer", "type": "RulebaseAction"},
+            "track": {"type": "Track", "track-type": {"name": "None"}},
+            "comments": "Delegates to the application layer"
+          },
+          {
+            "type": "access-rule",
+            "uid": "rule-0007",
+            "name": "Legacy migration allow",
+            "rule-number": 7,
+            "enabled": false,
+            "source": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "source-negate": false,
+            "destination": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "destination-negate": false,
+            "service": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "action": {"uid": "act-accept", "name": "Accept", "type": "RulebaseAction"},
+            "track": {"type": "Track", "track-type": {"name": "Log"}}
+          },
+          {
+            "type": "access-rule",
+            "uid": "rule-0008",
+            "name": "Cleanup rule",
+            "rule-number": 8,
+            "enabled": true,
+            "source": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "source-negate": false,
+            "destination": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "destination-negate": false,
+            "service": [{"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"}],
+            "action": {"uid": "act-drop", "name": "Drop", "type": "RulebaseAction"},
+            "track": {"type": "Track", "track-type": {"name": "Log"}}
+          }
+        ]
+      }
+    ],
+    "objects-dictionary": [
+      {"uid": "obj-any", "name": "Any", "type": "CpmiAnyObject"},
+      {"uid": "obj-mgmt-net", "name": "Mgmt_Net", "type": "network", "subnet4": "10.100.0.0", "mask-length4": 24},
+      {"uid": "obj-dmz-net", "name": "DMZ_Net", "type": "network", "subnet4": "10.20.0.0", "mask-length4": 24},
+      {"uid": "obj-internal", "name": "Internal_Net", "type": "network", "subnet4": "10.10.0.0", "mask-length4": 24},
+      {"uid": "obj-quarantine", "name": "Quarantine_Net", "type": "network", "subnet4": "10.99.0.0", "mask-length4": 24},
+      {"uid": "obj-web-01", "name": "Web_01", "type": "host", "ipv4-address": "10.20.0.10"},
+      {"uid": "obj-web-02", "name": "Web_02", "type": "host", "ipv4-address": "10.20.0.11"},
+      {"uid": "obj-web-01-dup", "name": "Web_01_Old", "type": "host", "ipv4-address": "10.20.0.10"},
+      {"uid": "obj-partner", "name": "Partner_Range", "type": "address-range", "ipv4-address-first": "198.51.100.10", "ipv4-address-last": "198.51.100.20"},
+      {"uid": "obj-orphan", "name": "Decommissioned_Net", "type": "network", "subnet4": "192.0.2.0", "mask-length4": 24},
+      {"uid": "grp-web", "name": "Web_Servers", "type": "group", "members": [
+        {"uid": "obj-web-01", "name": "Web_01", "type": "host"},
+        {"uid": "obj-web-02", "name": "Web_02", "type": "host"}
+      ]},
+      {"uid": "svc-ssh", "name": "ssh", "type": "service-tcp", "port": "22"},
+      {"uid": "svc-rdp", "name": "rdp", "type": "service-tcp", "port": "3389"},
+      {"uid": "svc-http", "name": "http", "type": "service-tcp", "port": "80"},
+      {"uid": "svc-https", "name": "https", "type": "service-tcp", "port": "443"},
+      {"uid": "svc-high", "name": "high-ports", "type": "service-tcp", "port": ">1023"},
+      {"uid": "svc-snmp", "name": "snmp", "type": "service-udp", "port": "161"}
+    ]
+  },
+  "show-nat-rulebase": {
+    "uid": "nat-rulebase-uid",
+    "name": "Corporate-Policy NAT",
+    "total": 2,
+    "rulebase": [
+      {
+        "type": "nat-section",
+        "name": "Manual rules",
+        "rulebase": [
+          {
+            "type": "nat-rule",
+            "uid": "nat-0001",
+            "name": "Publish web",
+            "rule-number": 1,
+            "enabled": true,
+            "original-source": [{"name": "Any", "type": "CpmiAnyObject"}],
+            "original-destination": [{"name": "Public_Web_VIP", "type": "host"}],
+            "original-service": [{"name": "https", "type": "service-tcp"}],
+            "translated-destination": [{"name": "Web_01", "type": "host"}]
+          },
+          {
+            "type": "nat-rule",
+            "uid": "nat-0002",
+            "name": "Internal egress hide",
+            "rule-number": 2,
+            "enabled": true,
+            "original-source": [{"name": "Internal_Net", "type": "network"}],
+            "original-destination": [{"name": "Any", "type": "CpmiAnyObject"}],
+            "translated-source": [{"name": "External_IF", "type": "host"}]
+          }
+        ]
+      }
+    ],
+    "objects-dictionary": [
+      {"uid": "obj-vip", "name": "Public_Web_VIP", "type": "host", "ipv4-address": "203.0.113.10"},
+      {"uid": "obj-extif", "name": "External_IF", "type": "host", "ipv4-address": "203.0.113.2"}
+    ]
+  },
+  "show-gateways-and-servers": {
+    "total": 1,
+    "objects": [
+      {
+        "uid": "gw-0001",
+        "name": "cp-gw-edge-01",
+        "type": "simple-gateway",
+        "version": "R81.20",
+        "hardware": "Open server",
+        "ipv4-address": "203.0.113.2",
+        "interfaces": [
+          {"name": "eth0", "ipv4-address": "203.0.113.2", "comments": "Internet uplink"},
+          {"name": "eth1", "ipv4-address": "10.20.0.1", "comments": "DMZ"},
+          {"name": "eth2", "ipv4-address": "10.10.0.1", "comments": "Internal"}
+        ],
+        "network-security-blades": {
+          "firewall": true,
+          "ips": true,
+          "application-control": true,
+          "anti-virus": false,
+          "anti-bot": false
+        }
+      }
+    ]
+  },
+  "show-administrators": {
+    "total": 2,
+    "objects": [
+      {
+        "uid": "admin-0001",
+        "name": "admin",
+        "type": "administrator",
+        "authentication-method": "check point password",
+        "permissions-profile": {"uid": "pp-01", "name": "Super User", "type": "permissions-profile"}
+      },
+      {
+        "uid": "admin-0002",
+        "name": "netsecops",
+        "type": "administrator",
+        "authentication-method": "radius",
+        "permissions-profile": {"uid": "pp-02", "name": "Read Only All", "type": "permissions-profile"}
+      }
+    ]
+  },
+  "show-unicorns": {
+    "total": 0,
+    "objects": []
+  }
+}

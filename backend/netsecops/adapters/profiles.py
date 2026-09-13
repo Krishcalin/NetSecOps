@@ -34,6 +34,10 @@ class Transport(StrEnum):
 
     CLI = "cli"
     HTTP = "http"
+    #: A POST-only JSON-RPC API — Check Point's Management API, FortiManager's. The
+    #: method cannot carry the read-only guarantee here, because *everything* is a POST,
+    #: so the guard reads the body instead and the profile must supply one.
+    RPC = "rpc"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +57,17 @@ class CollectionCommand:
         """Split an HTTP entry into (method, path)."""
         method, _, path = self.command.partition(" ")
         return method.upper(), path
+
+    def as_body(self) -> dict[str, str]:
+        """The JSON body an RPC entry sends.
+
+        Derived from the path rather than declared separately: on the Check Point
+        Management API the operation *is* the last path segment, so deriving it means the
+        conformance test checks the same string that is actually sent. A hand-written
+        second copy could drift from the path and would then be proving nothing.
+        """
+        _method, path = self.as_request()
+        return {"command": path.rsplit("/", 1)[-1]}
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +234,67 @@ PANOS_PROFILE: Final = CollectionProfile(
     ),
 )
 
+CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
+    platform="checkpoint_mgmt",
+    # The Management API is POST-only by design, so there is no session to configure and
+    # no read-only guarantee to be had from the method. Every entry below is a `show-*`
+    # command, which is what `checkpoint_show_only` in policies.py actually enforces.
+    setup=(),
+    transport=Transport.RPC,
+    commands=(
+        CollectionCommand(
+            "POST /web_api/show-access-rulebase",
+            "The security policy itself — on Check Point it lives here, not on the gateway",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "POST /web_api/show-nat-rulebase",
+            "NAT rules, for the exposed-service analysis",
+        ),
+        CollectionCommand(
+            "POST /web_api/show-gateways-and-servers",
+            "Gateway inventory, version and enabled blades",
+        ),
+        CollectionCommand(
+            "POST /web_api/show-administrators",
+            "Management administrators and their permission profiles",
+        ),
+        CollectionCommand(
+            "POST /web_api/show-groups",
+            "Object groups the rulebase dictionary may not carry in full",
+        ),
+        CollectionCommand(
+            "POST /web_api/show-service-groups",
+            "Service groups, for the same reason",
+        ),
+    ),
+)
+
+CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
+    platform="checkpoint_gaia",
+    setup=("set clienv rows 0",),
+    commands=(
+        CollectionCommand(
+            "show configuration",
+            "The Gaia OS configuration — interfaces, administrators, SNMP, logging",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("show version all", "Gaia version and build, for vulnerability matching"),
+        CollectionCommand("show asset all", "Hardware model and serial"),
+        CollectionCommand("show interfaces all", "Live interface state, absent from the config"),
+        CollectionCommand("show users", "Accounts that exist, including any the config omits"),
+        CollectionCommand("show password-controls all", "The effective password policy"),
+        CollectionCommand("show ntp servers", "NTP peering"),
+        CollectionCommand("show clock", "Whether the clock is plausibly synchronised"),
+        CollectionCommand("fw ver", "Firewall module version"),
+        CollectionCommand("fw stat", "Which policy is installed, and when"),
+        CollectionCommand("enabled_blades", "Which software blades are actually running"),
+        CollectionCommand("cplic print", "Licence state, which gates several blades"),
+    ),
+)
+
 #: IOS-XE shares IOS's configuration syntax and its command set.
 PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ios": CISCO_IOS_PROFILE,
@@ -227,6 +303,8 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_asa": CISCO_ASA_PROFILE,
     "fortios": FORTIOS_PROFILE,
     "panos": PANOS_PROFILE,
+    "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,
+    "checkpoint_gaia": CHECKPOINT_GAIA_PROFILE,
 }
 
 
