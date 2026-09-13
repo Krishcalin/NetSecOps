@@ -464,6 +464,15 @@ CISCO_ISE = PlatformPolicy(
 
 # ─────────────────────────────── registry ───────────────────────────────────
 
+#: Platforms whose read-only contract is genuinely identical to another's, sharing the
+#: same policy object rather than a copied list. A reviewer reads one list and knows it
+#: governs both; a copy would drift the first time someone amended only one of them.
+ALIASES: Final[dict[str, PlatformPolicy]] = {
+    # IOS-XE is IOS at the CLI. The differences are in platform features, not in which
+    # commands exist or which of them write.
+    "cisco_iosxe": CISCO_IOS,
+}
+
 POLICIES: Final[dict[str, PlatformPolicy]] = {
     policy.platform: policy
     for policy in (
@@ -484,7 +493,7 @@ POLICIES: Final[dict[str, PlatformPolicy]] = {
         LINUX_AAA,
         LINUX_AAA_SUDO,
     )
-}
+} | ALIASES
 
 
 def get_policy(platform: str) -> PlatformPolicy:

@@ -99,6 +99,7 @@ export function InventoryPage() {
                 <th>Platform</th>
                 <th>Criticality</th>
                 <th>Last collected</th>
+                <th />
               </tr>
             </thead>
             <tbody>
@@ -120,11 +121,19 @@ export function InventoryPage() {
                       <span className="muted">never</span>
                     )}
                   </td>
+                  <td>
+                    <NavLink
+                      className="button button--ghost button--small"
+                      to={`/inventory/${device.id}/config`}
+                    >
+                      Configuration
+                    </NavLink>
+                  </td>
                 </tr>
               ))}
               {devices.data?.data.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="table__empty">
+                  <td colSpan={7} className="table__empty">
                     {search || groupId
                       ? 'No devices match this filter.'
                       : 'No devices yet. Import a CSV or add one to get started.'}

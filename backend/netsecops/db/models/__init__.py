@@ -11,6 +11,16 @@ from netsecops.db.models.audit import (
     AuditOutcome,
     Setting,
 )
+from netsecops.db.models.collection import (
+    Artifact,
+    ArtifactKind,
+    Collection,
+    Finding,
+    FindingKind,
+    FindingSeverity,
+    FindingStatus,
+    Snapshot,
+)
 from netsecops.db.models.inventory import (
     Credential,
     CredentialAssignment,
@@ -49,9 +59,12 @@ from netsecops.db.models.user import (
 __all__ = [
     "GENESIS_HASH",
     "ApiToken",
+    "Artifact",
+    "ArtifactKind",
     "AuditAction",
     "AuditLog",
     "AuditOutcome",
+    "Collection",
     "Credential",
     "CredentialAssignment",
     "CredentialType",
@@ -64,6 +77,10 @@ __all__ = [
     "DeviceStatus",
     "DeviceTag",
     "ErrorClass",
+    "Finding",
+    "FindingKind",
+    "FindingSeverity",
+    "FindingStatus",
     "Job",
     "JobDevice",
     "JobStatus",
@@ -75,6 +92,7 @@ __all__ = [
     "Schedule",
     "Setting",
     "Site",
+    "Snapshot",
     "Tag",
     "User",
     "UserDeviceGroupScope",

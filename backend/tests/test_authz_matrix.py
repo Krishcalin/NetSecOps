@@ -81,6 +81,9 @@ _DEVICE_WRITERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 #: SRS §2.3 is explicit that a Network Engineer must not touch credentials.
 _CREDENTIAL_USERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 _JOB_RUNNERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+#: SEC-09 — reading a device's configuration *unredacted* is its own privilege, held by
+#: neither the Network Engineer who owns the device nor the Auditor who reads the log.
+_UNREDACTED_VIEWERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 
 MATRIX: list[Case] = [
     # ── User administration ─────────────────────────────────────────────────
@@ -184,6 +187,22 @@ MATRIX: list[Case] = [
     Case("POST", "/api/v1/jobs/{job_id}/cancel", _JOB_RUNNERS),
     Case("POST", "/api/v1/jobs/{job_id}/rerun-failed", _JOB_RUNNERS),
     Case("GET", "/api/v1/jobs/{job_id}/progress", _DEVICE_READERS),
+    # ── Snapshots, diff and baselines (FR-DRIFT) ────────────────────────────
+    Case("GET", "/api/v1/devices/{device_id}/snapshots", _DEVICE_READERS),
+    Case("GET", "/api/v1/devices/{device_id}/drift", _DEVICE_READERS),
+    Case("POST", "/api/v1/devices/{device_id}/configs", _DEVICE_WRITERS, files=True),
+    Case("DELETE", "/api/v1/devices/{device_id}/baseline", _DEVICE_WRITERS),
+    Case("GET", "/api/v1/snapshots/{snapshot_id}", _DEVICE_READERS),
+    Case("GET", "/api/v1/snapshots/{snapshot_id}/diff", _DEVICE_READERS),
+    # Pinning a baseline redefines what counts as drift for a device, which is a
+    # device-owner decision — and SRS §2.3 keeps a Network Engineer read-only.
+    Case("POST", "/api/v1/snapshots/{snapshot_id}/baseline", _DEVICE_WRITERS),
+    Case("GET", "/api/v1/collections/{collection_id}", _DEVICE_READERS),
+    Case("GET", "/api/v1/collections/{collection_id}/artifacts", _DEVICE_READERS),
+    Case("GET", "/api/v1/artifacts/{artifact_id}", _DEVICE_READERS),
+    # SEC-09: the unredacted original is a distinct privilege. An Auditor reads the
+    # audit trail but never the secrets the trail is about.
+    Case("GET", "/api/v1/artifacts/{artifact_id}/raw", _UNREDACTED_VIEWERS),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS
@@ -198,6 +217,9 @@ def _resolve(path: str, target: User) -> str:
         .replace("{credential_id}", str(uuid.uuid4()))
         .replace("{assignment_id}", str(uuid.uuid4()))
         .replace("{job_id}", str(uuid.uuid4()))
+        .replace("{snapshot_id}", str(uuid.uuid4()))
+        .replace("{collection_id}", str(uuid.uuid4()))
+        .replace("{artifact_id}", str(uuid.uuid4()))
     )
 
 

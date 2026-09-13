@@ -16,6 +16,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netsecops.adapters.profiles import get_profile
 from netsecops.core.crypto import SecretVault
 from netsecops.core.rbac import Principal, Role, Scope
 from netsecops.db.models import AuditLog, Device
@@ -126,9 +127,14 @@ class TestPhase1Acceptance:
         assert result.status == DeviceJobStatus.SUCCEEDED.value
         assert result.device_id == device.id
         assert result.credential_id == credential.id
-        assert result.command_count == 1
         assert result.duration_ms is not None
         assert result.error_class is None
+
+        # From Phase 2 a collection runs the platform's whole profile, not just a
+        # probe. The fake device answers only some of those commands, and that is the
+        # point: the collection still succeeds (FR-COL-08).
+        profile = get_profile("cisco_ios")
+        assert result.command_count == len(profile.all_commands())
 
         # ── 4. the audit log shows the commands ─────────────────────────
         await session.flush()
@@ -144,9 +150,16 @@ class TestPhase1Acceptance:
             .all()
         )
 
-        # Two sessions ran: the credential probe and the job.
-        assert [c.command_text for c in commands] == ["show version", "show version"]
+        # Two sessions ran: the credential probe, then the job's full profile. Every
+        # command in both is in the trail, in the order it was sent (FR-AUD-01).
+        assert [c.command_text for c in commands] == [
+            "show version",
+            *profile.all_commands(),
+        ]
         assert all(c.device_id == device.id for c in commands)
+
+        # Nothing reached the device that the profile did not ask for.
+        assert device_server.received == ["show version", *profile.all_commands()]
 
         # Everything else in the chain is audited too.
         actions = (
