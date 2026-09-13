@@ -40,6 +40,10 @@ dependencies = [
     "pyyaml>=6.0",
     "jmespath>=1.0",
     "packaging>=24.2",
+    # Phase 4 — PAN-OS and Check Point export XML. defusedxml, not the stdlib parser:
+    # a device configuration is attacker-influenced input, and ElementTree will happily
+    # process external entities and billion-laughs expansions (SEC-05).
+    "defusedxml>=0.7",
     # Device access (Phase 1). asyncssh provides both the client and the in-process
     # test server, so TEST-02's "no live devices in CI" needs nothing extra.
     "asyncssh>=2.18",
@@ -61,6 +65,7 @@ dev = [
     "pip-audit>=2.7",
     "schemathesis>=3.38",
     "types-passlib",
+    "types-defusedxml",
 ]
 
 [project.scripts]

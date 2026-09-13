@@ -88,12 +88,30 @@ class RuleRelationship:
     """
 
     kind: Relationship
-    #: The rule that comes first and does the covering.
+    #: The rule that appears first in evaluation order.
     earlier: ResolvedRule
-    #: The rule affected by it.
+    #: The rule that appears second.
     later: ResolvedRule
+    #: Which of the two the finding is *about* — the rule an operator would change.
+    #:
+    #: Usually the later one: a rule shadowed by something above it is the dead rule.
+    #: But when a broad rule sits *below* a narrow one with the same action, it is the
+    #: narrow rule that has become pointless, because the broad one catches the same
+    #: traffic and reaches the same verdict. Reporting the broad rule there would send
+    #: someone to delete the wrong one.
+    subject_is_later: bool = True
     #: Set for the cases whose wording cannot be derived from the pair alone.
     note: str = ""
+
+    @property
+    def subject(self) -> ResolvedRule:
+        """The rule to act on."""
+        return self.later if self.subject_is_later else self.earlier
+
+    @property
+    def cause(self) -> ResolvedRule:
+        """The rule that makes the subject a problem."""
+        return self.earlier if self.subject_is_later else self.later
 
     @property
     def earlier_order(self) -> int:
@@ -122,14 +140,21 @@ class RuleRelationship:
             return self.note
 
         earlier, later = self.earlier, self.later
+        subject, cause = self.subject, self.cause
+
         match self.kind:
             case Relationship.SHADOWED:
                 return (
-                    f"#{earlier.order} already matches everything #{later.order} does, "
-                    f"and {_third_person(earlier.action)} it instead"
+                    f"#{cause.order} already matches everything #{subject.order} does, "
+                    f"and {_third_person(cause.action)} it instead"
                 )
             case Relationship.REDUNDANT:
-                return f"#{earlier.order} already matches everything #{later.order} does"
+                where = "above it" if self.subject_is_later else "below it"
+                return (
+                    f"#{cause.order} {where} already matches everything "
+                    f"#{subject.order} does, with the same action"
+                    + _redundancy_caveat(subject, cause)
+                )
             case Relationship.GENERALISATION:
                 return (
                     f"#{later.order} is broader than #{earlier.order}, which acts as a "
@@ -143,9 +168,9 @@ class RuleRelationship:
                 )
 
     def describe(self) -> str:
+        """Named for the rule an operator would act on, not for whichever came second."""
         return (
-            f"Rule #{self.later_order} ({self.later_name}) is {self.kind.value} by "
-            f"#{self.earlier_order} ({self.earlier_name}): {self.detail}"
+            f"Rule #{self.subject.order} ({self.subject.name}) is {self.kind.value}: {self.detail}"
         )
 
 
@@ -231,6 +256,28 @@ def _covers(outer: ResolvedRule, inner: ResolvedRule) -> bool:
     )
 
 
+def _redundancy_caveat(subject: ResolvedRule, cause: ResolvedRule) -> str:
+    """Say when removing a redundant rule would still change something.
+
+    Redundancy is defined over the permit/deny verdict alone, so a rule can be redundant
+    and still be the only reason traffic is logged or inspected. Deleting it on that
+    advice would silently drop an IPS profile or a log source, which is exactly the kind
+    of change this tool exists to prevent someone making by accident.
+    """
+    losses = []
+    if subject.logs and not cause.logs:
+        losses.append("logging")
+    if subject.has_profiles and not cause.has_profiles:
+        losses.append("security profiles")
+
+    if not losses:
+        return ""
+    return (
+        f". Removing it would still lose {' and '.join(losses)}, which "
+        f"#{cause.order} does not carry"
+    )
+
+
 def _overlap_detail(earlier: ResolvedRule, later: ResolvedRule) -> str:
     source = earlier.source.v4.intersection(later.source.v4)
     destination = earlier.destination.v4.intersection(later.destination.v4)
@@ -288,6 +335,8 @@ def analyse(
             later_covers = _covers(later, earlier)
             same_action = earlier.action.lower() == later.action.lower()
 
+            subject_is_later = True
+
             if earlier_covers:
                 kind = Relationship.REDUNDANT if same_action else Relationship.SHADOWED
             elif later_covers and not same_action:
@@ -295,7 +344,11 @@ def analyse(
                 # is the normal shape of a good rulebase, so this is informational.
                 kind = Relationship.GENERALISATION
             elif later_covers:
+                # A broad rule below a narrow one with the same action makes the narrow
+                # one pointless — the broad rule catches the same traffic and reaches
+                # the same verdict. The *earlier* rule is the one to remove.
                 kind = Relationship.REDUNDANT
+                subject_is_later = False
             elif same_action:
                 # Partial overlap with the same verdict changes nothing about the
                 # firewall's behaviour, so it is not worth an operator's attention.
@@ -310,7 +363,12 @@ def analyse(
 
             if len(result.relationships) < max_relationships:
                 result.relationships.append(
-                    RuleRelationship(kind=kind, earlier=earlier, later=later)
+                    RuleRelationship(
+                        kind=kind,
+                        earlier=earlier,
+                        later=later,
+                        subject_is_later=subject_is_later,
+                    )
                 )
             else:
                 result.truncated = True

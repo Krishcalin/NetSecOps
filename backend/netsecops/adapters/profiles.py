@@ -17,13 +17,29 @@ evaluated — missing data* rather than as passes (FR-COL-08).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Final
 
 from netsecops.core.errors import ValidationProblem
 
 
+class Transport(StrEnum):
+    """How a platform is read.
+
+    This is not cosmetic: it decides which half of the read-only guard applies. A CLI
+    command is checked against the command allow-list and the write-verb deny-list; an
+    API call is checked against the HTTP method and path rules. Running a profile entry
+    against the wrong one would appear to pass and prove nothing.
+    """
+
+    CLI = "cli"
+    HTTP = "http"
+
+
 @dataclass(frozen=True, slots=True)
 class CollectionCommand:
+    #: For CLI, the command. For HTTP, `"<METHOD> <path>"` — the same spelling the
+    #: audit log records, so an operator reading the trail sees exactly what was sent.
     command: str
     #: Why it is issued. Shown in the UI beside the artefact, so an operator watching a
     #: collection can tell what NetSecOps wanted rather than only what it sent.
@@ -33,14 +49,21 @@ class CollectionCommand:
     #: This command's output is the running configuration, and is what gets parsed.
     yields_config: bool = False
 
+    def as_request(self) -> tuple[str, str]:
+        """Split an HTTP entry into (method, path)."""
+        method, _, path = self.command.partition(" ")
+        return method.upper(), path
+
 
 @dataclass(frozen=True, slots=True)
 class CollectionProfile:
     platform: str
     #: Session setup: paging, width. Never recorded as artefacts — they produce no data
-    #: and would clutter the evidence with noise.
+    #: and would clutter the evidence with noise. Empty for HTTP platforms, which have
+    #: no session to configure.
     setup: tuple[str, ...]
     commands: tuple[CollectionCommand, ...]
+    transport: Transport = Transport.CLI
 
     @property
     def config_command(self) -> str:
@@ -164,6 +187,38 @@ FORTIOS_PROFILE: Final = CollectionProfile(
     ),
 )
 
+PANOS_PROFILE: Final = CollectionProfile(
+    platform="panos",
+    # PAN-OS is collected over the XML API, not a shell, so there is no paging to
+    # disable. Each entry here is an API request the §8.2 HTTP rules already permit.
+    setup=(),
+    transport=Transport.HTTP,
+    commands=(
+        CollectionCommand(
+            "GET /api/?type=config&action=show",
+            "The candidate-free running configuration, as XML",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "GET /api/?type=op&cmd=<show><system><info></info></system></show>",
+            "Software version, model and serial, for vulnerability matching",
+        ),
+        CollectionCommand(
+            "GET /api/?type=op&cmd=<show><high-availability><state></state></high-availability></show>",
+            "HA state and peer version",
+        ),
+        CollectionCommand(
+            "GET /api/?type=op&cmd=<show><running><security-policy></security-policy></running></show>",
+            "The effective rulebase as the dataplane holds it",
+        ),
+        CollectionCommand(
+            "GET /api/?type=op&cmd=<show><counter><global></global></counter></show>",
+            "Rule hit counts, which the configuration does not carry",
+        ),
+    ),
+)
+
 #: IOS-XE shares IOS's configuration syntax and its command set.
 PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ios": CISCO_IOS_PROFILE,
@@ -171,6 +226,7 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_nxos": CISCO_NXOS_PROFILE,
     "cisco_asa": CISCO_ASA_PROFILE,
     "fortios": FORTIOS_PROFILE,
+    "panos": PANOS_PROFILE,
 }
 
 
@@ -197,6 +253,7 @@ __all__ = [
     "CollectionCommand",
     "CollectionProfile",
     "NoProfileError",
+    "Transport",
     "get_profile",
     "has_profile",
 ]

@@ -14,6 +14,7 @@ from netsecops.parsers.cisco.asa import CiscoAsaParser
 from netsecops.parsers.cisco.ios import CiscoIosParser
 from netsecops.parsers.cisco.nxos import CiscoNxosParser
 from netsecops.parsers.fortinet.fortios import FortiOsParser
+from netsecops.parsers.paloalto.panos import PanOsParser
 
 PARSERS: Final[dict[str, type[ConfigParser]]] = {
     "cisco_ios": CiscoIosParser,
@@ -23,6 +24,7 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     "cisco_nxos": CiscoNxosParser,
     "cisco_asa": CiscoAsaParser,
     "fortios": FortiOsParser,
+    "panos": PanOsParser,
 }
 
 

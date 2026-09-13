@@ -80,6 +80,51 @@ class TestTheTaxonomy:
         redundant = result.by_kind(Relationship.REDUNDANT)
         assert len(redundant) == 1
         assert redundant[0].severity == "low"
+        # The broad rule is first, so the later, narrower one is the dead weight.
+        assert redundant[0].subject.order == 2
+
+    def test_a_broad_rule_below_a_narrow_one_makes_the_narrow_one_redundant(self) -> None:
+        """Direction matters, and it is not simply "the later rule".
+
+        With first-match-wins, a narrow rule sitting above a broad one with the same
+        action is the pointless one: deleting it changes nothing, because the broad rule
+        below reaches the same verdict on the same traffic. Reporting the broad rule here
+        would send an operator to delete the wrong one — and the broad rule is usually
+        already reported on its own merits as overly permissive.
+        """
+        result = analyse_rules(
+            rule(1, src="10.1.2.0/24", action="allow"),
+            rule(2, src="10.0.0.0/8", action="allow"),
+        )
+
+        redundant = result.by_kind(Relationship.REDUNDANT)
+        assert len(redundant) == 1
+        assert redundant[0].subject.order == 1
+        assert redundant[0].cause.order == 2
+        assert redundant[0].describe().startswith("Rule #1")
+        assert "below it" in redundant[0].detail
+
+    def test_removing_a_redundant_rule_is_qualified_when_it_would_lose_logging(self) -> None:
+        """Redundancy is defined over the permit/deny verdict alone. A rule can be
+        redundant and still be the only reason traffic is logged or inspected, and advice
+        to delete it without saying so would silently drop a log source."""
+        result = analyse_rules(
+            rule(1, src="10.1.2.0/24", action="allow", log_end=True),
+            rule(2, src="10.0.0.0/8", action="allow", log_end=False),
+        )
+
+        detail = result.by_kind(Relationship.REDUNDANT)[0].detail
+        assert "logging" in detail
+
+    def test_no_caveat_when_nothing_would_actually_be_lost(self) -> None:
+        """The converse: padding every redundancy finding with a warning that does not
+        apply is how a caveat stops being read."""
+        result = analyse_rules(
+            rule(1, src="10.1.2.0/24", action="allow", log_end=True),
+            rule(2, src="10.0.0.0/8", action="allow", log_end=True),
+        )
+
+        assert "would still lose" not in result.by_kind(Relationship.REDUNDANT)[0].detail
 
     def test_partial_overlap_with_different_actions_is_correlation(self) -> None:
         result = analyse_rules(
