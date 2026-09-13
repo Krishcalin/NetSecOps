@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phase-1%20of%207-orange?style=flat-square" alt="Phase 1"/>
+  <img src="https://img.shields.io/badge/phase-2%20of%207-orange?style=flat-square" alt="Phase 2"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -49,7 +49,7 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phase 1 complete
+## Status — Phase 2 complete
 
 Development follows the phase plan in [SRS §12](docs/SRS.md), strictly in order: no
 phase starts before the previous one's acceptance criteria pass.
@@ -58,12 +58,42 @@ phase starts before the previous one's acceptance criteria pass.
 |:-----:|-------|--------|
 | **0** | Monorepo, auth/MFA/RBAC, credential vault, audit chain, CI, Docker | **Complete** |
 | **1** | Inventory, credentials, job engine, read-only enforcement framework | **Complete** |
-| 2 | Cisco IOS/IOS-XE/NX-OS/ASA collection, parsing, drift | Next |
-| 3 | Check engine + baseline library, findings, compliance mapping | Planned |
+| **2** | Cisco IOS/IOS-XE/NX-OS/ASA collection, parsing, drift | **Complete** |
+| 3 | Check engine + baseline library, findings, compliance mapping | Next |
 | 4 | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | Planned |
 | 5 | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | Planned |
 | 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | Planned |
 | 7 | Discovery, reporting, integrations, hardening | Planned |
+
+### What Phase 2 delivers
+
+- **Cisco parsers** — IOS/IOS-XE, NX-OS and ASA configurations become a vendor-neutral
+  **Normalised Config Model**. Parsing is tolerant: an unrecognised stanza is kept in
+  `raw_unparsed` and never fails a collection, and the percentage understood is stored
+  on the snapshot so a degraded parse is visible rather than silently weakening checks.
+- **Provenance on every value** — each NCM field records the artefact and line range it
+  came from, so a finding can show the operator their own configuration line instead of
+  asserting a conclusion.
+- **Absent is not false** — a service the configuration never mentions stays `null`,
+  which later reports as *Not evaluated*. Only an explicit `no ip http server` becomes
+  `false`. Blurring the two produces confident, wrong findings.
+- **Collection profiles** — what each platform is asked for, as data. A test asserts
+  every profile command already appears in the §8.2 allow-list, so a profile can never
+  widen what NetSecOps may send to a device.
+- **Redaction before storage** — secrets are replaced with fingerprinted placeholders on
+  every path that leaves the server. The unredacted original exists in one place, sealed,
+  reachable by one endpoint that needs `config:view_unredacted` and writes an audit
+  record before it answers.
+- **Snapshots and drift** — identical configurations de-duplicate to one row, ignoring
+  volatile lines like NVRAM timestamps and `ntp clock-period`. Pin a snapshot as the
+  baseline and later collections that differ raise a drift finding with the diff
+  attached, severity raised for security-relevant changes.
+- **Diff, two ways** — a unified and side-by-side text diff, plus a semantic diff over
+  the NCM that says *"management.services.telnet.enabled changed disabled → enabled"*
+  rather than leaving an operator to derive it from ±40 lines.
+- **Offline configuration upload** — assess an air-gapped or pre-onboarding device from
+  an exported configuration file, through the same storage, parsing and drift path as a
+  live collection.
 
 ### What Phase 1 delivers
 
@@ -158,19 +188,22 @@ netsecops/
 │  │  ├─ api/          # FastAPI routers, dependencies, middleware
 │  │  ├─ core/         # config, logging, crypto, security, RBAC, errors
 │  │  ├─ db/           # declarative base, session, models, Alembic migrations
+│  │  ├─ ncm/          # the Normalised Config Model (NCM v1)
+│  │  ├─ parsers/      # vendor config parsers, one package per vendor
 │  │  ├─ schemas/      # Pydantic request/response models
 │  │  ├─ services/     # business logic, independent of HTTP
 │  │  ├─ workers/      # job runner, credential probe, queue abstraction
 │  │  └─ cli.py        # netsecops-cli
 │  └─ tests/
+│     └─ fixtures/     # anonymised configs, by vendor/platform/version
 ├─ frontend/           # Vite + React 18 + TypeScript SPA
 ├─ scripts/            # smoke_test.py — post-deployment verification
 ├─ deploy/             # Dockerfiles, docker-compose, Caddy, Postgres init
 └─ docs/               # SRS, ADRs, device-account guidance, deployment
 ```
 
-Later phases add `parsers/`, `ncm/`, `checks/` and `vuln/`. Vendor-specific logic stays
-inside `adapters/` and `parsers/`; core services remain vendor-agnostic (C-6).
+Later phases add `checks/` and `vuln/`. Vendor-specific logic stays inside `adapters/`
+and `parsers/`; core services remain vendor-agnostic (C-6).
 
 ### The files worth reading first
 
@@ -179,8 +212,12 @@ inside `adapters/` and `parsers/`; core services remain vendor-agnostic (C-6).
 | [`adapters/readonly.py`](backend/netsecops/adapters/readonly.py) | The four-layer guard that enforces SRS §8 |
 | [`adapters/policies.py`](backend/netsecops/adapters/policies.py) | Exactly what NetSecOps may send to each platform |
 | [`adapters/session.py`](backend/netsecops/adapters/session.py) | Why there is no unchecked path to a device |
+| [`adapters/profiles.py`](backend/netsecops/adapters/profiles.py) | What each platform is actually asked for, and why |
+| [`ncm/models.py`](backend/netsecops/ncm/models.py) | The vendor-neutral model every check reads |
+| [`services/snapshots.py`](backend/netsecops/services/snapshots.py) | How a change is told apart from noise |
 | [`tests/test_readonly.py`](backend/tests/test_readonly.py) | 271 assertions that the guard decides correctly |
 | [`tests/test_device_session.py`](backend/tests/test_device_session.py) | That nothing else reaches a real SSH server |
+| [`tests/test_profiles.py`](backend/tests/test_profiles.py) | That a profile cannot widen the device-facing surface |
 
 ---
 

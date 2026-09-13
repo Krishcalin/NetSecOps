@@ -537,9 +537,330 @@ code {
   margin: 8px 0 0;
 }
 
+/* ─────────────────── configuration viewer (IF-UI-04) ─────────────────── */
+
+.card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.card__header .card__title {
+  margin: 0;
+}
+
+.empty {
+  color: var(--text-muted);
+  padding: 12px 0;
+}
+
+.field__input--small {
+  padding: 5px 8px;
+  font-size: 0.9rem;
+}
+
+.table__actions {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.table__row--active > td {
+  background: var(--accent-soft);
+}
+
+.alert__more {
+  color: inherit;
+  opacity: 0.85;
+}
+
+.cfg {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.cfg__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.cfg__caption,
+.cfg__note {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.cfg__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cfg__match-count {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.cfg__body {
+  max-height: 60vh;
+  overflow: auto;
+}
+
+.cfg__pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.cfg__line {
+  display: flex;
+  white-space: pre;
+}
+
+/* The gutter is sticky so a line number stays visible while reading a long,
+   horizontally-scrolled ACL. */
+.cfg__gutter {
+  position: sticky;
+  left: 0;
+  flex: 0 0 4.5em;
+  padding: 0 8px;
+  text-align: right;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.cfg__text {
+  padding: 0 10px;
+}
+
+.cfg__line--comment .cfg__text {
+  color: var(--text-muted);
+}
+
+.cfg__line--stanza .cfg__text {
+  font-weight: 600;
+}
+
+.cfg__line--negation .cfg__text {
+  color: var(--warn);
+}
+
+.cfg__line--changed {
+  background: var(--warn-soft);
+}
+
+.cfg__line--target {
+  background: var(--accent-soft);
+}
+
+.cfg__match {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  border-radius: 2px;
+}
+
+/* A redaction placeholder is marked so it reads as "removed by NetSecOps" rather
+   than as something the device actually had configured. */
+.cfg__redacted {
+  background: var(--surface-muted);
+  border: 1px dashed var(--border);
+  color: var(--text-muted);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+/* ────────────────────── diff viewer (IF-UI-05) ───────────────────────── */
+
+.diff {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.diff__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.diff__summary {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.segmented__option {
+  padding: 5px 12px;
+  border: none;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.segmented__option + .segmented__option {
+  border-left: 1px solid var(--border);
+}
+
+.segmented__option--active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+.diff__semantic {
+  padding: 12px;
+}
+
+.diff__changes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diff__change {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--surface-muted);
+  border-radius: var(--radius-sm);
+}
+
+.diff__path {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.diff__unified,
+.diff__split-body {
+  margin: 0;
+  max-height: 60vh;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  background: var(--surface);
+}
+
+.diff__line {
+  white-space: pre;
+  padding: 0 10px;
+}
+
+.diff__line--added {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.diff__line--removed {
+  background: var(--error-soft);
+  color: var(--error);
+}
+
+.diff__line--hunk,
+.diff__line--meta {
+  color: var(--text-muted);
+  background: var(--surface-muted);
+}
+
+.diff__split-head {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+}
+
+.diff__split-head span {
+  background: var(--surface-muted);
+  padding: 6px 10px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.diff__row {
+  display: grid;
+  grid-template-columns: 4em 1fr 4em 1fr;
+  white-space: pre;
+}
+
+.diff__num {
+  text-align: right;
+  padding: 0 8px;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border-right: 1px solid var(--border);
+  user-select: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.diff__cell {
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff__row--removed .diff__cell--before {
+  background: var(--error-soft);
+}
+
+.diff__row--added .diff__cell--after {
+  background: var(--ok-soft);
+}
+
+.diff__fold {
+  padding: 4px 10px;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border-block: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+
 /* ───────────────────────── narrow viewports ──────────────────────────── */
 
 @media (max-width: 860px) {
+  /* Two columns of configuration cannot fit a phone. Rather than restructuring the
+     rows — which loses the alignment that makes side-by-side worth having — the pane
+     scrolls horizontally, and the semantic and unified views remain fully readable. */
+  .diff__split-body,
+  .diff__split-head {
+    min-width: 720px;
+  }
+
+  .diff__split {
+    overflow-x: auto;
+  }
+
   .layout {
     grid-template-columns: 1fr;
   }

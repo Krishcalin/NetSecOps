@@ -1,6 +1,6 @@
 /** Application shell and routing (IF-UI-01).
  *
- * Only the routes Phase 0 delivers are live. The remaining navigation entries from
+ * Only the routes delivered so far are live. The remaining navigation entries from
  * IF-UI-01 are rendered as disabled placeholders so the information architecture is
  * visible from the start and each later phase fills one in.
  */
@@ -15,6 +15,7 @@ import { AppLayout } from '../components/AppLayout';
 import { DashboardPage } from './DashboardPage';
 import { InventoryPage } from './InventoryPage';
 import { ImportPage } from './ImportPage';
+import { DeviceConfigPage } from './DeviceConfigPage';
 import { JobsPage } from './JobsPage';
 import { AuditLogPage } from './AuditLogPage';
 import { ProfilePage } from './ProfilePage';
@@ -81,6 +82,7 @@ export function App() {
               <Route index element={<DashboardPage />} />
               <Route path="inventory" element={<InventoryPage />} />
               <Route path="inventory/import" element={<ImportPage />} />
+              <Route path="inventory/:deviceId/config" element={<DeviceConfigPage />} />
               <Route path="jobs" element={<JobsPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="profile" element={<ProfilePage />} />
