@@ -1,0 +1,37 @@
+id: fortios-admin-lockout
+title: Administrative login attempts are limited before lockout
+description: >-
+  `admin-lockout-threshold` is set to a small number of failed attempts.
+rationale: >-
+  FortiOS permits unlimited administrative login attempts by default on some releases
+  and a high threshold on others. An exposed management interface with no lockout is a
+  credential-stuffing target that will never trigger an alert on the device itself,
+  because each individual attempt is a normal failed login. A low threshold turns a
+  guessing attack into a denial of the attacker's own progress, and makes the attempt
+  visible in the logs as a lockout event rather than as noise.
+severity: medium
+
+applicability:
+  vendors: [fortinet]
+  platforms: [fortios]
+
+logic:
+  type: ncm
+  expression: management.password_policy.lockout_threshold
+  assert:
+    lte: 5
+  missing: not_evaluated
+
+remediation: >-
+  `config system global` / `set admin-lockout-threshold 3` / `set admin-lockout-duration
+  60` / `end`. Set the duration as well — a threshold with a one-second duration stops
+  nothing. Where automation authenticates as an administrator, give it its own account
+  so a broken script cannot lock out the humans.
+
+references:
+  nist_800_53: ["AC-7"]
+  pci_dss: ["8.3.4"]
+  iso_27001: ["A.8.5"]
+  cwe: ["CWE-307"]
+
+tags: [authentication, management-plane, fortinet]

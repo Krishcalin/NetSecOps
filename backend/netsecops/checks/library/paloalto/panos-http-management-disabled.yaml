@@ -1,0 +1,36 @@
+id: panos-http-management-disabled
+title: Plain HTTP management is disabled
+description: >-
+  `disable-http` is set on the management service configuration.
+rationale: >-
+  PAN-OS expresses management services as *disable* flags, so plain HTTP is on unless
+  something turns it off — the insecure state is the default and the configuration reads
+  as though nothing is wrong. An administrator session over HTTP carries the credential
+  and then the session cookie in clear text on the management network, which is the
+  network an attacker who has reached the inside is already on.
+severity: high
+
+applicability:
+  vendors: [paloalto]
+  platforms: [panos]
+
+logic:
+  type: ncm
+  expression: management.services.http.enabled
+  assert:
+    equals: false
+  missing: not_evaluated
+
+remediation: >-
+  Device → Setup → Management → Management Interface Settings, and clear the HTTP
+  service, leaving HTTPS. Do the same for Telnet. If HTTP is in use by a monitoring
+  integration, move it to the XML API over HTTPS rather than leaving the service on.
+
+references:
+  cis: ["1.3.1"]
+  nist_800_53: ["SC-8", "IA-5"]
+  pci_dss: ["2.2.5", "4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-319"]
+
+tags: [management-plane, crypto, paloalto]

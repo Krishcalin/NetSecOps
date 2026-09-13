@@ -1,0 +1,37 @@
+id: gaia-no-unrestricted-shell
+title: Administrators are confined to the clish shell
+description: >-
+  No Gaia user is assigned `/bin/bash` or another unrestricted shell.
+rationale: >-
+  Gaia's restricted shell `/etc/cli.sh` is what makes a Check Point administrator's
+  access reviewable: every command is a clish command, it is logged as one, and the
+  role-based administration model constrains which are permitted. An account whose shell
+  is `/bin/bash` bypasses all of that and lands directly on the underlying Linux system
+  with no role enforcement and no clish audit trail — the same access expert mode gives,
+  but without the separate expert password that is supposed to gate it.
+severity: high
+
+applicability:
+  vendors: [checkpoint]
+  platforms: [checkpoint_gaia]
+
+logic:
+  type: ncm
+  expression: users[?role == '/bin/bash'].name
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  `set user <name> shell /etc/cli.sh` for each affected account, and use `expert` with
+  its own password for the rare tasks that genuinely need the underlying system. Check
+  who has been using the account first — an automation job that shells in will break,
+  and it should be moved to the management API rather than have the shell restored.
+
+references:
+  nist_800_53: ["AC-6", "AU-2"]
+  pci_dss: ["7.2.1"]
+  iso_27001: ["A.8.2"]
+  cwe: ["CWE-250"]
+
+tags: [authorisation, least-privilege, checkpoint]

@@ -1,0 +1,33 @@
+id: panos-login-banner-present
+title: A login banner is configured
+description: >-
+  `login-banner` is set under the device system configuration.
+rationale: >-
+  The banner is the notice a user sees before authenticating, and in several
+  jurisdictions it is what makes monitoring of that session lawful and unauthorised
+  access prosecutable. It is cheap to set and awkward to add retrospectively, because
+  the value is in its having been there at the time of the access being investigated.
+severity: low
+
+applicability:
+  vendors: [paloalto]
+  platforms: [panos]
+
+logic:
+  type: ncm
+  expression: management.banners.login
+  assert:
+    not_equals: null
+  missing: fail
+
+remediation: >-
+  Device → Setup → Management → General Settings → Login Banner. Use the wording your
+  legal team has approved; a banner that describes the system or welcomes the user is
+  worse than none, because it neither warns nor helps.
+
+references:
+  cis: ["1.4.1"]
+  nist_800_53: ["AC-8"]
+  iso_27001: ["A.5.10"]
+
+tags: [management-plane, governance, paloalto]

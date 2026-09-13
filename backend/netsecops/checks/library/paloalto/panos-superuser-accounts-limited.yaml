@@ -1,0 +1,37 @@
+id: panos-superuser-accounts-limited
+title: Few accounts hold the superuser role
+description: >-
+  At most two local administrators have the `superuser` permissions profile.
+rationale: >-
+  PAN-OS ships role-based profiles precisely so that day-to-day work does not need
+  superuser, and the roles are meaningful: `devicereader` and `superreader` can do
+  everything an auditor or a monitoring integration needs without being able to change
+  the policy. Estates nonetheless accumulate superusers, because it is the profile that
+  never produces a permission error. Each one is an account that can disable logging,
+  alter the rulebase and clear its own traces, so the count is worth holding down.
+severity: medium
+
+applicability:
+  vendors: [paloalto]
+  platforms: [panos]
+
+logic:
+  type: ncm
+  expression: users[?role == 'superuser'].name
+  assert:
+    count_lte: 2
+  missing: not_evaluated
+
+remediation: >-
+  Move administrators to `devicereader`, `superreader` or a custom role matching what
+  they actually do, and keep superuser for a break-glass account and one named owner.
+  Integrations — monitoring, backup, NetSecOps itself — should hold a read-only role;
+  NetSecOps never writes to a device and needs nothing more.
+
+references:
+  nist_800_53: ["AC-6"]
+  pci_dss: ["7.2.1"]
+  iso_27001: ["A.8.2"]
+  cwe: ["CWE-269"]
+
+tags: [authorisation, least-privilege, paloalto]

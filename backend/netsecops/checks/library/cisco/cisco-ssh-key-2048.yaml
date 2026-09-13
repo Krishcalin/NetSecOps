@@ -12,7 +12,12 @@ severity: medium
 
 applicability:
   vendors: [cisco]
-  platforms: [cisco_ios, cisco_iosxe]
+  # NX-OS is included because it is the only one of the three whose running
+  # configuration states the key size at all — `ssh key rsa <bits>`. On IOS and IOS-XE
+  # the size comes from `show crypto key mypubkey rsa`, which the configuration does not
+  # carry, so this check reports Not Evaluated there rather than a verdict. Listing only
+  # IOS, as this did, left the check unable to evaluate on any platform it claimed.
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
 
 logic:
   type: ncm

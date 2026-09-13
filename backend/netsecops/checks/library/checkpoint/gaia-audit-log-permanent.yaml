@@ -1,0 +1,35 @@
+id: gaia-audit-log-permanent
+title: The Gaia audit log survives a reboot
+description: >-
+  `set syslog auditlog permanent` is configured.
+rationale: >-
+  The audit log records which administrator changed what on the gateway. By default Gaia
+  keeps it in memory, so it is lost on reboot — and a reboot is both a routine part of
+  applying a hotfix and the first thing an attacker who has made a change would be
+  tempted to cause. Losing exactly the record of who changed what, at exactly the moment
+  something has gone wrong, is the failure mode this setting exists to prevent.
+severity: medium
+
+applicability:
+  vendors: [checkpoint]
+  platforms: [checkpoint_gaia]
+
+logic:
+  type: ncm
+  expression: logging.config_change_logging
+  assert:
+    equals: true
+  missing: fail
+
+remediation: >-
+  `set syslog auditlog permanent` and save the configuration. Forward the audit log to
+  the syslog collector as well — a log held only on the device it describes is evidence
+  an attacker with access to that device can edit.
+
+references:
+  nist_800_53: ["AU-9", "AU-11"]
+  pci_dss: ["10.3.2"]
+  iso_27001: ["A.8.15"]
+  cwe: ["CWE-778"]
+
+tags: [logging, audit, checkpoint]

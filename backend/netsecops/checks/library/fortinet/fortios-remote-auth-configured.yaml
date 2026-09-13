@@ -1,0 +1,42 @@
+id: fortios-remote-auth-configured
+title: Administrators authenticate against a central identity provider
+description: >-
+  At least one RADIUS, TACACS+ or LDAP server is configured for administrative access.
+rationale: >-
+  Local administrative accounts on a firewall are outside every joiner-mover-leaver
+  process the organisation has. They do not appear in an access review, they are not
+  disabled when someone leaves, and their passwords are rotated only when somebody
+  remembers. Central authentication puts firewall access under the same controls as
+  everything else and gives per-administrator attribution in the logs, which a shared
+  local `admin` account cannot.
+severity: medium
+
+applicability:
+  vendors: [fortinet]
+  platforms: [fortios]
+
+logic:
+  type: ncm
+  expression: aaa.servers
+  assert:
+    empty: false
+  # Not `fail`: an unresolvable path plus `missing: fail` produces a confident wrong
+  # finding rather than an honest gap, and this check had exactly that — it named
+  # `aaa_servers`, which is not an NCM path, so a FortiGate with RADIUS configured was
+  # reported as having no central authentication at all.
+  missing: not_evaluated
+
+remediation: >-
+  Configure `config user radius` or `config user tacacs+` and bind the server to an
+  administrator group with `config system admin`. Keep exactly one local account as
+  break-glass, with a long unique password held in the password manager — an estate that
+  removes every local account discovers the gap when the RADIUS server is the thing that
+  has failed.
+
+references:
+  nist_800_53: ["IA-2", "AC-2"]
+  pci_dss: ["8.2.1"]
+  iso_27001: ["A.5.16"]
+  cwe: ["CWE-1392"]
+
+tags: [authentication, management-plane, fortinet]

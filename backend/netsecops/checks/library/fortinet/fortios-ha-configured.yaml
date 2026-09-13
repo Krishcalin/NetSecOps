@@ -1,0 +1,36 @@
+id: fortios-ha-configured
+title: The FortiGate is a member of an HA cluster
+description: >-
+  `config system ha` sets a mode other than standalone.
+rationale: >-
+  A perimeter firewall is a single point of failure for everything behind it, and a
+  standalone unit means an unplanned reboot — or a failed firmware upgrade — takes the
+  site off the network. This is availability rather than confidentiality, which is why
+  it is Low and why it ships disabled: a branch device or a lab unit is deliberately
+  standalone, and flagging every one of them would train people to ignore the category.
+  Enable it for the estate where clustering is the standard.
+severity: low
+
+applicability:
+  vendors: [fortinet]
+  platforms: [fortios]
+  device_classes: [firewall]
+
+logic:
+  type: ncm
+  expression: device.ha.enabled
+  assert:
+    equals: true
+  missing: not_evaluated
+
+remediation: >-
+  Pair the unit with an identical model on the same firmware and configure
+  `config system ha` with a shared group name and password. Both units need the same
+  licensed feature set, or the cluster will form and then fail to synchronise policy.
+
+references:
+  nist_800_53: ["CP-2", "SC-5"]
+  iso_27001: ["A.8.14"]
+
+tags: [availability, fortinet]
+enabled_by_default: false

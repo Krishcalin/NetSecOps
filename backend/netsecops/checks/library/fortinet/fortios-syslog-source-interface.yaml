@@ -1,0 +1,35 @@
+id: fortios-syslog-source-interface
+title: Syslog is sent from a fixed source address
+description: >-
+  `set source-ip` is configured on the syslog settings.
+rationale: >-
+  Without a pinned source address a FortiGate sends syslog from whichever interface the
+  route to the collector happens to use, and that changes on failover. The practical
+  consequences are both operational and evidential: the collector's per-source firewall
+  rule stops matching, so logs are silently dropped exactly when something is going
+  wrong; and the same device appears in the log store under several addresses, so a
+  query for its history returns part of it. A pinned source is also what lets a
+  correlation rule key on the device rather than on an address that moves.
+severity: low
+
+applicability:
+  vendors: [fortinet]
+  platforms: [fortios]
+
+logic:
+  type: ncm
+  expression: logging.source_interface
+  assert:
+    not_equals: null
+  missing: fail
+
+remediation: >-
+  `config log syslogd setting` / `set source-ip <loopback address>` / `end`. Use a
+  loopback rather than a physical interface so the address survives the failure of any
+  one link, and permit that address on the collector.
+
+references:
+  nist_800_53: ["AU-4", "AU-9"]
+  iso_27001: ["A.8.15"]
+
+tags: [logging, fortinet]

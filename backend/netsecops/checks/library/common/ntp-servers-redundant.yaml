@@ -1,0 +1,36 @@
+id: ntp-servers-redundant
+title: More than one NTP server is configured
+description: >-
+  The device synchronises against at least two time sources.
+rationale: >-
+  A single NTP server is a single point of failure for something every security control
+  quietly depends on. When it stops answering, the device's clock drifts; when it lies,
+  the device believes it. The consequences are not obvious until they matter:
+  certificate validation starts rejecting valid certificates or accepting expired ones,
+  Kerberos authentication fails, log timestamps stop lining up with every other system,
+  and a forensic timeline becomes unreliable exactly when someone needs to trust it.
+  Two sources let the client detect disagreement rather than following one wrong answer.
+severity: low
+
+logic:
+  type: ncm
+  expression: ntp.servers
+  assert:
+    count_gte: 2
+  # `fail` is right here: a device with one server or none has been read successfully
+  # and the answer is genuinely inadequate.
+  missing: fail
+
+remediation: >-
+  Configure at least two, and preferably three, NTP servers — three lets the client
+  identify which one is wrong rather than merely noticing a disagreement. Point them at
+  the organisation's own time infrastructure rather than at public pools where the
+  device sits behind a firewall that would have to permit the egress.
+
+references:
+  cis: ["2.3.1"]
+  nist_800_53: ["AU-8", "SC-45"]
+  pci_dss: ["10.6.1"]
+  iso_27001: ["A.8.17"]
+
+tags: [time, availability, logging]
