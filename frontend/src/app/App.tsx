@@ -16,6 +16,8 @@ import { DashboardPage } from './DashboardPage';
 import { InventoryPage } from './InventoryPage';
 import { ImportPage } from './ImportPage';
 import { DeviceConfigPage } from './DeviceConfigPage';
+import { FindingsPage } from './FindingsPage';
+import { CompliancePage } from './CompliancePage';
 import { JobsPage } from './JobsPage';
 import { AuditLogPage } from './AuditLogPage';
 import { ProfilePage } from './ProfilePage';
@@ -84,6 +86,8 @@ export function App() {
               <Route path="inventory/import" element={<ImportPage />} />
               <Route path="inventory/:deviceId/config" element={<DeviceConfigPage />} />
               <Route path="jobs" element={<JobsPage />} />
+              <Route path="findings" element={<FindingsPage />} />
+              <Route path="compliance" element={<CompliancePage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="*" element={<NotFoundPage />} />
