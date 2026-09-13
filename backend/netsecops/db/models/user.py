@@ -110,11 +110,7 @@ class UserRole(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
 
 
 class UserDeviceGroupScope(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
-    """Object-level scoping for group-scoped roles (FR-AUTH-05).
-
-    The device_groups table arrives in Phase 1, so this holds a bare UUID for now; the
-    foreign key is added by the Phase 1 migration once the target table exists.
-    """
+    """Object-level scoping for group-scoped roles (FR-AUTH-05)."""
 
     __tablename__ = "user_device_group_scopes"
     __table_args__ = (
@@ -126,7 +122,14 @@ class UserDeviceGroupScope(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     user_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
     )
-    device_group_id: Mapped[uuid.UUID] = mapped_column(PGUUID(as_uuid=True), nullable=False)
+    #: Deleting a group removes the grants that referenced it, rather than leaving a
+    #: scope row pointing at nothing. (The foreign key was deferred until Phase 1,
+    #: when device_groups came into existence.)
+    device_group_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        ForeignKey("device_groups.id", ondelete="CASCADE"),
+        nullable=False,
+    )
 
     user: Mapped[User] = relationship(back_populates="group_scopes")
 

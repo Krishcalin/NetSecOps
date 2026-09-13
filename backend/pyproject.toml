@@ -35,6 +35,9 @@ dependencies = [
     "rich>=13.9",
     "email-validator>=2.2",
     "python-multipart>=0.0.20",
+    # Device access (Phase 1). asyncssh provides both the client and the in-process
+    # test server, so TEST-02's "no live devices in CI" needs nothing extra.
+    "asyncssh>=2.18",
 ]
 
 [project.optional-dependencies]
@@ -42,6 +45,9 @@ dev = [
     "pytest>=8.3",
     "pytest-asyncio>=0.24",
     "pytest-cov>=6.0",
+    # Tests open real sockets (the fake SSH device); a hang must fail the build
+    # rather than stall CI until the job limit.
+    "pytest-timeout>=2.3",
     "factory-boy>=3.3",
     "hypothesis>=6.119",
     "ruff>=0.8",
@@ -80,6 +86,11 @@ ignore = [
     "E501",   # line length handled by formatter
     "B008",   # FastAPI Depends() in defaults is idiomatic
     "S104",   # binding 0.0.0.0 is intentional inside containers
+    # ASYNC109 prefers asyncio.timeout() at the call site over a timeout parameter.
+    # FR-COL-05 requires per-device, per-command timeouts, so the transport API takes
+    # one explicitly and applies it internally; pushing it to callers would mean every
+    # adapter re-implementing the same wrapper.
+    "ASYNC109",
 ]
 
 # Typographic characters used deliberately in prose and section rules.
@@ -106,6 +117,9 @@ ignore_missing_imports = true
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
+# No single test should take a minute. Socket-based tests that hang must fail.
+timeout = 60
+timeout_method = "thread"
 markers = [
     "authz: role × endpoint authorization matrix tests (TEST-06)",
     "integration: requires a live PostgreSQL instance",

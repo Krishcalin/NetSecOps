@@ -182,6 +182,14 @@ class SecretVault:
     def __init__(self, provider: MasterKeyProviderBase) -> None:
         self._provider = provider
 
+    def current_key_id(self) -> str:
+        """The master key id new secrets are wrapped under.
+
+        Stored alongside each record so a rotation job can find what still needs
+        re-wrapping without opening every blob.
+        """
+        return self._provider.current_key_id()
+
     def seal(self, plaintext: bytes | str, *, aad: str) -> bytes:
         """Encrypt ``plaintext``, binding it to ``aad`` (the owning row id, DATA-01)."""
         if isinstance(plaintext, str):
