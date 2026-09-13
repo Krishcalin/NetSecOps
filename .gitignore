@@ -51,6 +51,8 @@ node_modules/
 frontend/dist/
 frontend/build/
 frontend/.vite/
+# tsc's incremental cache. Machine-specific, and it changes on every typecheck.
+frontend/tsconfig.tsbuildinfo
 frontend/coverage/
 frontend/test-results/
 frontend/playwright-report/
