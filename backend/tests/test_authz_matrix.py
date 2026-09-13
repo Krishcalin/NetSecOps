@@ -84,6 +84,18 @@ _JOB_RUNNERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 #: SEC-09 — reading a device's configuration *unredacted* is its own privilege, held by
 #: neither the Network Engineer who owns the device nor the Auditor who reads the log.
 _UNREDACTED_VIEWERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+#: Everyone who may read an assessment may read the checks behind it — a finding an
+#: engineer cannot explain is a finding they will not action.
+_CHECK_READERS = frozenset(
+    {Role.SUPER_ADMIN, Role.SECURITY_ANALYST, Role.NETWORK_ENGINEER, Role.AUDITOR}
+)
+#: Writing checks and policies changes what the product asserts about every device, so
+#: it stays with the Analyst and the platform owner (SRS §2.3).
+_CHECK_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+_POLICY_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+_FINDING_TRIAGERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+#: Accepting risk is explicitly the Analyst's, per the role description in SRS §2.3.
+_EXCEPTION_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 
 MATRIX: list[Case] = [
     # ── User administration ─────────────────────────────────────────────────
@@ -203,6 +215,55 @@ MATRIX: list[Case] = [
     # SEC-09: the unredacted original is a distinct privilege. An Auditor reads the
     # audit trail but never the secrets the trail is about.
     Case("GET", "/api/v1/artifacts/{artifact_id}/raw", _UNREDACTED_VIEWERS),
+    # ── Check library and policies (FR-CHK) ─────────────────────────────────
+    Case("GET", "/api/v1/checks", _CHECK_READERS),
+    Case("GET", "/api/v1/checks/{check_id}", _CHECK_READERS),
+    Case("POST", "/api/v1/checks", _CHECK_AUTHORS, body={"definition": {}}),
+    Case("POST", "/api/v1/checks/{check_id}/preview", _CHECK_READERS),
+    Case("GET", "/api/v1/policies", _CHECK_READERS),
+    Case(
+        "POST",
+        "/api/v1/policies",
+        _POLICY_AUTHORS,
+        body={"name": "matrix-policy", "check_ids": ["telnet-disabled"]},
+    ),
+    Case("GET", "/api/v1/policies/{policy_id}", _CHECK_READERS),
+    Case(
+        "PUT",
+        "/api/v1/policies/{policy_id}/checks/{check_id}",
+        _POLICY_AUTHORS,
+        body={"enabled": False},
+    ),
+    Case(
+        "POST",
+        "/api/v1/policies/{policy_id}/assignments",
+        _POLICY_AUTHORS,
+        body={"device_group_id": "00000000-0000-0000-0000-000000000000"},
+    ),
+    Case("POST", "/api/v1/policies/{policy_id}/default", _POLICY_AUTHORS),
+    # ── Findings (FR-FIND) ──────────────────────────────────────────────────
+    Case("GET", "/api/v1/findings", _DEVICE_READERS),
+    Case("GET", "/api/v1/findings/{finding_id}", _DEVICE_READERS),
+    # A Network Engineer sees findings for their devices but does not triage them;
+    # SRS §2.3 makes accepting risk the Analyst's decision.
+    Case("PATCH", "/api/v1/findings/{finding_id}", _FINDING_TRIAGERS, body={"status": "open"}),
+    Case("GET", "/api/v1/devices/{device_id}/checks", _CHECK_READERS),
+    Case("GET", "/api/v1/devices/{device_id}/risk", _DEVICE_READERS),
+    Case("GET", "/api/v1/compliance/{framework}", _DEVICE_READERS),
+    # ── Exceptions (FR-CHK-07) ──────────────────────────────────────────────
+    Case("GET", "/api/v1/exceptions", _CHECK_READERS),
+    Case(
+        "POST",
+        "/api/v1/exceptions",
+        _EXCEPTION_AUTHORS,
+        body={
+            "check_id": "telnet-disabled",
+            "scope": "global",
+            "justification": "Matrix test justification, long enough to pass validation.",
+            "expires_at": "2030-01-01T00:00:00Z",
+        },
+    ),
+    Case("DELETE", "/api/v1/exceptions/{exception_id}", _EXCEPTION_AUTHORS),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS
@@ -220,6 +281,13 @@ def _resolve(path: str, target: User) -> str:
         .replace("{snapshot_id}", str(uuid.uuid4()))
         .replace("{collection_id}", str(uuid.uuid4()))
         .replace("{artifact_id}", str(uuid.uuid4()))
+        .replace("{policy_id}", str(uuid.uuid4()))
+        .replace("{exception_id}", str(uuid.uuid4()))
+        .replace("{finding_id}", str(uuid.uuid4()))
+        # Concrete rather than random: these two are looked up by name, and a random
+        # string would 404 before authorization was consulted on some paths.
+        .replace("{check_id}", "telnet-disabled")
+        .replace("{framework}", "cis")
     )
 
 

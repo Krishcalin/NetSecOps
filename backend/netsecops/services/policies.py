@@ -7,10 +7,11 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
+from pydantic import ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from netsecops.checks.loader import CheckRegistry, get_registry
+from netsecops.checks.loader import CheckRegistry, explain_validation_error, get_registry
 from netsecops.checks.policy_packs import get_packs
 from netsecops.checks.schema import CheckDefinition, LogicType, Severity
 from netsecops.core.errors import ConflictError, NotFoundError, ValidationProblem
@@ -103,8 +104,14 @@ class PolicyService:
                     )
                 )
 
+            # Refreshed so `policy.entries` is populated. A relationship on a row that
+            # was added rather than queried is unloaded, and touching one under async
+            # SQLAlchemy raises MissingGreenlet rather than lazily loading.
+            await self.session.flush()
+            await self.session.refresh(policy, ["entries"])
+
             installed.append(policy)
-            log.info("policy.pack_installed", pack=pack.source, checks=len(pack.checks))
+            log.info("policy.pack_installed", pack=pack.source, checks=len(policy.entries))
 
         if make_default and installed:
             has_default = (
@@ -178,6 +185,7 @@ class PolicyService:
         for check_id in check_ids:
             self.session.add(PolicyCheck(org_id=org_id, policy_id=policy.id, check_id=check_id))
         await self.session.flush()
+        await self.session.refresh(policy, ["entries"])
 
         await self.audit.record(
             AuditAction.SETTINGS_CHANGED,
@@ -335,7 +343,20 @@ class PolicyService:
         declares Python logic: accepting a function name from a web form would let a
         user invoke any registered callable, and accepting code would be worse.
         """
-        parsed = CheckDefinition.model_validate(definition)
+        try:
+            parsed = CheckDefinition.model_validate(definition)
+        except ValidationError as exc:
+            # This is operator input from a web form, so a schema failure is a 422 with
+            # the field names — not a 500 with a stack trace. The message is the same
+            # one the YAML loader gives, because it is the same schema and the author
+            # should not have to learn two vocabularies.
+            raise ValidationProblem(
+                f"The check definition is not valid: {explain_validation_error(exc)}",
+                errors=[
+                    {"field": ".".join(str(p) for p in e["loc"]), "message": e["msg"]}
+                    for e in exc.errors()
+                ],
+            ) from exc
 
         if parsed.logic.type is LogicType.PYTHON:
             raise ValidationProblem(

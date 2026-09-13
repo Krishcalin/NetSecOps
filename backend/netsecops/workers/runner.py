@@ -439,9 +439,7 @@ async def _collect_profile(
         # A partial collection is still assessed. The checks whose data is missing
         # report Not Evaluated, which is the honest answer and the one FR-COL-08 asks
         # for — far better than skipping the assessment and reporting nothing at all.
-        assessment = await AssessmentService(session).assess(
-            device, snapshot, job_id=job.id, config_text=config_text
-        )
+        assessment = await AssessmentService(session).assess(device, snapshot, job_id=job.id)
         outcome.checks_run = len(assessment.results)
         outcome.findings_opened = assessment.findings_opened
         outcome.findings_resolved = assessment.findings_resolved

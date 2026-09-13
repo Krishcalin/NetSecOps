@@ -311,9 +311,16 @@ class AssessmentService:
         *,
         job_id: uuid.UUID | None = None,
         policy: Policy | None = None,
-        config_text: str | None = None,
     ) -> AssessmentOutcome:
-        """Evaluate the device's policy against a snapshot and store everything."""
+        """Evaluate the device's policy against a snapshot and store everything.
+
+        There is deliberately no way to supply configuration text here. Regex checks
+        read ``snapshot.config_redacted`` and nothing else, because their matched lines
+        become evidence on a finding, and a finding travels into exports, emails and
+        tickets. An earlier version accepted the raw collected output as an argument
+        and the job runner duly passed it — which put unredacted configuration one
+        parameter away from every finding the system produces (C-2).
+        """
         resolved_policy = policy if policy is not None else await self.policy_for_device(device)
         definitions, overrides = await self.checks_for_policy(resolved_policy, org_id=device.org_id)
 
@@ -328,7 +335,7 @@ class AssessmentService:
             definitions,
             snapshot.ncm,
             device=context,
-            config_text=config_text if config_text is not None else snapshot.config_redacted,
+            config_text=snapshot.config_redacted,
             severity_overrides=overrides,
         )
 

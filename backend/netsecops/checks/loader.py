@@ -65,7 +65,7 @@ def load_file(path: Path, *, pack: str | None = None) -> LoadedCheck:
     try:
         definition = CheckDefinition.model_validate(data)
     except ValidationError as exc:
-        raise CheckLoadError(f"{path}: {_explain(exc)}") from exc
+        raise CheckLoadError(f"{path}: {explain_validation_error(exc)}") from exc
 
     if definition.id != path.stem:
         raise CheckLoadError(
@@ -76,8 +76,12 @@ def load_file(path: Path, *, pack: str | None = None) -> LoadedCheck:
     return LoadedCheck(definition=definition, pack=pack or path.parent.name, source=path)
 
 
-def _explain(error: ValidationError) -> str:
-    """Turn a Pydantic error into something a check author can act on."""
+def explain_validation_error(error: ValidationError) -> str:
+    """Turn a Pydantic error into something a check author can act on.
+
+    Shared with the custom-check endpoint so an author sees the same wording whether
+    their definition came from a file or from the UI editor.
+    """
     parts = []
     for item in error.errors():
         location = ".".join(str(piece) for piece in item["loc"]) or "(root)"
@@ -194,6 +198,7 @@ __all__ = [
     "CheckLoadError",
     "CheckRegistry",
     "LoadedCheck",
+    "explain_validation_error",
     "get_registry",
     "load_file",
     "load_library",

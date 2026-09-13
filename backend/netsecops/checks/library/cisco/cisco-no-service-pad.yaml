@@ -21,7 +21,9 @@ logic:
   missing: fail
 
 remediation: >-
-  Configure `no service pad`.
+  Configure `no service pad`. X.25 is not in use anywhere this would affect, so the
+  change carries no operational risk — it simply removes a listener that has been
+  running unattended since the device was commissioned.
 
 references:
   cis: ["1.4.6"]

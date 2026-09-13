@@ -21,7 +21,9 @@ logic:
   missing: fail
 
 remediation: >-
-  Configure `no ip bootp server`.
+  Configure `no ip bootp server`. Nothing in a modern network requests a boot image
+  this way, so there is no compatibility exposure to weigh; confirm with
+  `show ip sockets` that nothing is still listening on UDP 67 afterwards.
 
 references:
   cis: ["1.4.2"]

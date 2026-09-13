@@ -697,6 +697,17 @@ class InventoryService:
             )
         )
 
+    async def visible_device_ids(self, scope: Scope) -> list[uuid.UUID]:
+        """Every device id a principal may see (FR-AUTH-05).
+
+        For queries over objects that hang off a device — findings, check results —
+        which need the same restriction but are not device rows themselves. Scoping is
+        applied here rather than by each caller so there is one implementation of the
+        group hierarchy walk to get wrong.
+        """
+        stmt = await self._apply_scope(select(Device), scope)
+        return list((await self.session.execute(stmt.with_only_columns(Device.id))).scalars().all())
+
     async def _scope_allows(self, device: Device, scope: Scope) -> bool:
         if scope.unrestricted:
             return True
