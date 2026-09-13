@@ -685,8 +685,9 @@ Discovery & fingerprinting; PDF/XLSX reports & scheduling; dashboards; SMTP/webh
 
 ## Appendix D — Open questions to resolve before Phase 4
 
-Answers are recorded here as they are given. The original question is kept alongside
-each so the register stays readable as a decision history rather than a to-do list.
+**All five are resolved as of 2026-09-13.** Answers are recorded here as they were given,
+with the original question kept alongside each so this reads as a decision history rather
+than a to-do list. The reasoning for anything non-obvious is in the linked ADR.
 
 1. ~~Confirm licensing/availability of Cisco PSIRT openVuln API credentials for the deployment.~~
    **Resolved 2026-09-13.** Credentials will be obtained from the Cisco API Console as a
@@ -698,13 +699,19 @@ each so the register stays readable as a decision history rather than a to-do li
    **Resolved 2026-09-13: permitted, per-device opt-in.** See
    [ADR-002](adr/ADR-002-checkpoint-expert-mode.md). `allow_expert` stays false until an
    operator sets it on a named device.
-3. Decide on Procrastinate vs Celery/Redis after Phase 1 load test (ADR-001).
-   *Still open.* ADR-001 is Accepted provisionally; the load test that would confirm or
-   overturn it has not been run.
-4. Confirm branding/report classification labels and which regulatory framework packs ship enabled by default.
-   *Still open.* Does not block Phase 4 — it affects Phase 7 reporting and the default
-   policy selection. The check library already carries CIS, NIST 800-53, PCI DSS and
-   ISO 27001 mappings, so this is a question of defaults rather than of coverage.
+3. ~~Decide on Procrastinate vs Celery/Redis after Phase 1 load test (ADR-001).~~
+   **Resolved 2026-09-13: Procrastinate, confirmed by measurement.** The load test
+   ([ADR-001](adr/ADR-001-job-queue.md), `pytest -m performance`) measured 20 workers
+   sustaining ~14 device-claims per second against the 0.139/s NFR-PERF-01 implies —
+   about 100× headroom, with queue coordination consuming roughly 1% of the 60-minute
+   budget for 500 devices. The remaining 99% is SSH, which no queue choice affects.
+4. ~~Confirm branding/report classification labels and which regulatory framework packs ship enabled by default.~~
+   **Resolved 2026-09-13.** See
+   [ADR-004](adr/ADR-004-report-branding-and-default-frameworks.md): reports carry a
+   configurable classification banner defaulting to `CONFIDENTIAL`; the customer's name
+   and logo appear alongside the product's rather than replacing it, because a report is
+   evidence and evidence should name its source; CIS ships enabled, with NIST 800-53,
+   PCI DSS and ISO 27001 mapped but not enabled.
 5. ~~Confirm whether FortiSwitch/FortiAP data should be pulled via the parent FortiGate only (default) or also directly.~~
    **Resolved 2026-09-13: via the parent FortiGate only.** See
    [ADR-003](adr/ADR-003-fortiswitch-fortiap-collection.md). NetSecOps stores no

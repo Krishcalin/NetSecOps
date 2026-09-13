@@ -274,6 +274,17 @@ Backend tests run against a real PostgreSQL instance (the schema uses JSONB, INE
 advisory locks, so a substitute engine would not test what ships). `make db` starts one;
 override the target with `TEST_DATABASE_URL`.
 
+Load tests are opt-in, because they commit real rows and take seconds rather than
+milliseconds:
+
+```bash
+cd backend && ../.venv/bin/python -m pytest -m performance -s
+```
+
+They measure job-queue throughput against NFR-PERF-01 — 20 workers sustain roughly 100×
+the required device-claim rate, which is the evidence behind
+[ADR-001](docs/adr/ADR-001-job-queue.md).
+
 ### Conventions
 
 - Python 3.12+, type hints everywhere, `mypy --strict` clean.

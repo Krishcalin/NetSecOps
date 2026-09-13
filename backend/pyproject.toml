@@ -121,13 +121,16 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-ra --strict-markers"
+# Performance tests commit real rows and take seconds rather than milliseconds, so
+# they are opt-in: run them with `-m performance`.
+addopts = "-ra --strict-markers -m 'not performance'"
 # No single test should take a minute. Socket-based tests that hang must fail.
 timeout = 60
 timeout_method = "thread"
 markers = [
     "authz: role × endpoint authorization matrix tests (TEST-06)",
     "integration: requires a live PostgreSQL instance",
+    "performance: load tests for NFR-PERF-01 and ADR-001; excluded from the default run",
 ]
 
 [tool.coverage.run]
