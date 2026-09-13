@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.adapters.policies import get_policy
+from netsecops.adapters.profiles import get_profile, has_profile
 from netsecops.adapters.readonly import ReadOnlyGuard
 from netsecops.adapters.recorder import AuditingRecorder
 from netsecops.adapters.session import DeviceSession
@@ -28,15 +30,18 @@ from netsecops.adapters.transport import (
 )
 from netsecops.core.config import get_settings
 from netsecops.core.crypto import SecretVault
-from netsecops.core.errors import ValidationProblem
+from netsecops.core.errors import ReadOnlyViolationError, ValidationProblem
 from netsecops.core.logging import correlation_id, get_logger
 from netsecops.core.rbac import Principal, Role, Scope
+from netsecops.db.models.collection import Collection
 from netsecops.db.models.inventory import Credential, CredentialType, Device
 from netsecops.db.models.jobs import ErrorClass, Job, JobDevice, JobStatus, JobType
 from netsecops.db.session import session_scope
+from netsecops.ncm.models import NCM_VERSION
 from netsecops.services.audit import AuditService
 from netsecops.services.credentials import CredentialService, ResolvedCredential
 from netsecops.services.jobs import JobService, classify_error
+from netsecops.services.snapshots import SnapshotService
 
 log = get_logger(__name__)
 
@@ -44,6 +49,7 @@ log = get_logger(__name__)
 #: on every platform's allow-list, whose failure is unambiguous.
 PROBE_COMMANDS: dict[str, str] = {
     "cisco_ios": "show version",
+    "cisco_iosxe": "show version",
     "cisco_nxos": "show version",
     "cisco_iosxr": "show version",
     "cisco_asa": "show version",
@@ -65,6 +71,12 @@ class DeviceOutcome:
     credential_id: uuid.UUID | None = None
     command_count: int = 0
     output: str = ""
+    #: Phase 2 results. Populated for a collection, left None by a credential test.
+    snapshot_id: uuid.UUID | None = None
+    collection_id: uuid.UUID | None = None
+    #: Some supplementary command failed; the configuration still arrived (FR-COL-08).
+    partial: bool = False
+    drift_detected: bool = False
 
 
 async def run_job(job_id: uuid.UUID, **context: Any) -> None:
@@ -260,22 +272,154 @@ async def _collect_with(
         command_timeout=device.command_timeout or settings.device_command_timeout,
     )
 
+    job_type = JobType(job.job_type)
+
     async with device_session:
         # Pin the host key on first contact (FR-COL-10).
         if device.host_key_fingerprint is None and transport.observed_fingerprint:
             device.host_key_fingerprint = transport.observed_fingerprint
             await session.flush()
 
-        commands = _commands_for(JobType(job.job_type), platform)
-        results = await device_session.run_all(commands)
+        if job_type is JobType.CREDENTIAL_TEST or not has_profile(platform):
+            # A credential test proves the session works and stops there; collecting a
+            # full configuration to answer "do these credentials work" would be a
+            # needless read of sensitive data (FR-CRED-05).
+            results = await device_session.run_all(_probe_commands(platform))
+            return DeviceOutcome(
+                device_id=device.id,
+                succeeded=all(r.succeeded for r in results),
+                credential_id=credential.id,
+                command_count=device_session.commands_sent,
+                output="\n".join(r.output for r in results),
+            )
 
-    output = "\n".join(r.output for r in results)
+        outcome = await _collect_profile(
+            session, job, device, device_session, platform, vault=vault
+        )
+
+    outcome.credential_id = credential.id
+    outcome.command_count = device_session.commands_sent
+    return outcome
+
+
+async def _collect_profile(
+    session: AsyncSession,
+    job: Job,
+    device: Device,
+    device_session: DeviceSession,
+    platform: str,
+    *,
+    vault: SecretVault | None = None,
+) -> DeviceOutcome:
+    """Run a platform's collection profile and turn the result into stored evidence.
+
+    A command that fails marks the collection *partial* rather than failing it
+    (FR-COL-08) — except the configuration itself, without which there is nothing to
+    assess. A read-only violation is never caught here: it means NetSecOps attempted
+    something it guarantees it never does, and the collection must stop (FR-COL-04).
+    """
+    profile = get_profile(platform)
+    snapshots = SnapshotService(session, vault=vault)
+
+    collection = Collection(
+        org_id=job.org_id,
+        device_id=device.id,
+        adapter=platform,
+        adapter_version=NCM_VERSION,
+        started_at=datetime.now(UTC),
+    )
+    session.add(collection)
+    await session.flush()
+
+    # Setup commands are session-only (paging, width). They produce no evidence, so
+    # they are sent but never stored — an artefact of "terminal length 0" would be
+    # noise in the very place an auditor needs signal.
+    for command in profile.setup:
+        try:
+            await device_session.run(command)
+        except ReadOnlyViolationError:
+            raise
+        except Exception as exc:
+            log.info("collect.setup_failed", command=command, error=str(exc))
+
+    config_text: str | None = None
+    failures: list[str] = []
+
+    for ordinal, entry in enumerate(profile.commands):
+        try:
+            result = await device_session.run(entry.command)
+        except ReadOnlyViolationError:
+            raise
+        except Exception as exc:
+            if entry.required:
+                raise
+            failures.append(entry.command)
+            log.info(
+                "collect.command_failed",
+                device_id=str(device.id),
+                command=entry.command,
+                error=str(exc),
+            )
+            await snapshots.store_artifact(
+                collection,
+                command=entry.command,
+                response="",
+                ordinal=ordinal,
+                succeeded=False,
+            )
+            continue
+
+        await snapshots.store_artifact(
+            collection,
+            command=entry.command,
+            response=result.output,
+            ordinal=ordinal,
+            duration_ms=result.duration_ms,
+            succeeded=result.succeeded,
+        )
+        if entry.yields_config:
+            config_text = result.output
+        if not result.succeeded:
+            failures.append(entry.command)
+
+    collection.finished_at = datetime.now(UTC)
+    collection.partial = bool(failures)
+    if failures:
+        # Named, not counted: a check reported "not evaluated" is only actionable if
+        # the operator can see which command was missing.
+        collection.error_message = "Commands that produced no usable output: " + ", ".join(failures)
+    await session.flush()
+
+    if not config_text:
+        raise ValidationProblem(
+            f"Device {device.mgmt_ip} returned no configuration for '{profile.config_command}'."
+        )
+
+    snapshot = await snapshots.create_snapshot(
+        device,
+        config_text=config_text,
+        collection=collection,
+        platform=platform,
+        command=profile.config_command,
+    )
+
+    drift = await snapshots.detect_drift(device, snapshot)
+    if drift.changed:
+        await snapshots.record_drift_finding(device, snapshot, drift)
+    else:
+        await snapshots.resolve_drift_finding(device)
+
+    await session.flush()
+
     return DeviceOutcome(
         device_id=device.id,
-        succeeded=all(r.succeeded for r in results),
-        credential_id=credential.id,
-        command_count=device_session.commands_sent,
-        output=output,
+        # Partial is a success: the configuration arrived and the device is assessable.
+        succeeded=True,
+        output=f"snapshot {snapshot.id}",
+        snapshot_id=snapshot.id,
+        collection_id=collection.id,
+        partial=collection.partial,
+        drift_detected=drift.changed,
     )
 
 
@@ -321,18 +465,11 @@ def _build_transport(
     )
 
 
-def _commands_for(job_type: JobType, platform: str) -> list[str]:
-    """Which commands a job type issues.
-
-    Phase 1 only needs the probe. Full collection profiles arrive with the adapters in
-    Phase 2; keeping the choice here means the runner does not change when they do.
-    """
+def _probe_commands(platform: str) -> list[str]:
+    """The cheapest read that proves a session works (FR-CRED-05)."""
     probe = PROBE_COMMANDS.get(platform)
     if probe is None:
         raise ValidationProblem(f"No probe command is defined for platform '{platform}'.")
-
-    if job_type is JobType.CREDENTIAL_TEST:
-        return [probe]
     return [probe]
 
 

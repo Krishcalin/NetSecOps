@@ -74,6 +74,11 @@ class AuditAction(StrEnum):
     JOB_CANCELLED = "job.cancelled"
     JOB_COMPLETED = "job.completed"
 
+    # Baselines (Phase 2). Pinning decides what "drift" means for a device, so it is an
+    # operator decision worth naming separately rather than folding into device.updated.
+    BASELINE_PINNED = "baseline.pinned"
+    BASELINE_CLEARED = "baseline.cleared"
+
     #: Every command or API call issued to a device (FR-AUD-01, SRS §8.1 item 8).
     DEVICE_COMMAND = "device.command"
     READONLY_VIOLATION = "device.readonly_violation"

@@ -109,7 +109,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["netsecops/db/migrations/versions/"]
 
 [[tool.mypy.overrides]]
-module = ["pyotp.*", "qrcode.*", "factory.*"]
+module = ["pyotp.*", "qrcode.*", "factory.*", "ciscoconfparse2.*"]
 ignore_missing_imports = true
 
 # ─────────────────────────── pytest ─────────────────────────

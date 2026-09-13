@@ -48,7 +48,14 @@ class FakeDeviceServer:
     port: int
     #: Every command the server received, in order. The point of the whole fixture.
     received: list[str] = field(default_factory=list)
+    #: What the device answers. Mutable so a test can change the device's
+    #: configuration between collections, which is what drift detection is about.
+    responses: dict[str, str] = field(default_factory=dict)
     _server: asyncssh.SSHAcceptor | None = None
+
+    def set_response(self, command: str, output: str) -> None:
+        """Change what the device says, as a real configuration change would."""
+        self.responses[command.strip().lower()] = output
 
     @property
     def address(self) -> tuple[str, int]:
@@ -66,7 +73,7 @@ class FakeDeviceServer:
                 )
 
 
-def _make_handler(record: FakeDeviceServer, responses: dict[str, str]):
+def _make_handler(record: FakeDeviceServer):
     """Build the per-connection process handler.
 
     ``process_factory`` is asyncssh's high-level server API: it hands us the requested
@@ -85,7 +92,7 @@ def _make_handler(record: FakeDeviceServer, responses: dict[str, str]):
 
         record.received.append(command)
 
-        response = responses.get(command.strip().lower())
+        response = record.responses.get(command.strip().lower())
         if response is None:
             # Match how an IOS device rejects an unknown command, so the unhappy path
             # is exercised rather than assumed.
@@ -123,8 +130,9 @@ async def start_fake_device(
     host: str = "127.0.0.1",
 ) -> FakeDeviceServer:
     """Start a fake device on an ephemeral port."""
-    record = FakeDeviceServer(host=host, port=0)
-    table = {**DEFAULT_RESPONSES, **(responses or {})}
+    record = FakeDeviceServer(
+        host=host, port=0, responses={**DEFAULT_RESPONSES, **(responses or {})}
+    )
 
     # A throwaway host key, generated per server so tests never share one.
     host_key = asyncssh.generate_private_key("ssh-rsa", key_size=2048)
@@ -134,7 +142,7 @@ async def start_fake_device(
         host,
         0,
         server_host_keys=[host_key],
-        process_factory=_make_handler(record, table),
+        process_factory=_make_handler(record),
     )
 
     record.port = acceptor.get_port()
