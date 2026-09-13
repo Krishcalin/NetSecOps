@@ -48,6 +48,24 @@ class Relationship(StrEnum):
     GENERALISATION = "generalisation"
 
 
+#: Third-person forms of the actions vendors use. Appending "s" gives "denys", which
+#: appears in a finding an operator reads and undermines everything around it.
+_ACTION_VERBS: dict[str, str] = {
+    "deny": "denies",
+    "drop": "drops",
+    "allow": "allows",
+    "permit": "permits",
+    "accept": "accepts",
+    "reset": "resets",
+    "reject": "rejects",
+}
+
+
+def _third_person(action: str) -> str:
+    lowered = action.lower()
+    return _ACTION_VERBS.get(lowered, f"{lowered}s")
+
+
 #: How severe each relationship is, by default. A policy can re-grade them.
 RELATIONSHIP_SEVERITY: dict[Relationship, str] = {
     Relationship.SHADOWED: "high",
@@ -108,7 +126,7 @@ class RuleRelationship:
             case Relationship.SHADOWED:
                 return (
                     f"#{earlier.order} already matches everything #{later.order} does, "
-                    f"and {earlier.action}s it instead"
+                    f"and {_third_person(earlier.action)} it instead"
                 )
             case Relationship.REDUNDANT:
                 return f"#{earlier.order} already matches everything #{later.order} does"

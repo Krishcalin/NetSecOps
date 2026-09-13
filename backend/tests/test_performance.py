@@ -287,3 +287,187 @@ class TestJobQueueThroughput:
 
         finally:
             await _cleanup(perf_engine, marker)
+
+
+# ────────────────── firewall rule analysis (NFR-PERF-03) ────────────────────
+
+#: NFR-PERF-03: rule relationship analysis for a 5,000-rule rulebase in ≤ 2 minutes.
+RULEBASE_SIZE = 5_000
+RULEBASE_BUDGET_SECONDS = 120.0
+
+
+def _synthetic_rulebase(count: int, *, seed: int = 7) -> dict:
+    """A rulebase shaped like a real one.
+
+    Mostly /24s drawn from a pool of objects, a scattering of genuinely broad rules,
+    some disabled, spread over six zones. The shape matters: a rulebase where nothing
+    overlaps would exercise only the prefilter and prove nothing.
+    """
+    import random
+
+    rng = random.Random(seed)
+    zones = ["trust", "untrust", "dmz", "guest", "mgmt", "partner"]
+
+    address_objects = [
+        {"name": f"net-{n}", "type": "subnet", "value": f"10.{n // 256}.{n % 256}.0/24"}
+        for n in range(200)
+    ]
+    address_groups = [
+        {
+            "name": f"grp-{g}",
+            "type": "group",
+            "members": [f"net-{rng.randrange(200)}" for _ in range(5)],
+        }
+        for g in range(20)
+    ]
+    services = [
+        {"name": "web", "type": "tcp", "value": "tcp/443"},
+        {"name": "http", "type": "tcp", "value": "tcp/80"},
+        {"name": "ssh", "type": "tcp", "value": "tcp/22"},
+        {"name": "db", "type": "tcp", "value": "tcp/1433-1435"},
+        {"name": "dns", "type": "udp", "value": "udp/53"},
+        {"name": "high", "type": "tcp", "value": "tcp/1024-65535"},
+    ]
+
+    rules = []
+    for i in range(count):
+        broad = rng.random() < 0.02
+        rules.append(
+            {
+                "order": i + 1,
+                "name": f"rule-{i + 1}",
+                "enabled": rng.random() > 0.05,
+                "src_zones": [rng.choice(zones)],
+                "dst_zones": [rng.choice(zones)],
+                "src": ["any"]
+                if broad
+                else [rng.choice([f"net-{rng.randrange(200)}", f"grp-{rng.randrange(20)}"])],
+                "dst": ["any"] if broad else [f"net-{rng.randrange(200)}"],
+                "services": ["any"] if broad else [rng.choice(services)["name"]],
+                "action": "allow" if rng.random() > 0.25 else "deny",
+                "log_end": rng.random() > 0.2,
+                "profiles": {} if rng.random() < 0.3 else {"ips": "strict"},
+            }
+        )
+
+    return {
+        "address_objects": address_objects,
+        "address_groups": address_groups,
+        "service_objects": services,
+        "service_groups": [],
+        "security_rules": rules,
+    }
+
+
+def _adversarial_rulebase(count: int) -> dict:
+    """The shape that defeats every prefilter.
+
+    One zone pair, every source overlapping so the address signature never rejects,
+    alternating actions and no containment so nothing is shadowed and the early break
+    never fires. All n(n-1)/2 pairs go through the full set arithmetic. No real rulebase
+    looks like this, which is exactly why it is the number worth quoting.
+    """
+    rules = []
+    for i in range(count):
+        lo = i % 200
+        rules.append(
+            {
+                "order": i + 1,
+                "name": f"rule-{i + 1}",
+                "enabled": True,
+                "src_zones": ["trust"],
+                "dst_zones": ["untrust"],
+                "src": [f"10.{lo}.0.0-10.{lo + 40}.255.255"],
+                "dst": [f"172.16.{lo % 100}.0-172.16.{(lo % 100) + 50}.255"],
+                "services": [f"tcp/{1000 + (i % 50) * 10}-{1400 + (i % 50) * 10}"],
+                "action": "allow" if i % 2 else "deny",
+                "log_end": True,
+            }
+        )
+    return {
+        "address_objects": [],
+        "address_groups": [],
+        "service_objects": [],
+        "service_groups": [],
+        "security_rules": rules,
+    }
+
+
+class TestFirewallAnalysisPerformance:
+    """NFR-PERF-03, and the Phase 4 acceptance criterion."""
+
+    def test_a_realistic_five_thousand_rule_rulebase(self) -> None:
+        from netsecops.firewall.analysis import analyse
+        from netsecops.firewall.model import resolve_rulebase
+
+        firewall = _synthetic_rulebase(RULEBASE_SIZE)
+
+        started = time.perf_counter()
+        rules, _ = resolve_rulebase(firewall)
+        result = analyse(rules, max_relationships=10_000_000)
+        elapsed = time.perf_counter() - started
+
+        print(
+            f"\nrealistic: {RULEBASE_SIZE} rules in {elapsed:.2f}s of "
+            f"{RULEBASE_BUDGET_SECONDS:.0f}s "
+            f"({elapsed / RULEBASE_BUDGET_SECONDS * 100:.1f}% of budget); "
+            f"{result.pairs_considered:,} pairs considered, "
+            f"{result.pairs_compared:,} fully compared, "
+            f"{result.total_found:,} relationships"
+        )
+
+        assert elapsed < RULEBASE_BUDGET_SECONDS, (
+            f"{RULEBASE_SIZE} rules took {elapsed:.1f}s against a "
+            f"{RULEBASE_BUDGET_SECONDS:.0f}s budget"
+        )
+        assert result.rules_analysed > RULEBASE_SIZE * 0.9
+        # The prefilters must actually be filtering. If nearly every pair reached full
+        # comparison, the measurement above is luck rather than design.
+        assert result.pairs_compared < result.pairs_considered * 0.05
+
+    def test_the_adversarial_worst_case_also_fits(self) -> None:
+        """The number worth quoting, because it does not depend on the rulebase being
+        well behaved."""
+        from netsecops.firewall.analysis import analyse
+        from netsecops.firewall.model import resolve_rulebase
+
+        firewall = _adversarial_rulebase(RULEBASE_SIZE)
+
+        started = time.perf_counter()
+        rules, _ = resolve_rulebase(firewall)
+        # The production cap is 2,000; this materialises everything so the cost is the
+        # full traversal rather than how quickly the analysis can give up.
+        result = analyse(rules, max_relationships=50_000_000)
+        elapsed = time.perf_counter() - started
+
+        print(
+            f"\nadversarial: {RULEBASE_SIZE} rules in {elapsed:.2f}s of "
+            f"{RULEBASE_BUDGET_SECONDS:.0f}s "
+            f"({elapsed / RULEBASE_BUDGET_SECONDS * 100:.1f}% of budget); "
+            f"{result.pairs_considered:,} pairs, {result.total_found:,} relationships"
+        )
+
+        assert elapsed < RULEBASE_BUDGET_SECONDS, (
+            f"the adversarial {RULEBASE_SIZE}-rule case took {elapsed:.1f}s against a "
+            f"{RULEBASE_BUDGET_SECONDS:.0f}s budget"
+        )
+        # Every pair really was examined — otherwise this is not the worst case.
+        expected_pairs = RULEBASE_SIZE * (RULEBASE_SIZE - 1) // 2
+        assert result.pairs_considered == expected_pairs
+
+    def test_the_production_cap_keeps_a_pathological_rulebase_fast(self) -> None:
+        """With the shipped cap, even the adversarial case returns quickly — and the
+        counts stay truthful about how much was found."""
+        from netsecops.firewall.analysis import MAX_RELATIONSHIPS, analyse
+        from netsecops.firewall.model import resolve_rulebase
+
+        rules, _ = resolve_rulebase(_adversarial_rulebase(RULEBASE_SIZE))
+
+        started = time.perf_counter()
+        result = analyse(rules)
+        elapsed = time.perf_counter() - started
+
+        assert elapsed < RULEBASE_BUDGET_SECONDS
+        assert len(result.relationships) == MAX_RELATIONSHIPS
+        assert result.truncated
+        assert result.total_found > MAX_RELATIONSHIPS
