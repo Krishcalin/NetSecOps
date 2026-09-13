@@ -1,0 +1,34 @@
+id: cisco-vty-transport-ssh-only
+title: VTY lines accept SSH only
+description: >-
+  No `line vty` block permits a transport other than SSH — in particular not
+  `transport input all` or `telnet`.
+rationale: >-
+  This is the configuration-level counterpart to the telnet check, and it catches what
+  a feature flag does not: `transport input all` permits Telnet, rlogin and every other
+  transport the image supports, without naming any of them. It is a common default on
+  older configurations and reads as harmless because the word "telnet" never appears.
+severity: critical
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: regex
+  pattern: '^\s*transport input (all|telnet|lat|pad|rlogin|udptn)\b'
+  expect: absent
+
+remediation: >-
+  Set `transport input ssh` under every `line vty` block, and `transport output none`
+  unless the device genuinely needs to originate sessions. Verify SSH access works
+  first.
+
+references:
+  cis: ["1.2.4"]
+  nist_800_53: ["AC-17", "SC-8", "CM-7"]
+  pci_dss: ["2.2.5", "4.1"]
+  iso_27001: ["A.8.20"]
+  cwe: ["CWE-319"]
+
+tags: [management-plane, cleartext, cisco, cis-level-1]

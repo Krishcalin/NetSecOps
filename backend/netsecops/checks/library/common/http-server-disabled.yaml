@@ -1,0 +1,31 @@
+id: http-server-disabled
+title: The plain HTTP management server is disabled
+description: >-
+  The device must not serve its management interface over unencrypted HTTP. HTTPS is
+  acceptable; HTTP is not.
+rationale: >-
+  The HTTP management server authenticates with the same credentials as the CLI and
+  transmits them without encryption. On several platforms it has also carried its own
+  vulnerabilities — the Cisco IOS web UI has been the entry point for multiple remote
+  code-execution advisories — so disabling it removes an attack surface as well as a
+  cleartext channel.
+severity: high
+
+logic:
+  type: ncm
+  expression: management.services.http.enabled
+  assert:
+    equals: false
+
+remediation: >-
+  Disable the HTTP server (`no ip http server` on Cisco IOS). If a web interface is
+  required, enable only the HTTPS server and restrict it with an access class.
+
+references:
+  cis: ["1.2.1"]
+  nist_800_53: ["AC-17", "SC-8", "CM-7"]
+  pci_dss: ["2.2.5", "4.1"]
+  iso_27001: ["A.8.20"]
+  cwe: ["CWE-319"]
+
+tags: [management-plane, cleartext, attack-surface, cis-level-1]

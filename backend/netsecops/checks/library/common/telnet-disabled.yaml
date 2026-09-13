@@ -1,0 +1,35 @@
+id: telnet-disabled
+title: Telnet is disabled
+description: >-
+  The device must not accept Telnet connections for management. Only SSH should be
+  offered on the management plane.
+rationale: >-
+  Telnet carries credentials and every subsequent keystroke in clear text. Anyone able
+  to observe the path between an operator and the device — a compromised switch, a span
+  port, a shared segment — recovers the enable password without any attack on the
+  device itself. It is the single most valuable finding this system produces.
+severity: critical
+
+logic:
+  type: ncm
+  expression: management.services.telnet.enabled
+  assert:
+    equals: false
+  # Absence is Not Evaluated rather than a pass: a configuration where the parser did
+  # not find a telnet directive may have it enabled by platform default.
+  missing: not_evaluated
+
+remediation: >-
+  Remove Telnet from the VTY transport list, leaving SSH only. On Cisco IOS this is
+  `transport input ssh` under each `line vty` block; on NX-OS it is `no feature telnet`.
+  Confirm SSH works from your management network before removing Telnet, or you will
+  lock yourself out.
+
+references:
+  cis: ["1.2.4", "2.1.1"]
+  nist_800_53: ["AC-17", "SC-8"]
+  pci_dss: ["2.2.5", "4.1"]
+  iso_27001: ["A.8.20", "A.8.24"]
+  cwe: ["CWE-319"]
+
+tags: [management-plane, cleartext, cis-level-1]

@@ -1,0 +1,33 @@
+id: snmp-v1v2c-disabled
+title: SNMP v1 and v2c are not in use
+description: >-
+  No SNMP v1 or v2c community strings are configured. SNMPv3 is the only acceptable
+  version.
+rationale: >-
+  SNMP v1 and v2c authenticate with a community string sent in clear text on every
+  request, and provide no integrity protection. Anyone who observes one read request
+  can replay it, and a read-write community grants configuration access. Because
+  monitoring systems poll constantly, the string is on the wire continuously rather
+  than only at login.
+severity: high
+
+logic:
+  type: ncm
+  expression: snmp.v1v2c_communities
+  assert:
+    empty: true
+
+remediation: >-
+  Remove every `snmp-server community` statement and migrate monitoring to SNMPv3 with
+  authPriv. Where a legacy collector cannot do v3, restrict the community with an
+  access list to the collector's address and treat it as a documented exception with
+  an expiry date.
+
+references:
+  cis: ["2.4.1"]
+  nist_800_53: ["AC-17", "SC-8", "IA-5"]
+  pci_dss: ["2.2.5", "4.1", "8.3.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-319", "CWE-306"]
+
+tags: [snmp, cleartext, cis-level-1]

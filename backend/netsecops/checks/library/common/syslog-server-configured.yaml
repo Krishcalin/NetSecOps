@@ -1,0 +1,32 @@
+id: syslog-server-configured
+title: Logs are sent to a remote syslog server
+description: >-
+  At least one external syslog destination is configured.
+rationale: >-
+  A device's local log buffer is small, volatile, and under the control of anyone who
+  compromises the device — the first thing an intruder does is clear it. Logs only
+  become evidence once they are on a host the attacker does not control. Without a
+  remote destination there is no reliable way to reconstruct what happened, which
+  makes every other detective control on this device decorative.
+severity: high
+
+logic:
+  type: ncm
+  expression: logging.syslog_servers
+  assert:
+    count_gte: 1
+  missing: fail
+
+remediation: >-
+  Configure at least one remote syslog destination — `logging host <ip>` on Cisco IOS
+  — and set the source interface to the management interface so the source address is
+  stable. Two destinations in different failure domains is better than one.
+
+references:
+  cis: ["2.2.1"]
+  nist_800_53: ["AU-4", "AU-9", "AU-6"]
+  pci_dss: ["10.3.3", "10.5.1"]
+  iso_27001: ["A.8.15"]
+  cwe: ["CWE-778"]
+
+tags: [logging, detection, cis-level-1]

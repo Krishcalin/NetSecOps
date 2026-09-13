@@ -1,0 +1,29 @@
+id: local-accounts-minimal
+title: Local accounts are limited to break-glass use
+description: >-
+  Where central AAA is configured, the device has at most two local accounts.
+rationale: >-
+  Local accounts bypass every control that central AAA provides: they are not
+  disabled when someone leaves, their use is not centrally logged, their passwords are
+  not subject to the organisation's policy, and they do not appear in an access
+  review. They are necessary as a break-glass path when AAA is unreachable, and that
+  purpose needs one or two accounts, not a copy of the staff list from three years ago.
+severity: medium
+
+logic:
+  type: python
+  function: local_accounts_minimal
+
+remediation: >-
+  Remove local accounts that duplicate central AAA identities, keeping one or two
+  break-glass accounts with strong stored passwords held in a password safe. Record
+  their existence and rotate them after each use.
+
+references:
+  cis: ["1.1.6"]
+  nist_800_53: ["AC-2", "IA-2"]
+  pci_dss: ["8.2.1", "8.2.4"]
+  iso_27001: ["A.5.16", "A.5.18"]
+  cwe: ["CWE-1392"]
+
+tags: [accounts, aaa, cis-level-2]

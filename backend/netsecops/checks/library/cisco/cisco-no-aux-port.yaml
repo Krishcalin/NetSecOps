@@ -1,0 +1,34 @@
+id: cisco-no-aux-port
+title: The auxiliary port is disabled
+description: >-
+  `line aux 0` has EXEC disabled and no transport permitted.
+rationale: >-
+  The auxiliary port exists for an out-of-band modem, an arrangement almost no network
+  still uses. What survives is the line itself, frequently with no password and full
+  EXEC access, sometimes with a modem still attached to a line nobody has dialled in
+  fifteen years. It is a bypass of every network-based management control on the
+  device, and it does not appear in any network scan.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: regex
+  pattern: '^\s*no exec$'
+  expect: present
+
+remediation: >-
+  Under `line aux 0`, configure `no exec`, `transport input none`,
+  `transport output none` and `exec-timeout 0 1`. Physically disconnect any modem
+  still attached.
+
+references:
+  cis: ["1.1.9"]
+  nist_800_53: ["AC-17", "CM-7", "PE-3"]
+  pci_dss: ["2.2.4"]
+  iso_27001: ["A.8.20"]
+  cwe: ["CWE-1188"]
+
+tags: [management-plane, out-of-band, cisco, cis-level-1]

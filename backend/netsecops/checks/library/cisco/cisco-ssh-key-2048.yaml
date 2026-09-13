@@ -1,0 +1,37 @@
+id: cisco-ssh-key-2048
+title: The SSH host key is at least 2048 bits
+description: >-
+  The RSA key pair backing the SSH server is 2048 bits or larger.
+rationale: >-
+  The host key is what proves to an administrator that they are connecting to the
+  device and not to something impersonating it. At 1024 bits that proof is within
+  reach of a well-resourced attacker, and because host keys are generated once at
+  commissioning and never rotated, a key generated on an older image is often still in
+  place a decade later.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: management.services.ssh.host_key_bits
+  assert:
+    gte: 2048
+  requires: [management.services.ssh.host_key_bits]
+
+remediation: >-
+  Regenerate the key with `crypto key generate rsa modulus 4096` (2048 minimum).
+  Existing SSH clients will report a changed host key on their next connection, which
+  is expected — tell the operations team before you do it, or the warning will be
+  dismissed without thought.
+
+references:
+  cis: ["1.5.1"]
+  nist_800_53: ["SC-12", "SC-13"]
+  pci_dss: ["4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-326"]
+
+tags: [management-plane, crypto, ssh, cisco, cis-level-1]

@@ -1,0 +1,29 @@
+id: certificate-key-size
+title: No certificate uses an RSA key below 2048 bits
+description: >-
+  Installed certificates use RSA keys of at least 2048 bits, or an elliptic-curve key.
+rationale: >-
+  1024-bit RSA is below the threshold at which factoring is considered infeasible for
+  a well-funded attacker, and has been disallowed by NIST for new use since 2013.
+  Network devices are the common place it survives, because a self-signed management
+  certificate generated years ago is never looked at again.
+severity: medium
+
+logic:
+  type: ncm
+  expression: "certificates[?key_bits != null && key_bits < `2048`].name"
+  assert:
+    empty: true
+
+remediation: >-
+  Regenerate the key pair at 2048 bits or more — `crypto key generate rsa modulus
+  2048` on Cisco IOS — and re-enrol or re-issue the certificate. Regenerating the key
+  invalidates the existing certificate, so schedule it with the re-issue.
+
+references:
+  nist_800_53: ["SC-12", "SC-13"]
+  pci_dss: ["4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-326"]
+
+tags: [certificates, crypto]

@@ -1,0 +1,38 @@
+id: cisco-dhcp-snooping-enabled
+title: DHCP snooping is enabled
+description: >-
+  DHCP snooping is configured, so only trusted ports may answer DHCP requests.
+rationale: >-
+  Without snooping, anything on a user VLAN can answer a DHCP request. An attacker who
+  answers first becomes the default gateway for every host that accepts the lease, which
+  places them on the path for all of that host's traffic — a complete
+  machine-in-the-middle position requiring no exploit and no credentials. DHCP snooping
+  is also the binding table that dynamic ARP inspection and IP source guard depend on,
+  so it is the foundation for both.
+severity: high
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+  device_classes: [switch]
+
+logic:
+  type: ncm
+  expression: l2.dhcp_snooping_enabled
+  assert:
+    equals: true
+  missing: fail
+
+remediation: >-
+  Enable `ip dhcp snooping` globally and per user VLAN, then mark uplinks and ports
+  facing legitimate DHCP servers as `ip dhcp snooping trust`. Marking the trusted ports
+  first avoids cutting off DHCP when the feature is enabled.
+
+references:
+  cis: ["3.3.1"]
+  nist_800_53: ["SC-7", "SI-4"]
+  pci_dss: ["1.3.1"]
+  iso_27001: ["A.8.22"]
+  cwe: ["CWE-350"]
+
+tags: [layer2, edge-security, cisco, cis-level-1]

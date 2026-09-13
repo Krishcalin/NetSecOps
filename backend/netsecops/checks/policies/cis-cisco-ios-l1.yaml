@@ -1,0 +1,86 @@
+# CIS Cisco IOS Benchmark, Level 1 — the profile intended to be applied everywhere
+# without breaking anything (FR-CHK-05).
+#
+# Level 1 is the distinguishing choice here. CIS defines Level 2 as controls that
+# provide defence in depth at the cost of reduced functionality; Level 1 is what an
+# organisation can adopt across an estate without a compatibility exercise. Including
+# Level 2 checks in a policy labelled Level 1 would make the compliance figure
+# incomparable with everyone else's, which is the whole reason to use a named
+# benchmark rather than a house standard.
+#
+# Where this policy raises a severity above the check's shipped default, the reason is
+# given. Those overrides are what make it a *policy* rather than a list.
+name: CIS Cisco IOS Benchmark L1
+description: >-
+  Level 1 hardening controls for Cisco IOS and IOS-XE devices: management plane,
+  accounts, AAA, logging and time, and the control-plane services that are on by
+  default and should not be.
+source: cis-cisco-ios-l1
+version: 1
+frameworks: [cis]
+
+checks:
+  # ── Management plane ──────────────────────────────────────────────────
+  - id: telnet-disabled
+  - id: cisco-vty-transport-ssh-only
+  - id: http-server-disabled
+  - id: ssh-version-2
+  - id: cisco-ssh-key-2048
+  - id: ssh-timeout-configured
+  - id: cisco-ssh-authentication-retries
+  - id: management-acl-present
+  - id: cisco-vty-access-class
+  - id: exec-timeout-configured
+  - id: exec-timeout-not-excessive
+  - id: login-banner-present
+  - id: cisco-no-aux-port
+
+  # ── Accounts and passwords ────────────────────────────────────────────
+  - id: cisco-enable-secret-set
+  - id: cisco-service-password-encryption
+  - id: no-weak-password-hashes
+  - id: cisco-login-block-for
+
+  # ── AAA ───────────────────────────────────────────────────────────────
+  - id: cisco-aaa-new-model
+  - id: aaa-servers-have-keys
+  - id: aaa-local-fallback
+
+  # ── Logging and time ──────────────────────────────────────────────────
+  - id: syslog-server-configured
+  - id: logging-timestamps-enabled
+  - id: logging-buffered-enabled
+  - id: cisco-archive-log-config
+  - id: ntp-server-configured
+
+  # ── SNMP ──────────────────────────────────────────────────────────────
+  - id: snmp-no-default-communities
+  - id: snmp-no-write-community
+  - id: snmp-v1v2c-disabled
+  - id: cisco-snmp-community-acl
+  - id: snmp-v3-authpriv
+
+  # ── Control plane services on by default ──────────────────────────────
+  - id: cisco-no-ip-source-route
+  - id: cisco-no-bootp-server
+  - id: cisco-no-tcp-small-servers
+  - id: cisco-no-udp-small-servers
+  - id: cisco-no-ip-finger
+  - id: cisco-no-service-pad
+  - id: cisco-no-service-config
+  - id: cisco-no-proxy-arp
+  - id: cisco-no-directed-broadcast
+  - id: cisco-smart-install-disabled
+    severity: critical
+    notes: >-
+      Kept at critical rather than following the benchmark's rating. Smart Install
+      requires no authentication and has been exploited in the wild at scale
+      (CVE-2018-0171); treating it as an ordinary configuration item understates it.
+
+  # ── Layer 2 edge ──────────────────────────────────────────────────────
+  - id: cisco-bpduguard-default
+  - id: cisco-dhcp-snooping-enabled
+  - id: cisco-no-dtp-negotiation
+
+  # ── Routing ───────────────────────────────────────────────────────────
+  - id: cisco-routing-authentication

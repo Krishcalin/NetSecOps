@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phase-2%20of%207-orange?style=flat-square" alt="Phase 2"/>
+  <img src="https://img.shields.io/badge/phase-3%20of%207-orange?style=flat-square" alt="Phase 3"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -49,7 +49,7 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phase 2 complete
+## Status — Phase 3 complete
 
 Development follows the phase plan in [SRS §12](docs/SRS.md), strictly in order: no
 phase starts before the previous one's acceptance criteria pass.
@@ -59,11 +59,45 @@ phase starts before the previous one's acceptance criteria pass.
 | **0** | Monorepo, auth/MFA/RBAC, credential vault, audit chain, CI, Docker | **Complete** |
 | **1** | Inventory, credentials, job engine, read-only enforcement framework | **Complete** |
 | **2** | Cisco IOS/IOS-XE/NX-OS/ASA collection, parsing, drift | **Complete** |
-| 3 | Check engine + baseline library, findings, compliance mapping | Next |
-| 4 | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | Planned |
+| **3** | Check engine + baseline library, findings, compliance mapping | **Complete** |
+| 4 | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | Next |
 | 5 | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | Planned |
 | 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | Planned |
 | 7 | Discovery, reporting, integrations, hardening | Planned |
+
+### What Phase 3 delivers
+
+- **A check engine, and three rules it never breaks.** Checks are YAML — id, severity,
+  applicability, JMESPath logic over the NCM, remediation, framework mapping. A field
+  the parser never found yields *Not Evaluated* and names the missing path, never a
+  verdict derived from its absence. An empty list is a real answer. A broken check is
+  an *Error* against that check alone, so one bad file cannot cost an assessment.
+- **66 checks, all applicable to Cisco IOS** — 47 declarative, 14 Python for logic YAML
+  cannot honestly express, 5 regex. Against the fixture corpus the hardened switch
+  scores 56 pass / 1 high-severity fail and the weak one 41 fails; the ASA reports 39
+  *Not Applicable* rather than passing switch checks it was never subject to.
+- **Remediation is text, and only text.** There is no field in the schema that could be
+  executed, and a test asserts none appears (SRS §8).
+- **Policies** grouping checks, assignable to device groups, with per-check severity
+  overrides — the customisation that matters, because severity is contextual in a way a
+  shipped library cannot know. The CIS Cisco IOS L1 pack ships with 44 checks and is
+  installed idempotently, then never overwritten.
+- **Custom checks** written through the API against the same schema the loader uses —
+  and refused if they declare Python logic, since accepting a function name from a web
+  form would let a user invoke any registered callable.
+- **Exceptions with a mandatory expiry.** The check still runs and its result is still
+  stored; only the finding is suppressed. Hiding the result would make the compliance
+  figure a fiction, and an exception without an end date is an undocumented decision.
+- **Findings with a lifecycle that reflects reality.** *Resolved* is reachable only by
+  the check passing on a later assessment — the API refuses to set it by hand, so the
+  status stays a measurement rather than a claim. A problem that returns reopens the
+  original finding instead of appearing as a first sighting.
+- **A risk score that is documented and explainable.** Severity weights are widely
+  spaced on purpose: under a linear scheme fourteen Low findings outrank one Critical.
+  Device criticality multiplies rather than adds. *Not Evaluated* is reported as a
+  separate coverage figure instead of being quietly counted as a pass.
+- **Compliance pivoted by framework control**, with the percentage computed over what
+  was actually decided — *Not Applicable* and *Not Evaluated* are in neither half.
 
 ### What Phase 2 delivers
 
@@ -188,6 +222,7 @@ netsecops/
 │  │  ├─ api/          # FastAPI routers, dependencies, middleware
 │  │  ├─ core/         # config, logging, crypto, security, RBAC, errors
 │  │  ├─ db/           # declarative base, session, models, Alembic migrations
+│  │  ├─ checks/       # the check engine, its YAML library and policy packs
 │  │  ├─ ncm/          # the Normalised Config Model (NCM v1)
 │  │  ├─ parsers/      # vendor config parsers, one package per vendor
 │  │  ├─ schemas/      # Pydantic request/response models
@@ -202,8 +237,8 @@ netsecops/
 └─ docs/               # SRS, ADRs, device-account guidance, deployment
 ```
 
-Later phases add `checks/` and `vuln/`. Vendor-specific logic stays inside `adapters/`
-and `parsers/`; core services remain vendor-agnostic (C-6).
+Later phases add `vuln/`. Vendor-specific logic stays inside `adapters/`, `parsers/`
+and the vendor packs under `checks/library/`; core services remain vendor-agnostic (C-6).
 
 ### The files worth reading first
 
@@ -218,6 +253,9 @@ and `parsers/`; core services remain vendor-agnostic (C-6).
 | [`tests/test_readonly.py`](backend/tests/test_readonly.py) | 271 assertions that the guard decides correctly |
 | [`tests/test_device_session.py`](backend/tests/test_device_session.py) | That nothing else reaches a real SSH server |
 | [`tests/test_profiles.py`](backend/tests/test_profiles.py) | That a profile cannot widen the device-facing surface |
+| [`checks/engine.py`](backend/netsecops/checks/engine.py) | Why a check declines to have an opinion |
+| [`checks/library/`](backend/netsecops/checks/library/) | Every check, as data, with its reasoning |
+| [`services/risk.py`](backend/netsecops/services/risk.py) | The risk formula, and why it is shaped that way |
 
 ---
 

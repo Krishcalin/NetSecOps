@@ -1,0 +1,38 @@
+id: cisco-snmp-community-acl
+title: SNMP communities are restricted by an access list
+description: >-
+  Where SNMP v1/v2c communities exist, each names an access list limiting which hosts
+  may use it.
+rationale: >-
+  A community string with no ACL can be used from anywhere that can reach UDP 161, and
+  because the string travels in clear text it only has to be observed once. An access
+  list restricting it to the monitoring platform's addresses does not fix the cleartext
+  problem, but it reduces a estate-wide exposure to one confined to the path between
+  the collector and the device. This is the mitigation for a community that cannot yet
+  be removed.
+severity: high
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+
+logic:
+  type: ncm
+  expression: "snmp.v1v2c_communities[?acl == null].name_masked"
+  assert:
+    empty: true
+  requires: [snmp.v1v2c_communities]
+
+remediation: >-
+  Append an access-list name to each community statement — `snmp-server community
+  <string> RO <acl>` — permitting only the monitoring systems. Migrating to SNMPv3
+  remains the real fix.
+
+references:
+  cis: ["2.4.5"]
+  nist_800_53: ["AC-3", "SC-7"]
+  pci_dss: ["1.3.1", "7.2.1"]
+  iso_27001: ["A.8.20"]
+  cwe: ["CWE-284"]
+
+tags: [snmp, network-access, cisco, cis-level-1]

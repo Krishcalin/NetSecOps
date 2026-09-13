@@ -1,0 +1,36 @@
+id: cisco-bpduguard-default
+title: BPDU guard is enabled by default on edge ports
+description: >-
+  `spanning-tree portfast bpduguard default` is configured globally.
+rationale: >-
+  A user port that receives a BPDU has had a switch plugged into it. That switch may be
+  a contractor's desk hub, or it may be an attacker's device advertising a superior
+  bridge priority to become root and draw traffic through itself. BPDU guard shuts the
+  port on the first BPDU. Setting it globally rather than per interface is what makes
+  it hold for ports configured later by someone who does not know about this control.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+  device_classes: [switch]
+
+logic:
+  type: ncm
+  expression: l2.spanning_tree.bpduguard_default
+  assert:
+    equals: true
+  missing: fail
+
+remediation: >-
+  Configure `spanning-tree portfast bpduguard default`, and pair it with
+  `errdisable recovery cause bpduguard` so a port that trips recovers automatically
+  rather than needing a visit.
+
+references:
+  cis: ["3.2.2"]
+  nist_800_53: ["SC-7", "PE-3"]
+  iso_27001: ["A.8.22"]
+  cwe: ["CWE-284"]
+
+tags: [layer2, edge-security, cisco, cis-level-1]

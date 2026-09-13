@@ -1,0 +1,35 @@
+id: cisco-no-ip-domain-lookup
+title: DNS lookup from the CLI is disabled
+description: >-
+  `no ip domain-lookup` is configured.
+rationale: >-
+  With domain lookup enabled, a mistyped command is treated as a hostname and the
+  device attempts to resolve it — then tries to open a Telnet session to the result.
+  The practical effect is a CLI that hangs for half a minute after every typo, which is
+  why operators want it off. The security effect is that the device makes outbound DNS
+  and Telnet attempts triggered by keyboard input, to a name server that may not be one
+  you chose.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.domain_lookup
+  assert:
+    equals: false
+  missing: fail
+
+remediation: >-
+  Configure `no ip domain-lookup`. Where name resolution is genuinely needed on the
+  device, set `ip name-server` explicitly to your own resolvers instead of leaving the
+  broadcast default.
+
+references:
+  cis: ["1.4.10"]
+  nist_800_53: ["CM-7"]
+  cwe: ["CWE-1327"]
+
+tags: [control-plane, cisco, cis-level-2]

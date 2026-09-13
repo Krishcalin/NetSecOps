@@ -1,0 +1,32 @@
+id: ssh-version-2
+title: SSH is restricted to protocol version 2
+description: >-
+  The device must offer SSH version 2 only, not the compatibility mode that also
+  accepts version 1.
+rationale: >-
+  SSHv1 has structural flaws that no implementation can fix: a weak integrity check
+  (CRC-32) that permits insertion attacks, and no protection against the session-key
+  recovery weaknesses corrected in the v2 protocol. Leaving a device in compatibility
+  mode means an attacker can simply request v1 and the device will agree.
+severity: high
+
+logic:
+  type: ncm
+  expression: management.services.ssh.version
+  assert:
+    equals: 2
+  requires: [management.services.ssh.enabled]
+
+remediation: >-
+  Set the SSH server to version 2 only — `ip ssh version 2` on Cisco IOS. Generate an
+  RSA key of at least 2048 bits first if one is not already present, because the SSH
+  server will not start without one.
+
+references:
+  cis: ["1.5.2"]
+  nist_800_53: ["AC-17", "SC-8", "SC-13"]
+  pci_dss: ["2.2.5", "4.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327"]
+
+tags: [management-plane, crypto, cis-level-1]

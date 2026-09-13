@@ -1,0 +1,38 @@
+id: cisco-archive-log-config
+title: Configuration change logging is enabled
+description: >-
+  `archive` with `log config` and `logging enable` is configured, so configuration
+  commands are recorded.
+rationale: >-
+  Without configuration change logging the device records that someone logged in, not
+  what they did. In an investigation that is the difference between "an account was
+  used" and "these commands were entered at this time" — and in a change dispute it is
+  the only independent record of what was actually applied, as opposed to what the
+  change ticket said would be.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: logging.config_change_logging
+  assert:
+    equals: true
+  missing: fail
+
+remediation: >-
+  Configure an `archive` block with `log config`, `logging enable`, and
+  `notify syslog contenttype plaintext` so the entries reach the remote syslog server
+  as well as the local archive. Add `hidekeys` so credentials entered in commands are
+  not written to the log.
+
+references:
+  cis: ["2.1.4"]
+  nist_800_53: ["AU-2", "AU-3", "CM-3", "CM-5"]
+  pci_dss: ["10.2.1", "10.2.2"]
+  iso_27001: ["A.8.15", "A.8.32"]
+  cwe: ["CWE-778"]
+
+tags: [logging, change-control, cisco, cis-level-1]

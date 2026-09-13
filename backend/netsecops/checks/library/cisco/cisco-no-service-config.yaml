@@ -1,0 +1,35 @@
+id: cisco-no-service-config
+title: Remote configuration loading is disabled
+description: >-
+  `no service config` is configured, so the device does not attempt to load a
+  configuration file from the network at boot.
+rationale: >-
+  With `service config` the device broadcasts for a configuration file on startup and
+  applies whatever it receives. An attacker who answers that broadcast — which requires
+  only presence on the segment at the moment of a reboot — supplies the device's entire
+  configuration, including their own credentials. The reboot can be induced by cutting
+  power.
+severity: high
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.service_config
+  assert:
+    equals: false
+  missing: fail
+
+remediation: >-
+  Configure `no service config`. Check the boot variables as well, since a `boot
+  network` or `boot host` statement achieves the same thing by a different route.
+
+references:
+  cis: ["1.4.9"]
+  nist_800_53: ["CM-5", "CM-7", "SI-7"]
+  pci_dss: ["2.2.4"]
+  cwe: ["CWE-494"]
+
+tags: [attack-surface, integrity, cisco, cis-level-1]

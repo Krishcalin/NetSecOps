@@ -1,0 +1,32 @@
+id: cisco-no-udp-small-servers
+title: UDP small servers are disabled
+description: >-
+  `no service udp-small-servers` is configured.
+rationale: >-
+  The UDP variants are worse than their TCP counterparts because UDP requires no
+  handshake: a single spoofed packet produces a reply to the forged source address.
+  UDP chargen and echo have both been used as reflection vectors in large-scale
+  amplification attacks, making the device a participant in an attack on a third party.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.udp_small_servers
+  assert:
+    equals: false
+  missing: fail
+
+remediation: >-
+  Configure `no service udp-small-servers`.
+
+references:
+  cis: ["1.4.4"]
+  nist_800_53: ["CM-7", "SC-5"]
+  pci_dss: ["2.2.4"]
+  cwe: ["CWE-406"]
+
+tags: [attack-surface, cisco, cis-level-1]

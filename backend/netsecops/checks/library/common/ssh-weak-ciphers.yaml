@@ -1,0 +1,31 @@
+id: ssh-weak-ciphers
+title: No weak SSH ciphers are permitted
+description: >-
+  The SSH server must not offer 3DES, RC4, or any CBC-mode cipher.
+rationale: >-
+  CBC-mode ciphers in SSH are subject to a plaintext-recovery attack against the first
+  block of each packet, which is enough to leak the start of a typed command. 3DES
+  offers only 112 bits of effective strength and is vulnerable to birthday attacks on
+  its 64-bit block over long sessions — exactly the long-lived sessions a management
+  connection produces. RC4 is broken outright.
+severity: medium
+
+logic:
+  type: python
+  function: ssh_weak_ciphers
+  requires: [management.services.ssh.enabled]
+
+remediation: >-
+  Restrict the cipher list to AES in CTR or GCM mode — on Cisco IOS,
+  `ip ssh server algorithm encryption aes256-gcm aes256-ctr aes128-ctr`. Check that
+  your SSH clients and any automation tooling negotiate one of the retained ciphers
+  before applying the change.
+
+references:
+  cis: ["1.5.3"]
+  nist_800_53: ["SC-13", "SC-8"]
+  pci_dss: ["2.2.5", "4.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327"]
+
+tags: [management-plane, crypto, ssh]

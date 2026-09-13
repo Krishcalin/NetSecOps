@@ -1,0 +1,33 @@
+id: ntp-authenticated
+title: NTP is authenticated
+description: >-
+  Time synchronisation uses authentication keys rather than trusting any host that
+  answers.
+rationale: >-
+  Unauthenticated NTP takes the time from whoever replies first. An attacker who can
+  spoof responses can move a device's clock, which lets them make an expired
+  certificate appear valid, push log entries outside a retention or alerting window,
+  or break time-based access controls. The attack needs no access to the device at
+  all.
+severity: medium
+
+logic:
+  type: ncm
+  expression: ntp.authenticated
+  assert:
+    equals: true
+  requires: [ntp.servers]
+
+remediation: >-
+  Define an NTP authentication key, mark it trusted, and reference it on each server
+  statement — `ntp authentication-key 1 md5 <key>`, `ntp trusted-key 1`,
+  `ntp server <ip> key 1`. Use SHA-based keys where the platform supports them.
+
+references:
+  cis: ["2.3.2"]
+  nist_800_53: ["AU-8", "SC-45", "IA-3"]
+  pci_dss: ["10.6.2"]
+  iso_27001: ["A.8.17"]
+  cwe: ["CWE-345"]
+
+tags: [time, crypto, cis-level-2]

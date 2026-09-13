@@ -1,0 +1,34 @@
+id: management-acl-present
+title: Management access is restricted by an access list
+description: >-
+  An access class or management ACL limits which source addresses may open a
+  management session.
+rationale: >-
+  Authentication is the second line of defence; reachability is the first. A device
+  whose SSH port answers the whole estate can be attacked by anything that gets a
+  foothold anywhere — a compromised workstation, a printer, a contractor's laptop.
+  Restricting management to the jump hosts and management subnets removes the vast
+  majority of that exposure without depending on the credential being strong.
+severity: high
+
+logic:
+  type: ncm
+  expression: management.management_acls
+  assert:
+    count_gte: 1
+  missing: fail
+
+remediation: >-
+  Define an ACL permitting only your management subnets and jump hosts, then apply it
+  to the VTY lines with `access-class <name> in`. Apply the same restriction to the
+  HTTPS server and to SNMP. Verify your own source address is permitted before you
+  apply it.
+
+references:
+  cis: ["1.2.2", "1.2.3"]
+  nist_800_53: ["AC-3", "AC-17", "SC-7"]
+  pci_dss: ["1.3.1", "7.2.1"]
+  iso_27001: ["A.8.20", "A.8.22"]
+  cwe: ["CWE-284"]
+
+tags: [management-plane, network-access, cis-level-1]

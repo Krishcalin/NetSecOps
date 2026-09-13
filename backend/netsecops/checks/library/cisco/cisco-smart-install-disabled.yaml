@@ -1,0 +1,37 @@
+id: cisco-smart-install-disabled
+title: Smart Install client is disabled
+description: >-
+  The Smart Install client is not running.
+rationale: >-
+  Smart Install listens on TCP 4786 and requires no authentication at all. It has been
+  exploited at scale — CVE-2018-0171 allowed remote code execution, and separate abuse
+  of its intended functionality allowed attackers to download a device's configuration
+  or overwrite its image with nothing more than network reachability. Many switches
+  have it running because it is on by default and the deployment it was meant for
+  finished years ago.
+severity: critical
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  expression: features.smart_install
+  assert:
+    equals: false
+  missing: not_evaluated
+
+remediation: >-
+  Disable the client with `no vstack`. Confirm with `show vstack config` that the role
+  is neither client nor director. If Smart Install is genuinely in use for zero-touch
+  provisioning, restrict TCP 4786 to the director with an infrastructure ACL.
+
+references:
+  nist_800_53: ["CM-7", "SC-7"]
+  pci_dss: ["2.2.4"]
+  cve: ["CVE-2018-0171"]
+  cwe: ["CWE-306"]
+  urls: ["https://tools.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-20180328-smi2"]
+
+tags: [attack-surface, cisco, actively-exploited]

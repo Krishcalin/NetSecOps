@@ -1,0 +1,36 @@
+id: cisco-routing-authentication
+title: Routing protocols authenticate their neighbours
+description: >-
+  Every configured dynamic routing protocol uses neighbour authentication.
+rationale: >-
+  An unauthenticated routing protocol accepts updates from anything that speaks it on
+  a connected segment. An attacker injects a more attractive route for a prefix they
+  want, and traffic for it arrives at them — a machine-in-the-middle position obtained
+  by sending packets, with no compromise of any device. The same weakness allows a
+  black-hole: advertise a prefix and discard what arrives.
+severity: high
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+
+logic:
+  type: ncm
+  expression: "routing.protocols[?authentication != `true`].name"
+  assert:
+    empty: true
+  requires: [routing.protocols]
+
+remediation: >-
+  Enable authentication for each protocol: OSPF with `ip ospf authentication
+  message-digest` and a key, EIGRP with a key chain, BGP with `neighbor <ip> password`.
+  Configure both ends together — adjacencies drop while the two sides disagree.
+
+references:
+  cis: ["4.1.1", "4.2.1", "4.3.1"]
+  nist_800_53: ["IA-3", "SC-8", "SC-7"]
+  pci_dss: ["1.3.1"]
+  iso_27001: ["A.8.20"]
+  cwe: ["CWE-306", "CWE-290"]
+
+tags: [routing, cisco, cis-level-1]

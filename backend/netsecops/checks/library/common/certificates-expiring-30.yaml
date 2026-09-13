@@ -1,0 +1,29 @@
+id: certificates-expiring-30
+title: No certificate expires within 30 days
+description: >-
+  Installed certificates have more than 30 days of validity remaining.
+rationale: >-
+  A certificate expiry is an outage with a known date that nobody diaried. When a
+  management or EAP certificate lapses, administrators are locked out of the web
+  interface or an entire wireless estate stops authenticating — and the usual
+  first response, clicking through the warning, trains people to ignore exactly the
+  signal that matters. Thirty days is the point at which this stops being a plan and
+  becomes an incident.
+severity: high
+
+logic:
+  type: python
+  function: certificates_expiring_30
+
+remediation: >-
+  Renew or replace the certificate before the expiry date, and record the new expiry
+  in whatever calendar your team actually reads. Where the platform supports automated
+  enrolment (SCEP, EST, ACME), configure it so renewal is not a manual task.
+
+references:
+  nist_800_53: ["SC-12", "SC-17"]
+  pci_dss: ["4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-324"]
+
+tags: [certificates, availability]

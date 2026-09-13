@@ -1,0 +1,30 @@
+id: ssh-weak-macs
+title: No weak SSH message authentication codes are permitted
+description: >-
+  The SSH server must not offer MD5-based or truncated MACs.
+rationale: >-
+  The MAC is what stops an attacker on the path from altering traffic undetected.
+  MD5 is not collision resistant, and the 96-bit truncated variants reduce the
+  forgery work factor for no operational benefit. An SSH session with a weak MAC is
+  confidential but not tamper-evident, which is the weaker half of the guarantee
+  operators assume they have.
+severity: medium
+
+logic:
+  type: python
+  function: ssh_weak_macs
+  requires: [management.services.ssh.enabled]
+
+remediation: >-
+  Restrict the MAC list to SHA-2 — on Cisco IOS, `ip ssh server algorithm mac
+  hmac-sha2-512 hmac-sha2-256`. Encrypt-then-MAC variants (`-etm@openssh.com`) are
+  preferable where the platform offers them.
+
+references:
+  cis: ["1.5.5"]
+  nist_800_53: ["SC-13", "SC-8"]
+  pci_dss: ["2.2.5", "4.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327"]
+
+tags: [management-plane, crypto, ssh]

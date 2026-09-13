@@ -1,0 +1,34 @@
+id: cisco-vty-access-class
+title: VTY lines are protected by an access class
+description: >-
+  Each `line vty` block applies an inbound `access-class`.
+rationale: >-
+  An access class on the VTY lines is the difference between a management port
+  reachable from the management network and one reachable from the whole estate. It is
+  applied per line block, and a configuration commonly protects `line vty 0 4` while
+  leaving `line vty 5 15` — added later by a different person for more concurrent
+  sessions — entirely open.
+severity: high
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: regex
+  pattern: '^\s*access-class \S+ in'
+  expect: present
+
+remediation: >-
+  Define an ACL permitting only management subnets and jump hosts, then apply
+  `access-class <name> in` under every `line vty` block — including the higher-numbered
+  ones. Check the full range with `show running-config | section line vty`.
+
+references:
+  cis: ["1.2.2"]
+  nist_800_53: ["AC-3", "AC-17", "SC-7"]
+  pci_dss: ["1.3.1", "7.2.1"]
+  iso_27001: ["A.8.20"]
+  cwe: ["CWE-284"]
+
+tags: [management-plane, network-access, cisco, cis-level-1]

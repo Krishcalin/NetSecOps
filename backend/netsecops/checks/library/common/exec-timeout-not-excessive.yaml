@@ -1,0 +1,29 @@
+id: exec-timeout-not-excessive
+title: The management session timeout is ten minutes or less
+description: >-
+  Where a VTY idle timeout is configured, it must not exceed ten minutes.
+rationale: >-
+  A timeout that exists but is measured in hours provides the appearance of a control
+  without its effect. Ten minutes is the value CIS specifies and is short enough that
+  an unattended session is unlikely to still be open when someone else reaches the
+  keyboard.
+severity: low
+
+logic:
+  type: ncm
+  expression: management.session.exec_timeout_s
+  assert:
+    lte: 600
+  requires: [management.session.exec_timeout_s]
+
+remediation: >-
+  Reduce the idle timeout to ten minutes or less: `exec-timeout 10 0` under each
+  `line vty` block.
+
+references:
+  cis: ["1.1.4"]
+  nist_800_53: ["AC-11", "AC-12"]
+  pci_dss: ["8.2.8"]
+  iso_27001: ["A.8.5"]
+
+tags: [management-plane, session, cis-level-1]

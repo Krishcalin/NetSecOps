@@ -1,0 +1,31 @@
+id: snmp-no-write-community
+title: No read-write SNMP community is configured
+description: >-
+  Where SNMP v1/v2c is still in use, no community may grant write access.
+rationale: >-
+  A read-write community turns a cleartext string into configuration access. On Cisco
+  IOS it has historically allowed an attacker to copy the running configuration to a
+  TFTP server of their choosing, or to overwrite it — a full device compromise from a
+  single UDP packet with a guessed string. Read-only v2c is bad; read-write is
+  categorically worse and is what this check separates out.
+severity: critical
+
+logic:
+  type: ncm
+  expression: "snmp.v1v2c_communities[?rw == `true`]"
+  assert:
+    empty: true
+
+remediation: >-
+  Remove every read-write community statement. Monitoring systems need read access
+  only; any tool that claims to need SNMP write should be doing that work over an
+  authenticated management API instead.
+
+references:
+  cis: ["2.4.3"]
+  nist_800_53: ["AC-6", "CM-5"]
+  pci_dss: ["2.2.5", "7.2.1"]
+  iso_27001: ["A.8.2"]
+  cwe: ["CWE-732"]
+
+tags: [snmp, privilege, cis-level-1]
