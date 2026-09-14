@@ -10,6 +10,7 @@ from netsecops.api.v1 import (
     checks,
     credentials,
     devices,
+    firewall,
     jobs,
     snapshots,
     users,
@@ -32,8 +33,10 @@ api_v1_router.include_router(snapshots.router)
 # Phase 3 — check library, policies, findings, exceptions, risk, compliance
 api_v1_router.include_router(checks.router)
 
+# Phase 4 — rulebase viewer and rule query
+api_v1_router.include_router(firewall.router)
+
 # Routers added in later phases:
-#   Phase 4 — firewall
 #   Phase 5 — aaa
 #   Phase 6 — vulnerabilities
 #   Phase 7 — discovery, reports, integrations, settings

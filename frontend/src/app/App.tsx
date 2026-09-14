@@ -16,6 +16,7 @@ import { DashboardPage } from './DashboardPage';
 import { InventoryPage } from './InventoryPage';
 import { ImportPage } from './ImportPage';
 import { DeviceConfigPage } from './DeviceConfigPage';
+import { FirewallPage } from './FirewallPage';
 import { FindingsPage } from './FindingsPage';
 import { CompliancePage } from './CompliancePage';
 import { JobsPage } from './JobsPage';
@@ -85,6 +86,10 @@ export function App() {
               <Route path="inventory" element={<InventoryPage />} />
               <Route path="inventory/import" element={<ImportPage />} />
               <Route path="inventory/:deviceId/config" element={<DeviceConfigPage />} />
+              {/* Both spellings reach the same page: the nav entry has no device yet and
+                  offers a picker, while a link from a device goes straight to its rules. */}
+              <Route path="inventory/:deviceId/firewall" element={<FirewallPage />} />
+              <Route path="firewall" element={<FirewallPage />} />
               <Route path="jobs" element={<JobsPage />} />
               <Route path="findings" element={<FindingsPage />} />
               <Route path="compliance" element={<CompliancePage />} />

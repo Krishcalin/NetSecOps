@@ -978,9 +978,217 @@ code {
   font-size: 0.8rem;
 }
 
+/* ─────────────────────── rulebase viewer (FR-FW-07) ──────────────────── */
+
+.rulebase__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+}
+
+.rulebase__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* The grid is shared by the header row and every rule, so the columns line up without
+   a table — which matters because each rule expands into a detail block a table cell
+   could not hold. */
+.rule__summary {
+  display: grid;
+  grid-template-columns: 3rem minmax(10rem, 1.6fr) 5rem repeat(3, minmax(7rem, 1fr)) 6rem 3rem;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rule {
+  border-top: 1px solid var(--border);
+  /* The severity stripe. Set per-rule below; transparent by default so a clean rule
+     does not read as a category of its own. */
+  border-left: 3px solid transparent;
+}
+
+.rule:first-child {
+  border-top: none;
+}
+
+.rule--head {
+  background: var(--surface-muted);
+  font-weight: 600;
+  font-size: 0.82rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-muted);
+}
+
+.rule--head .rule__summary {
+  cursor: default;
+}
+
+.rule__summary:hover {
+  background: var(--surface-muted);
+}
+
+.rule--critical {
+  border-left-color: #b91c1c;
+}
+.rule--high {
+  border-left-color: #c2410c;
+}
+.rule--medium {
+  border-left-color: #a16207;
+}
+.rule--low {
+  border-left-color: #0369a1;
+}
+.rule--info {
+  border-left-color: var(--border);
+}
+
+/* A disabled rule is shown, not hidden — it is part of the file an operator is reading
+   — but muted, because it decides nothing. */
+.rule--disabled .rule__summary {
+  opacity: 0.55;
+}
+
+.rule--focused {
+  background: var(--accent-soft);
+}
+
+.rule__order {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.rule__name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule__flag {
+  margin-left: 6px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.rule__action {
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.rule__action--allow {
+  color: #15803d;
+}
+
+.rule__action--deny {
+  color: #b91c1c;
+}
+
+.rule__cell {
+  font-size: 0.82rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rule__log {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* "unknown" must not look like "not logged": they are different facts with different
+   actions attached, and the parser genuinely could not tell. */
+.rule__log--false {
+  color: #b45309;
+  font-weight: 600;
+}
+
+.rule__log--unknown {
+  font-style: italic;
+}
+
+.rule__issue-count {
+  text-align: right;
+}
+
+.rule__detail {
+  padding: 4px 12px 14px 3.8rem;
+  background: var(--surface-muted);
+  font-size: 0.88rem;
+}
+
+.rule__issues {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule__issue {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rule__issue-text {
+  flex: 1 1 20rem;
+  color: var(--text-muted);
+}
+
+.rulebase__limits,
+.rulebase__limits-inline {
+  margin-top: 12px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.rulebase__limits-inline {
+  list-style: none;
+  padding: 0;
+}
+
+.query-result {
+  margin-top: 12px;
+}
+
 /* ───────────────────────── narrow viewports ──────────────────────────── */
 
 @media (max-width: 860px) {
+  /* The rule grid has eight columns and cannot fit a phone. It scrolls horizontally
+     rather than reflowing: the columns are what make two rules comparable at a glance,
+     and stacking them would lose exactly that. */
+  .rulebase__list {
+    overflow-x: auto;
+  }
+
+  .rule__summary {
+    min-width: 760px;
+  }
+
   /* Two columns of configuration cannot fit a phone. Rather than restructuring the
      rows — which loses the alignment that makes side-by-side worth having — the pane
      scrolls horizontally, and the semantic and unified views remain fully readable. */

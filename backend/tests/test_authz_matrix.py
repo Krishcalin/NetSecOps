@@ -264,6 +264,21 @@ MATRIX: list[Case] = [
         },
     ),
     Case("DELETE", "/api/v1/exceptions/{exception_id}", _EXCEPTION_AUTHORS),
+    # ── Rulebase viewer and rule query (FR-FW-06, FR-FW-07) ─────────────────
+    # A rulebase *is* configuration, so it sits with the other device reads. Putting it
+    # behind a findings permission would leave an Auditor able to read the raw config
+    # but not the structured view of the same thing, which is a distinction nobody
+    # could defend.
+    Case("GET", "/api/v1/devices/{device_id}/firewall/rulebase", _DEVICE_READERS),
+    Case("GET", "/api/v1/devices/{device_id}/firewall/export", _DEVICE_READERS),
+    # The query simulates a packet against the stored rulebase; it is a read despite
+    # being a POST, because the parameters do not fit in a URL.
+    Case(
+        "POST",
+        "/api/v1/devices/{device_id}/firewall/query",
+        _DEVICE_READERS,
+        body={"source": "10.0.0.1", "destination": "10.20.0.10", "protocol": "tcp", "port": 443},
+    ),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS

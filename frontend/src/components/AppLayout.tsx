@@ -23,7 +23,9 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Assessments', to: '/jobs', permission: 'job:read' },
   { label: 'Findings', to: '/findings', permission: 'finding:read' },
   { label: 'Vulnerabilities', phase: 'Phase 6' },
-  { label: 'Firewall Analysis', phase: 'Phase 4' },
+  // A rulebase is configuration, so this sits behind the same permission as the config
+  // viewer rather than behind a findings permission.
+  { label: 'Firewall Analysis', to: '/firewall', permission: 'snapshot:read' },
   { label: 'AAA Posture', phase: 'Phase 5' },
   { label: 'Compliance', to: '/compliance', permission: 'report:read' },
   { label: 'Reports', phase: 'Phase 7' },
