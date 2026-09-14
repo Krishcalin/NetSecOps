@@ -48,7 +48,16 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # Keyed on the `community` keyword wherever it appears, not on a line prefix:
     # ASA writes `snmp-server host <if> <ip> community <secret> version 2c`, so a rule
     # anchored to the start of the line misses it entirely.
-    _rule("snmp_community", r"(\bcommunity\s+)(\S+)"),
+    # The negative lookahead is not cosmetic. AireOS writes
+    # `config snmp community create <name>`, and without it this rule matched
+    # `community create` and redacted the word "create" — leaving the real community
+    # string in the line, in a line that now *contained a redaction placeholder* and so
+    # looked as though it had been handled. A rule that half-fires is worse than one
+    # that misses: a miss is caught by the leak tests, and this was not.
+    _rule(
+        "snmp_community",
+        r"(\bcommunity\s+)(?!(?:create|delete|mode|accessmode|ipaddr)\b)(\S+)",
+    ),
     # v3 auth and priv keys sit on the same line, so each needs its own rule and all
     # rules must be applied — see redact_line.
     _rule("snmp_v3_auth", r"(\bauth\s+(?:md5|sha|sha256|sha512)\s+)(\S+)"),
@@ -66,7 +75,12 @@ RULES: Final[tuple[RedactionRule, ...]] = (
         r"(?!version\s)(\S+)",
     ),
     # ── AAA shared secrets ──────────────────────────────────────────────
-    _rule("tacacs_key", r"^(\s*(?:tacacs-server\s+)?key\s+(?:\d\s+)?)(\S+)"),
+    # The negative lookahead is the same fix the SNMP community rule needed, for the
+    # same reason. tac_plus writes `key = <secret>`, and without it this Cisco rule
+    # matched `key ` and redacted the **equals sign**, leaving the secret in a line that
+    # now carried a redaction placeholder and therefore looked handled. The `unix_conf`
+    # rule below is what should claim that line.
+    _rule("tacacs_key", r"^(\s*(?:tacacs-server\s+)?key\s+(?!=)(?:\d\s+)?)(\S+)"),
     _rule("radius_key", r"^(\s*radius-server\s+key\s+(?:\d\s+)?)(\S+)"),
     # NX-OS and IOS both allow the key inline on the host line:
     # `tacacs-server host 10.0.0.1 key 7 <secret> timeout 5`.
@@ -116,7 +130,11 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # is the safer failure, but it destroys the evidence a finding is supposed to show.
     _rule(
         "fortios_secret",
-        r"^(\s*set\s+(?:\S+[-_])?(?:password|passwd|secret|pwd|key|psksecret|privatekey)"
+        r"^(\s*set\s+(?:\S+[-_])?"
+        # `passphrase` was missing until the wireless work: a FortiAP VAP writes
+        # `set passphrase ENC <key>`, which none of the other keywords cover, and the
+        # WPA key reached a provenance excerpt.
+        r"(?:password|passphrase|passwd|secret|pwd|key|psksecret|privatekey)"
         r"(?:[-_][a-z])?\s+(?:ENC\s+)?)(\S+)",
     ),
     # `set member` on a user group can carry a token; `set ppk-secret`, `set ssl-key`
@@ -124,8 +142,66 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # `set name` field inside `config system snmp community`, which cannot be matched
     # by keyword alone without redacting every object name in the file — the parser
     # masks it instead, at the point it knows the context.
+    # ── FreeRADIUS and tac_plus (FR-AAA-04) ─────────────────────────────
+    # These are the one source that exposes a shared secret in the clear:
+    # `secret = R4d1usK3y` in clients.conf, `key = T4c4csK3y` in tac_plus.conf. Every
+    # other AAA source returns `********` or nothing.
+    #
+    # That is exactly why these rules were written *before* the parsers rather than
+    # after a leak test caught them: the Cisco `key <value>` rule above is
+    # whitespace-separated and matches neither, and this is the fourth vendor syntax to
+    # need its own rule after FortiOS, AireOS and IOS-XE.
+    # A leading qualifier is allowed, because FreeRADIUS writes
+    # `private_key_password = ...` and `ldap { password = ... }`, and an exact-keyword
+    # rule matched neither.
+    _rule(
+        "unix_conf_secret",
+        r"^(\s*(?:\w+[-_])?(?:secret|key|passphrase|password|passwd)\s*=\s*)(\S+)",
+    ),
+    # tac_plus stores per-user credentials inline: `login = des <hash>`, and
+    # `login = cleartext <password>`, which is worse and common.
+    _rule("tacplus_login", r"^(\s*(?:login|enable|pap|chap)\s*=\s*(?:des|cleartext|file)\s+)(\S+)"),
+    # ── Cisco WLC AireOS ────────────────────────────────────────────────
+    # AireOS is a flat command list, and its secrets sit in positional arguments with no
+    # keyword in front of them — `config radius auth add 1 10.0.0.1 1812 ascii <secret>`
+    # matches none of the keyword-driven rules above. This is the same failure the
+    # FortiOS rule was added for, in a third syntax: a new vendor's shape slipping past
+    # redaction is what this module exists to prevent, and it has now happened twice.
+    #
+    # Anchored on `ascii`/`hex`, which is the token AireOS puts immediately before a
+    # shared secret on every one of these commands.
+    _rule(
+        "aireos_server_secret",
+        r"^(\s*config\s+(?:radius|tacacs)\s+\w+\s+add\s+.*?\b(?:ascii|hex)\s+)(\S+)",
+    ),
+    # `config mgmtuser add <name> <password> <role>`: positional, with the password in
+    # the middle. The trailing group is kept so the role survives — it is what the
+    # least-privilege check reads, and redacting the whole tail would blind it.
+    _rule(
+        "aireos_mgmtuser",
+        r"^(\s*config\s+mgmtuser\s+add\s+\S+\s+)(\S+)",
+    ),
+    _rule(
+        "aireos_mgmtuser_password",
+        r"^(\s*config\s+mgmtuser\s+password\s+\S+\s+)(\S+)",
+    ),
+    # A community string is a credential. The parser masks it into the NCM separately;
+    # this is what keeps the raw line out of a provenance excerpt.
+    _rule("aireos_snmp_community", r"^(\s*config\s+snmp\s+community\s+create\s+)(\S+)"),
+    _rule(
+        "aireos_wlan_psk",
+        r"^(\s*config\s+wlan\s+security\s+wpa\s+akm\s+psk\s+set-key\s+\S+\s+)(\S+)",
+    ),
     # ── Wireless ────────────────────────────────────────────────────────
     _rule("wpa_psk", r"^(\s*(?:wpa-psk|psk)\s+(?:ascii|hex)\s+(?:\d\s+)?)(\S+)"),
+    # Catalyst 9800 puts the pre-shared key mid-line inside a WLAN block:
+    # `security wpa psk set-key ascii 0 <key>`. The rule above is anchored on `psk` at
+    # the start of the line, so it matched nothing here and the key reached a provenance
+    # excerpt — the third vendor syntax to slip past redaction, after FortiOS and AireOS.
+    _rule(
+        "iosxe_wlan_psk",
+        r"^(\s*security\s+wpa\s+psk\s+set-key\s+(?:ascii|hex)\s+(?:\d+\s+)?)(\S+)",
+    ),
     # ── Key material ────────────────────────────────────────────────────
     _rule("certificate_blob", r"^\s*(?:[0-9A-Fa-f]{32,})\s*$", whole_line=True),
 )

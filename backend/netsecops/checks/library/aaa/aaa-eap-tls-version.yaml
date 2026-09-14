@@ -1,0 +1,35 @@
+id: aaa-eap-tls-version
+title: The AAA server does not negotiate TLS 1.0 or 1.1
+description: >-
+  EAP-TLS and RadSec are restricted to TLS 1.2 or better.
+rationale: >-
+  TLS 1.0 and 1.1 were deprecated by RFC 8996 in 2021 and carry the usual catalogue —
+  CBC padding oracles, weak MAC constructions, no modern cipher suites. On an AAA server
+  the tunnel being protected carries the inner authentication exchange for every
+  wireless client on the network, so a downgrade here is a downgrade of everyone's
+  credentials at once. The floor is usually low because it was set once at deployment
+  and nothing has failed since.
+severity: medium
+
+applicability:
+  requires_features: [aaa_server.tls_versions]
+
+logic:
+  type: ncm
+  expression: aaa_server.tls_versions[?@ == 'TLS1.0' || @ == 'TLS1.1']
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Raise the minimum TLS version to 1.2. Check the supplicants first — Windows, macOS,
+  iOS and Android have all defaulted to 1.2 for years, but embedded devices and older
+  handheld scanners may not, and those are the clients that produce the support calls.
+
+references:
+  nist_800_53: ["SC-8", "SC-13"]
+  pci_dss: ["4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327"]
+
+tags: [aaa, crypto]

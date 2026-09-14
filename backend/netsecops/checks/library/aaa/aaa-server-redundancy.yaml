@@ -1,0 +1,33 @@
+id: aaa-server-redundancy
+title: More than one AAA server is configured
+description: >-
+  The device can reach a second RADIUS or TACACS+ server if the first stops answering.
+rationale: >-
+  With one AAA server, that server becoming unreachable means nobody can log in to the
+  device — or, far more commonly, everybody falls through to the local account, which is
+  shared, rarely rotated and never appears in an access review. The failure mode is
+  therefore not "administrators are locked out"; it is "the estate silently reverts to a
+  password from 2019 at the exact moment something is already wrong".
+severity: medium
+
+applicability:
+  requires_features: [aaa.servers]
+
+logic:
+  type: ncm
+  expression: aaa.servers
+  assert:
+    count_gte: 2
+  missing: not_evaluated
+
+remediation: >-
+  Add a second server in a different failure domain from the first, and test the
+  failover deliberately rather than discovering it during an incident. Where the servers
+  are in one datacentre, the redundancy is against a process crash and not against the
+  thing most likely to take them both out.
+
+references:
+  nist_800_53: ["IA-2", "CP-2"]
+  iso_27001: ["A.8.14"]
+
+tags: [aaa, availability]

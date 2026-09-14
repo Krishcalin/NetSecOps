@@ -10,9 +10,12 @@ provenance for what we do, and never write `False` where the answer is "not foun
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from netsecops.core.logging import get_logger
 from netsecops.ncm.models import (
     AaaServer,
+    AccessPoint,
     Certificate,
     Firewall,
     Interface,
@@ -25,6 +28,7 @@ from netsecops.ncm.models import (
     SnmpCommunity,
     SnmpV3User,
     SyslogServer,
+    Wlan,
 )
 from netsecops.parsers.base import (
     ConfigParser,
@@ -55,6 +59,7 @@ class FortiOsParser(ConfigParser):
             self._parse_snmp,
             self._parse_interfaces,
             self._parse_firewall,
+            self._parse_wireless,
             self._parse_certificates,
         ):
             try:
@@ -566,6 +571,97 @@ class FortiOsParser(ConfigParser):
 
     # ── certificates ────────────────────────────────────────────────────
 
+    # ── wireless (FortiGate as a controller, Phase 5) ───────────────────
+
+    #: FortiOS states a VAP's security as one token, which is the opposite of AireOS and
+    #: the 9800 where it has to be assembled. Mapped to the NCM's vocabulary so a check
+    #: does not have to know which controller a WLAN came from.
+    #:
+    #: **`-only-` does not mean what it looks like.** `wpa-only-personal` is WPA2
+    #: Personal *only* — the "only" excludes the WPA1 fallback, it does not mean WPA1
+    #: alone. It is `wpa-personal`, without the `-only-`, that is the mixed WPA1/WPA2
+    #: mode and therefore the legacy finding. Reading the two the other way round would
+    #: report every modern FortiAP SSID as WPA1 and every genuinely legacy one as fine.
+    _SECURITY: ClassVar[dict[str, str]] = {
+        "open": "open",
+        "wep64": "wep",
+        "wep128": "wep",
+        # Mixed mode: a WPA1 client can still associate, which is the finding.
+        "wpa-personal": "wpa1",
+        "wpa-enterprise": "wpa1",
+        # WPA2 only — the modern setting despite the older-looking name.
+        "wpa-only-personal": "wpa2-psk",
+        "wpa-only-enterprise": "wpa2-ent",
+        "wpa2-only-personal": "wpa2-psk",
+        "wpa2-only-enterprise": "wpa2-ent",
+        "wpa2-only-personal+captive-portal": "wpa2-psk",
+        "wpa3-sae": "wpa3-sae",
+        "wpa3-sae-transition": "wpa3-sae",
+        "wpa3-only-enterprise": "wpa3-ent",
+        "wpa3-enterprise": "wpa3-ent",
+        "owe": "owe",
+        "captive-portal": "open",
+    }
+
+    def _parse_wireless(self, config: ParsedConfig, result: ParseResult) -> None:
+        """`config wireless-controller vap` and `wtp`.
+
+        A FortiGate is a wireless controller as well as a firewall, and FortiSwitch and
+        FortiAP data reaches NetSecOps only through the parent FortiGate (ADR-003) — so
+        this is the only place an estate's FortiAP-served SSIDs are visible at all.
+        """
+        wireless = result.ncm.wireless
+
+        vaps = config.section("wireless-controller vap")
+        if vaps:
+            for entry in vaps.entries():
+                ssid = entry.get("ssid") or entry.name
+                security = (entry.get("security") or "").strip().lower()
+
+                wireless.wlans.append(
+                    Wlan(
+                        ssid=ssid,
+                        # A VAP has no explicit enable flag; it is live once assigned to
+                        # an AP profile. None rather than True: claiming it is enabled
+                        # would be a guess, and "not stated" is the truth.
+                        enabled=entry.flag("status"),
+                        # An unrecognised token maps to None, never to a guess. A new
+                        # FortiOS release adding a security mode must make the check
+                        # report Not Evaluated, not silently classify it as open.
+                        security=self._SECURITY.get(security) if security else None,
+                        pmf=entry.get("pmf"),
+                        fast_transition=entry.flag("fast-roaming"),
+                        radius_group=entry.get("radius-server") or entry.get("auth-server"),
+                        # FortiOS spells it as a *suppression* flag, so the sense is
+                        # inverted: `broadcast-ssid disable` means the SSID is hidden.
+                        broadcast=entry.flag("broadcast-ssid"),
+                        # `intra-vap-privacy` is FortiOS for client isolation.
+                        client_isolation=entry.flag("intra-vap-privacy"),
+                        vlan=_int_or_none(entry.get("vlanid")),
+                    )
+                )
+                self._record(result, f"wireless.wlans.{len(wireless.wlans) - 1}", entry)
+
+        wtps = config.section("wireless-controller wtp")
+        if wtps:
+            for entry in wtps.entries():
+                wireless.aps.append(
+                    AccessPoint(
+                        name=entry.get("name") or entry.name,
+                        serial=entry.name,
+                        ip=entry.get("ip-fragment-preventing") or None,
+                    )
+                )
+                self._record(result, f"wireless.aps.{len(wireless.aps) - 1}", entry)
+
+        rogue = config.section("wireless-controller setting")
+        if rogue:
+            for entry in rogue.entries():
+                suppression = entry.get("darrp")
+                if suppression is not None:
+                    wireless.rogue_detection["darrp"] = suppression == "enable"
+                    self._record(result, "wireless.rogue_detection", entry)
+
     def _parse_certificates(self, config: ParsedConfig, result: ParseResult) -> None:
         for section_name in ("vpn certificate local", "certificate local"):
             section = config.section(section_name)
@@ -588,6 +684,13 @@ class FortiOsParser(ConfigParser):
                     line=entry.line,
                     line_end=entry.line_end,
                 )
+
+
+def _int_or_none(value: str | None) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except ValueError:
+        return None
 
 
 def _address_value(entry: Block) -> str:

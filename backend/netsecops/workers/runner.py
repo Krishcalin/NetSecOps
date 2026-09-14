@@ -18,11 +18,19 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netsecops.adapters.http_transport import (
+    HttpCredentials,
+    HttpTransport,
+    auth_exchange,
+    logout_exchange,
+    pre_issued_token,
+)
 from netsecops.adapters.policies import get_policy
-from netsecops.adapters.profiles import get_profile, has_profile
+from netsecops.adapters.profiles import CollectionCommand, get_profile, has_profile
+from netsecops.adapters.profiles import Transport as Transport_
 from netsecops.adapters.readonly import ReadOnlyGuard
 from netsecops.adapters.recorder import AuditingRecorder
-from netsecops.adapters.session import DeviceSession
+from netsecops.adapters.session import DeviceSession, Transport
 from netsecops.adapters.transport import (
     DeviceAuthError,
     SSHCredentials,
@@ -45,6 +53,17 @@ from netsecops.services.jobs import JobService, classify_error
 from netsecops.services.snapshots import SnapshotService
 
 log = get_logger(__name__)
+
+#: Credential types that can open an API session. Checked before a collection starts so
+#: the failure is "assign an API credential" rather than an authentication error from
+#: the device, which would look like the password being wrong.
+_API_CREDENTIAL_TYPES = frozenset(
+    {
+        CredentialType.API_KEY,
+        CredentialType.API_USERNAME_PASSWORD,
+        CredentialType.CHECKPOINT_API,
+    }
+)
 
 #: The cheapest possible read that proves a session works (FR-CRED-05). One command,
 #: on every platform's allow-list, whose failure is unambiguous.
@@ -269,7 +288,10 @@ async def _collect_with(
         )
 
     guard = ReadOnlyGuard(get_policy(platform))
-    transport = _build_transport(session, device, credential, credentials, settings)
+    transport = _build_transport(
+        session, device, credential, credentials, settings, platform=platform
+    )
+    over_api = isinstance(transport, HttpTransport)
 
     recorder = AuditingRecorder(
         AuditService(session),
@@ -289,15 +311,33 @@ async def _collect_with(
     job_type = JobType(job.job_type)
 
     async with device_session:
-        # Pin the host key on first contact (FR-COL-10).
-        if device.host_key_fingerprint is None and transport.observed_fingerprint:
-            device.host_key_fingerprint = transport.observed_fingerprint
-            await session.flush()
+        if isinstance(transport, HttpTransport):
+            # The login is a device-facing call, so it goes through the session like
+            # every other one — guarded and audited (SRS §8.1, §8.2).
+            await _authenticate_api(device_session, transport, platform)
+
+        # Pin the host key or TLS certificate on first contact (FR-COL-10). For HTTP
+        # this is only observable after a request, which is why it follows the login
+        # rather than preceding it.
+        _pin_fingerprint(device, transport, over_api=over_api)
+        await session.flush()
 
         if job_type is JobType.CREDENTIAL_TEST or not has_profile(platform):
             # A credential test proves the session works and stops there; collecting a
             # full configuration to answer "do these credentials work" would be a
             # needless read of sensitive data (FR-CRED-05).
+            if over_api:
+                # Authenticating *is* the proof for an API platform, and it has already
+                # happened above. Issuing a further read would be the needless one.
+                await _release_api_session(device_session, platform)
+                return DeviceOutcome(
+                    device_id=device.id,
+                    succeeded=True,
+                    credential_id=credential.id,
+                    command_count=device_session.commands_sent,
+                    output="API session established",
+                )
+
             results = await device_session.run_all(_probe_commands(platform))
             return DeviceOutcome(
                 device_id=device.id,
@@ -307,9 +347,13 @@ async def _collect_with(
                 output="\n".join(r.output for r in results),
             )
 
-        outcome = await _collect_profile(
-            session, job, device, device_session, platform, vault=vault
-        )
+        try:
+            outcome = await _collect_profile(
+                session, job, device, device_session, platform, vault=vault
+            )
+        finally:
+            if over_api:
+                await _release_api_session(device_session, platform)
 
     outcome.credential_id = credential.id
     outcome.command_count = device_session.commands_sent
@@ -359,9 +403,11 @@ async def _collect_profile(
     config_text: str | None = None
     failures: list[str] = []
 
+    over_api = profile.transport is not Transport_.CLI
+
     for ordinal, entry in enumerate(profile.commands):
         try:
-            result = await device_session.run(entry.command)
+            result = await _issue(device_session, entry, over_api=over_api)
         except ReadOnlyViolationError:
             raise
         except Exception as exc:
@@ -449,13 +495,76 @@ async def _collect_profile(
     return outcome
 
 
+@dataclass(frozen=True, slots=True)
+class _Issued:
+    """One profile entry's result, however it was sent.
+
+    A thin union so `_collect_profile` does not branch on transport at every use: an
+    artefact records the same four things whether it came from a shell or an API, and
+    the two shapes differing here would push that difference into the storage layer.
+    """
+
+    output: str
+    duration_ms: int
+    succeeded: bool
+
+
+async def _issue(
+    device_session: DeviceSession, entry: CollectionCommand, *, over_api: bool
+) -> _Issued:
+    """Send one profile entry over whichever transport the platform uses."""
+    if not over_api:
+        result = await device_session.run(entry.command)
+        return _Issued(result.output, result.duration_ms, result.succeeded)
+
+    method, path = entry.as_request()
+    body = entry.as_body() if device_session.guard.policy.http else None
+    # Only an RPC platform needs a body; a GET-collected one would be refused for
+    # sending one, and `as_body` derives it from the path so the two cannot drift.
+    response = await device_session.request(method, path, body=body if method == "POST" else None)
+    return _Issued(response.body, response.duration_ms, response.succeeded)
+
+
+def _pin_fingerprint(device: Device, transport: Transport, *, over_api: bool) -> None:
+    """Trust on first contact, for both transports (FR-COL-10).
+
+    A changed key or certificate is refused inside the transport itself; this only
+    records the first one seen. The two are stored in different columns because they are
+    different facts about different protocols, and a device reachable over both should
+    not have one silently overwrite the other.
+    """
+    observed = getattr(transport, "observed_fingerprint", None)
+    if not observed:
+        return
+
+    if over_api:
+        if device.tls_cert_fingerprint is None:
+            device.tls_cert_fingerprint = observed
+    elif device.host_key_fingerprint is None:
+        device.host_key_fingerprint = observed
+
+
 def _build_transport(
     session: AsyncSession,
     device: Device,
     credential: Credential,
     credentials: CredentialService,
     settings: Any,
-) -> SSHTransport:
+    *,
+    platform: str | None = None,
+) -> Transport:
+    """The transport the platform is actually collected over.
+
+    Chosen from the collection profile rather than from the credential: the profile is
+    what declares how a platform is read, and picking from the credential would let a
+    device with an SSH password be collected over SSH even where the platform has no CLI
+    to collect from. Before this existed everything got an SSH transport, so a PAN-OS
+    collection sent `GET /api/?type=config&action=show` down a shell channel — it failed
+    closed on the guard, but it failed.
+    """
+    if platform and has_profile(platform) and get_profile(platform).transport is not Transport_.CLI:
+        return _build_http_transport(device, credential, credentials, settings, platform)
+
     secret = credentials.open_secret(credential)
     public = credential.metadata_
 
@@ -489,6 +598,86 @@ def _build_transport(
         jump_host=jump_host,
         legacy_algorithms=settings.allow_legacy_ssh_ciphers,
     )
+
+
+def _build_http_transport(
+    device: Device,
+    credential: Credential,
+    credentials: CredentialService,
+    settings: Any,
+    platform: str,
+) -> HttpTransport:
+    secret = credentials.open_secret(credential)
+    public = credential.metadata_
+
+    credential_type = CredentialType(credential.credential_type)
+    if credential_type not in _API_CREDENTIAL_TYPES:
+        raise ValidationProblem(
+            f"Credential '{credential.name}' is a {credential_type.value}, but "
+            f"'{platform}' is collected over its API. Assign an API credential."
+        )
+
+    return HttpTransport(
+        str(device.mgmt_ip),
+        HttpCredentials(
+            username=str(public.get("username", "")) or None,
+            password=secret.get("password"),
+            api_key=secret.get("api_key") or secret.get("token"),
+            domain=str(public.get("domain", "")) or None,
+        ),
+        port=device.https_port,
+        # Management interfaces very often carry a self-signed certificate. The
+        # fingerprint pin below supplies the continuity that chain validation would:
+        # first contact is trusted, and a later change is refused.
+        verify_tls=settings.verify_device_tls,
+        known_fingerprint=device.tls_cert_fingerprint,
+        connect_timeout=device.connect_timeout or settings.device_connect_timeout,
+    )
+
+
+async def _authenticate_api(
+    device_session: DeviceSession, transport: HttpTransport, platform: str
+) -> None:
+    """Obtain an API session — through the guard, so the login is audited.
+
+    Deliberately not done inside the transport. Every one of these login calls is a
+    device-facing request, and routing it around the session would put it outside both
+    the read-only guard and the audit trail — the one property the whole session design
+    exists to hold. Each call is already on its platform's allow-list in `policies.py`,
+    because SRS §8.2 lists them as explicit exceptions.
+    """
+    pre_issued = pre_issued_token(platform, transport.credentials)
+    if pre_issued is not None:
+        # A pre-issued PAN-OS API key needs no exchange, which is the better shape:
+        # NetSecOps never holds the administrator's password at all.
+        transport.use_token(pre_issued)
+        return
+
+    exchange = auth_exchange(platform, transport.credentials)
+    if exchange is None:
+        return
+
+    result = await device_session.request(exchange.method, exchange.path, body=exchange.body)
+    transport.use_token(exchange.token_from(result.status_code, result.body))
+
+
+async def _release_api_session(device_session: DeviceSession, platform: str) -> None:
+    """Log out, so a nightly collection does not leak a session every run.
+
+    Check Point allows a small number of concurrent API sessions; an estate collected
+    on a schedule would exhaust them within a week. Failure is logged and swallowed —
+    the collection has already succeeded by this point, and failing it for an untidy
+    logout would discard a good snapshot.
+    """
+    exchange = logout_exchange(platform)
+    if exchange is None:
+        return
+
+    method, path, body = exchange
+    try:
+        await device_session.request(method, path, body=body)
+    except Exception as exc:
+        log.info("collect.logout_failed", platform=platform, error=str(exc))
 
 
 def _probe_commands(platform: str) -> list[str]:

@@ -1,0 +1,335 @@
+{
+  "deployment/node": {
+    "SearchResult": {
+      "resources": [
+        {
+          "hostname": "ise-pan-01",
+          "nodeversion": "3.2.0.542",
+          "roles": [
+            "PRIMARY"
+          ]
+        }
+      ]
+    }
+  },
+  "networkdevice": {
+    "SearchResult": {
+      "resources": [
+        {
+          "name": "core-sw-01",
+          "description": "Campus core switch",
+          "profileName": "Cisco",
+          "NetworkDeviceIPList": [
+            {
+              "ipaddress": "198.51.100.31",
+              "mask": 32
+            }
+          ],
+          "authenticationSettings": {
+            "radiusSharedSecret": "********",
+            "enableKeyWrap": false,
+            "dtlsRequired": false
+          }
+        },
+        {
+          "name": "campus-wlc-01",
+          "description": "AireOS controller",
+          "profileName": "Cisco",
+          "NetworkDeviceIPList": [
+            {
+              "ipaddress": "10.100.0.30",
+              "mask": 32
+            }
+          ],
+          "authenticationSettings": {
+            "radiusSharedSecret": "********",
+            "dtlsRequired": true
+          }
+        },
+        {
+          "name": "branch-sw-99",
+          "description": "Branch switch nobody put in the CMDB",
+          "profileName": "Cisco",
+          "NetworkDeviceIPList": [
+            {
+              "ipaddress": "10.77.0.9",
+              "mask": 32
+            }
+          ],
+          "authenticationSettings": {
+            "radiusSharedSecret": "********"
+          }
+        }
+      ]
+    }
+  },
+  "activedirectory": {
+    "SearchResult": {
+      "resources": [
+        {
+          "name": "corp-ad",
+          "domain": "corp.example.com"
+        }
+      ]
+    }
+  },
+  "identitystore": [
+    {
+      "name": "partner-ldap",
+      "type": "ldap",
+      "hostname": "ldap.partner.example.com",
+      "enableSecureConnection": false
+    }
+  ],
+  "allowedprotocols": [
+    {
+      "name": "Default Network Access",
+      "allowPapAscii": true,
+      "allowChap": true,
+      "allowMsChapV1": true,
+      "allowMsChapV2": true,
+      "allowEapMd5": true,
+      "allowEapTls": true,
+      "allowLeap": false,
+      "allowPeap": true,
+      "processHostLookup": true,
+      "allowTLS12": true,
+      "allowTLS13": false,
+      "peap": {
+        "allowPeapEapMsChapV2": true,
+        "allowPeapEapMd5": false
+      },
+      "eapTls": {
+        "allowEapTlsAuthOfExpiredCerts": false
+      }
+    }
+  ],
+  "policy/network-access/authentication": [
+    {
+      "rule": {
+        "name": "Wired 802.1X",
+        "rank": 1,
+        "state": "enabled",
+        "condition": {
+          "conditionType": "ConditionAttributes",
+          "attributeName": "Radius-NAS-Port-Type",
+          "operator": "equals",
+          "attributeValue": "Ethernet"
+        }
+      },
+      "identitySourceName": "corp-ad"
+    },
+    {
+      "rule": {
+        "name": "MAB fallback",
+        "rank": 2,
+        "state": "enabled"
+      },
+      "identitySourceName": "Internal Endpoints"
+    }
+  ],
+  "policy/network-access/authorization": [
+    {
+      "rule": {
+        "name": "Corp laptops",
+        "rank": 1,
+        "state": "enabled"
+      },
+      "profile": "PermitAccess"
+    },
+    {
+      "rule": {
+        "name": "Legacy printers",
+        "rank": 2,
+        "state": "disabled"
+      },
+      "profile": "PermitAccess"
+    }
+  ],
+  "policy/device-admin/command-sets": [
+    {
+      "name": "ReadOnly-Commands",
+      "permitUnmatched": false,
+      "commands": {
+        "commandList": [
+          {
+            "grant": "PERMIT",
+            "command": "show",
+            "arguments": ".*"
+          },
+          {
+            "grant": "DENY",
+            "command": "configure",
+            "arguments": ".*"
+          }
+        ]
+      }
+    },
+    {
+      "name": "NetworkAdmin",
+      "permitUnmatched": true,
+      "commands": {
+        "commandList": [
+          {
+            "grant": "PERMIT",
+            "command": "show"
+          }
+        ]
+      }
+    }
+  ],
+  "adminuser": {
+    "SearchResult": {
+      "resources": [
+        {
+          "name": "iseadmin",
+          "adminGroups": [
+            {
+              "name": "Super Admin"
+            }
+          ]
+        },
+        {
+          "name": "auditor",
+          "adminGroups": [
+            {
+              "name": "Read Only Admin"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "admin/settings": [
+    {
+      "sessionTimeout": 30,
+      "mfaEnabled": false
+    }
+  ],
+  "guestsettings": {
+    "enabled": true,
+    "selfRegistration": true,
+    "requireSponsorApproval": false,
+    "maxAccountDurationDays": 90,
+    "sendCredentialsBySms": true,
+    "httpsOnly": true,
+    "portals": [
+      "Self-Registered Guest Portal",
+      "Sponsored Guest Portal"
+    ]
+  },
+  "certs/system-certificate": {
+    "response": [
+      {
+        "id": "8d2f1b70-5a41-11ee-9c1a-000c29ab7d31",
+        "friendlyName": "campus-eap",
+        "issuedTo": "ise-psn-01.campus.example.com",
+        "issuedBy": "Campus Issuing CA G2",
+        "validFrom": "Wed Mar 13 09:14:22 UTC 2024",
+        "expirationDate": "Thu Mar 13 09:14:22 UTC 2031",
+        "keySize": 2048,
+        "signatureAlgorithm": "SHA256WITHRSA",
+        "selfSigned": false,
+        "usedBy": [
+          "EAP Authentication",
+          "RADIUS DTLS"
+        ]
+      },
+      {
+        "id": "9a41c2e8-5a41-11ee-9c1a-000c29ab7d31",
+        "friendlyName": "Default self-signed server certificate",
+        "issuedTo": "ise-psn-01.campus.example.com",
+        "issuedBy": "ise-psn-01.campus.example.com",
+        "validFrom": "Mon Jan 08 11:02:00 UTC 2024",
+        "expirationDate": "Tue Jan 07 11:02:00 UTC 2025",
+        "keySize": 2048,
+        "signatureAlgorithm": "SHA256WITHRSA",
+        "selfSigned": true,
+        "usedBy": [
+          "Admin",
+          "Portal"
+        ]
+      },
+      {
+        "id": "b7e0aa14-5a41-11ee-9c1a-000c29ab7d31",
+        "friendlyName": "pxgrid-node",
+        "issuedTo": "ise-pan-01.campus.example.com",
+        "issuedBy": "Campus Issuing CA G2",
+        "validFrom": "unknown",
+        "expirationDate": "",
+        "keySize": 4096,
+        "signatureAlgorithm": "SHA384WITHRSA",
+        "selfSigned": false,
+        "usedBy": [
+          "pxGrid"
+        ]
+      }
+    ]
+  },
+  "networkdevicegroup": {
+    "SearchResult": {
+      "resources": [
+        {
+          "id": "a1",
+          "name": "Device Type#All Device Types#Switches",
+          "description": "Campus access and distribution switches",
+          "othername": "Device Type"
+        },
+        {
+          "id": "a2",
+          "name": "Location#All Locations#Campus-North",
+          "description": "North campus",
+          "othername": "Location"
+        },
+        {
+          "id": "a3",
+          "name": "All Device Types",
+          "othername": "Device Type"
+        }
+      ]
+    }
+  },
+  "internaluser": {
+    "SearchResult": {
+      "resources": [
+        {
+          "id": "u1",
+          "name": "svc-guest-sponsor",
+          "identityGroups": "Sponsors",
+          "enabled": true
+        },
+        {
+          "id": "u2",
+          "name": "contractor-jm",
+          "identityGroups": "Employee",
+          "enabled": false
+        }
+      ]
+    }
+  },
+  "repository": {
+    "response": [
+      {
+        "name": "campus-backup",
+        "protocol": "SFTP",
+        "serverName": "10.100.9.20",
+        "path": "/ise"
+      },
+      {
+        "name": "legacy-ftp",
+        "protocol": "FTP",
+        "serverName": "10.100.9.21",
+        "path": "/old"
+      }
+    ]
+  },
+  "backup-restore/config/last-backup-status": {
+    "response": {
+      "repositoryName": "campus-backup",
+      "status": "SUCCESS",
+      "startDate": "Wed Sep 10 02:00:00 UTC 2026",
+      "scheduled": true,
+      "encrypted": true
+    }
+  }
+}

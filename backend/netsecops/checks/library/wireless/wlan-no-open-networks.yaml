@@ -1,0 +1,37 @@
+id: wlan-no-open-networks
+title: No wireless network is unencrypted
+description: >-
+  Every SSID uses WPA2 or better; none is open or captive-portal only.
+rationale: >-
+  On an open SSID every frame is readable by anyone within radio range, including
+  session cookies, internal hostnames and the contents of any unencrypted application
+  traffic. A captive portal does not change that: it authenticates the user at layer 7
+  and leaves the air in the clear, which is why it is classified as open here. The usual
+  justification is that the guest network is isolated — but isolation protects the
+  *network* from the guest, not the guest's traffic from the car park.
+severity: high
+
+applicability:
+  device_classes: [wireless_controller, firewall, switch]
+  requires_features: [wireless.wlans]
+
+logic:
+  type: ncm
+  expression: wireless.wlans[?security == 'open'].ssid
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Move guest access to WPA3-OWE, which gives opportunistic encryption with no password
+  and no user-visible change, or to a WPA2 pre-shared key published at reception. Where
+  an open SSID is genuinely required for onboarding, keep it on its own VLAN, restrict
+  it to the provisioning service, and expect everything on it to be readable.
+
+references:
+  nist_800_53: ["SC-8", "AC-18"]
+  pci_dss: ["4.2.1"]
+  iso_27001: ["A.8.20", "A.8.24"]
+  cwe: ["CWE-319"]
+
+tags: [wireless, crypto]

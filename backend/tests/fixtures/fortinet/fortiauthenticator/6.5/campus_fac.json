@@ -1,0 +1,167 @@
+{
+  "/api/v1/system/": {
+    "objects": [
+      {
+        "hostname": "fac-campus-01",
+        "firmware_version": "6.5.2",
+        "admin_idle_timeout": 15,
+        "admin_mfa": false
+      }
+    ]
+  },
+  "/api/v1/radiusclients/": {
+    "objects": [
+      {
+        "name": "core-sw-01",
+        "client": "198.51.100.31",
+        "secret": "********",
+        "vendor": "cisco",
+        "description": "Campus core switch",
+        "enabled": true
+      },
+      {
+        "name": "fortigate-edge",
+        "client": "10.100.0.40",
+        "secret": "********",
+        "vendor": "fortinet",
+        "enabled": true
+      },
+      {
+        "name": "decommissioned-ap",
+        "client": "10.90.0.9",
+        "secret": "********",
+        "vendor": "fortinet",
+        "enabled": false
+      }
+    ],
+    "meta": {
+      "total_count": 3
+    }
+  },
+  "/api/v1/ldapservers/": {
+    "objects": [
+      {
+        "name": "corp-ldap",
+        "server": "ldap.example.com",
+        "secure_connection": true
+      },
+      {
+        "name": "legacy-ldap",
+        "server": "old-ldap.example.com",
+        "secure_connection": false
+      }
+    ]
+  },
+  "/api/v1/policies/": {
+    "objects": [
+      {
+        "name": "Wireless 802.1X",
+        "order": 1,
+        "enabled": true,
+        "eap_types": [
+          "EAP-TLS",
+          "PEAP",
+          "MS-CHAPv2"
+        ],
+        "realm": "corp"
+      },
+      {
+        "name": "Legacy VPN",
+        "order": 2,
+        "enabled": true,
+        "auth_methods": [
+          "PAP",
+          "MS-CHAP"
+        ],
+        "realm": "vpn"
+      }
+    ]
+  },
+  "/api/v1/adminprofiles/": {
+    "objects": [
+      {
+        "name": "facadmin",
+        "profile": "admin"
+      },
+      {
+        "name": "reporter",
+        "profile": "read_only"
+      }
+    ]
+  },
+  "/api/v1/guestportals/": {
+    "objects": []
+  },
+  "/api/v1/certificates/": {
+    "objects": [
+      {
+        "name": "fac-eap-server",
+        "cn": "fac.campus.example.com",
+        "issuer": "Campus Issuing CA G2",
+        "valid_from": "2024-06-01T00:00:00Z",
+        "valid_to": "2027-05-31T23:59:59Z",
+        "key_size": 2048,
+        "signature_algorithm": "SHA256withRSA",
+        "self_signed": false,
+        "usage": "server, eap"
+      },
+      {
+        "name": "legacy-portal",
+        "cn": "portal.campus.example.com",
+        "issuer": "portal.campus.example.com",
+        "valid_from": "2022-02-01T00:00:00Z",
+        "valid_to": "2025-01-31T23:59:59Z",
+        "key_size": 1024,
+        "signature_algorithm": "SHA1withRSA",
+        "self_signed": true,
+        "usage": "server"
+      }
+    ]
+  },
+  "/api/v1/localusers/": {
+    "objects": [
+      {
+        "username": "jsmith",
+        "active": true,
+        "token_auth": true
+      },
+      {
+        "username": "contractor01",
+        "active": true,
+        "token_auth": false
+      },
+      {
+        "username": "svc-printer",
+        "active": true,
+        "token_auth": false
+      }
+    ]
+  },
+  "/api/v1/usergroups/": {
+    "objects": [
+      {
+        "name": "Employees",
+        "users": [
+          "jsmith"
+        ]
+      },
+      {
+        "name": "Contractors",
+        "users": [
+          {
+            "username": "contractor01"
+          }
+        ]
+      },
+      {
+        "name": "WiFi-Users",
+        "users": [
+          "jsmith",
+          {
+            "username": "contractor01"
+          }
+        ]
+      }
+    ]
+  }
+}

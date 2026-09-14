@@ -27,6 +27,7 @@ from netsecops.checks.engine import (
     python_check,
 )
 from netsecops.checks.schema import Outcome, Severity
+from netsecops.ncm.certificates import parse_expiry
 
 # ─────────────────────────── weak cryptography ──────────────────────────────
 
@@ -607,7 +608,112 @@ def snmp_v3_authpriv_only(context: EvaluationContext) -> CheckResult:
     )
 
 
+# ───────────────────────────── certificate expiry ───────────────────────────
+
+#: Matches the posture dashboard's buckets, which is the point: a check firing at a
+#: different threshold from the one the timeline draws would have the two disagreeing
+#: about the same certificate on the same screen.
+EXPIRY_SOON_DAYS = 30
+
+
+@python_check("certificate_expiry")
+def certificate_expiry(context: EvaluationContext) -> CheckResult:
+    """Certificates that have expired or will within 30 days.
+
+    A declarative expression cannot do this: it needs a date parsed out of whichever
+    format the vendor printed, arithmetic against now, and a distinction between a
+    certificate that is fine and one whose date nobody could read.
+
+    That last distinction is why this is not simply "count the near dates". A certificate
+    carrying an unreadable expiry is not a passing certificate; it is one nothing is
+    watching. Counting it as a pass would turn the check green on exactly the evidence it
+    was written to examine — so it reports Not Evaluated instead, unless something else
+    already failed, in which case the failure is the more useful answer and the undated
+    ones are named alongside it.
+    """
+    entries = context.select("certificates")
+    if entries is None:
+        return _result(
+            Outcome.NOT_EVALUATED,
+            "Not evaluated: no certificate inventory was collected from this device.",
+            reason="missing:certificates",
+        )
+
+    certificates = [item for item in entries if isinstance(item, Mapping)]
+    if not certificates:
+        # An empty list is a real answer — this device holds no certificates — and it is
+        # different from never having looked, which is handled above.
+        return _result(
+            Outcome.PASS,
+            "This device holds no certificates.",
+            observed=[],
+            evidence=context.evidence_for("certificates"),
+        )
+
+    now = datetime.now(UTC)
+    expired: list[str] = []
+    soon: list[str] = []
+    undated: list[str] = []
+
+    for certificate in certificates:
+        name = str(certificate.get("name") or certificate.get("subject") or "unnamed")
+        expiry = parse_expiry(certificate.get("not_after"))
+        if expiry is None:
+            undated.append(name)
+            continue
+
+        days = (expiry - now).days
+        if days < 0:
+            expired.append(f"{name} (expired {abs(days)} days ago)")
+        elif days <= EXPIRY_SOON_DAYS:
+            soon.append(f"{name} ({days} days left)")
+
+    evidence = context.evidence_for("certificates")
+    caveat = (
+        f" {len(undated)} further certificate(s) carry an expiry date that could not be "
+        f"read, so their state is unknown: {', '.join(sorted(undated))}."
+        if undated
+        else ""
+    )
+
+    if expired or soon:
+        offenders = expired + soon
+        return _result(
+            Outcome.FAIL,
+            (
+                f"{len(expired)} certificate(s) have expired and {len(soon)} expire within "
+                f"{EXPIRY_SOON_DAYS} days: {', '.join(offenders)}.{caveat}"
+            ),
+            observed=offenders,
+            expected=f"no certificate expired or expiring within {EXPIRY_SOON_DAYS} days",
+            evidence=evidence,
+        )
+
+    if len(undated) == len(certificates):
+        return _result(
+            Outcome.NOT_EVALUATED,
+            (
+                f"Not evaluated: none of the {len(certificates)} certificates collected "
+                "carry an expiry date this system could interpret. An unreadable date is "
+                "not a distant one."
+            ),
+            reason="undated:certificates",
+            evidence=evidence,
+        )
+
+    return _result(
+        Outcome.PASS,
+        (
+            f"All {len(certificates) - len(undated)} dated certificate(s) are valid for more "
+            f"than {EXPIRY_SOON_DAYS} days.{caveat}"
+        ),
+        observed=len(certificates) - len(undated),
+        evidence=evidence,
+    )
+
+
 __all__ = [
+    "EXPIRY_SOON_DAYS",
     "WEAK_CIPHERS",
     "WEAK_KEX",
     "WEAK_MACS",

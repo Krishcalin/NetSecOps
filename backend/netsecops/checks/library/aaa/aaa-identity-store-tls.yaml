@@ -1,0 +1,35 @@
+id: aaa-identity-store-tls
+title: Directory lookups are encrypted
+description: >-
+  No LDAP or Active Directory identity source is configured without TLS.
+rationale: >-
+  An AAA server binds to the directory on every authentication. Without TLS that bind
+  carries the service account's credentials in the clear, and the directory's answers —
+  group membership, which decides what the user is authorised to do — arrive
+  unauthenticated and can be rewritten in flight. The service account is usually
+  privileged enough to read the whole directory, which makes this one of the higher-value
+  captures available on an internal network.
+severity: high
+
+applicability:
+  requires_features: [aaa_server.identity_stores]
+
+logic:
+  type: ncm
+  expression: aaa_server.identity_stores[?tls == `false`].name
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Move the identity source to LDAPS or enable StartTLS, and give the AAA server the
+  directory's issuing CA so the certificate is actually validated — an encrypted bind
+  that accepts any certificate stops the passive capture and not the active one.
+
+references:
+  nist_800_53: ["SC-8", "IA-5"]
+  pci_dss: ["4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-319"]
+
+tags: [aaa, crypto]

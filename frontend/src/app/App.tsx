@@ -17,6 +17,7 @@ import { InventoryPage } from './InventoryPage';
 import { ImportPage } from './ImportPage';
 import { DeviceConfigPage } from './DeviceConfigPage';
 import { FirewallPage } from './FirewallPage';
+import { AaaPage } from './AaaPage';
 import { FindingsPage } from './FindingsPage';
 import { CompliancePage } from './CompliancePage';
 import { JobsPage } from './JobsPage';
@@ -90,6 +91,9 @@ export function App() {
                   offers a picker, while a link from a device goes straight to its rules. */}
               <Route path="inventory/:deviceId/firewall" element={<FirewallPage />} />
               <Route path="firewall" element={<FirewallPage />} />
+              {/* Estate-wide rather than per-device: the whole subject is what the
+                  devices and the AAA servers disagree about. */}
+              <Route path="aaa" element={<AaaPage />} />
               <Route path="jobs" element={<JobsPage />} />
               <Route path="findings" element={<FindingsPage />} />
               <Route path="compliance" element={<CompliancePage />} />

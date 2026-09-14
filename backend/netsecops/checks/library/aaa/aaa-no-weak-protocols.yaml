@@ -1,0 +1,42 @@
+id: aaa-no-weak-protocols
+title: The AAA server does not accept broken authentication protocols
+description: >-
+  PAP, CHAP, MS-CHAPv1, EAP-MD5 and LEAP are not in the server's allowed-protocols set.
+rationale: >-
+  Each of these fails differently and all of them fail. PAP carries the password inside
+  the RADIUS packet protected only by the shared secret. CHAP requires the server to
+  hold the password reversibly. MS-CHAPv1 and LEAP are recoverable offline from a
+  captured exchange in minutes. EAP-MD5 provides no server authentication at all, so a
+  client will complete the exchange with any impostor that answers first.
+
+  They persist because the default protocol set on a new deployment permits most of them
+  and because narrowing it breaks whichever forgotten device still needs one. The list
+  is the server's, so a single rule still accepting MS-CHAPv1 is a way in regardless of
+  how careful the other forty are.
+severity: high
+
+applicability:
+  requires_features: [aaa_server.allowed_protocols]
+
+logic:
+  type: ncm
+  expression: >-
+    aaa_server.allowed_protocols[?@ == 'PAP' || @ == 'CHAP' || @ == 'MS-CHAPv1' ||
+    @ == 'EAP-MD5' || @ == 'LEAP']
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Find out what still needs each one before removing it — the server's own
+  authentication logs will name the clients. Move those onto EAP-TLS where they support
+  certificates and PEAP/MS-CHAPv2 where they do not, then remove the method from the
+  protocol set. Removing it first and waiting for complaints is how this gets reverted.
+
+references:
+  nist_800_53: ["IA-2", "IA-5", "SC-13"]
+  pci_dss: ["4.2.1", "8.3.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327", "CWE-319"]
+
+tags: [aaa, crypto, authentication]

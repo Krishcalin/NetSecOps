@@ -1,0 +1,34 @@
+id: aaa-server-admin-mfa
+title: Administrative access to the AAA server requires MFA
+description: >-
+  Multi-factor authentication is enabled for administrators of the AAA server itself.
+rationale: >-
+  Whoever administers the AAA server can add a client, change a policy, or create an
+  account with full command authorisation on every device in the estate — and can do it
+  without touching any of those devices. That makes this one console a higher-value
+  target than any individual firewall, and it is frequently the one protected by a single
+  password because it is "just infrastructure".
+severity: high
+
+applicability:
+  requires_features: [aaa_server.product]
+
+logic:
+  type: ncm
+  expression: aaa_server.admin_mfa_enabled
+  assert:
+    equals: true
+  missing: not_evaluated
+
+remediation: >-
+  Enable MFA for administrative logins, and make sure the break-glass account is covered
+  by something — a sealed credential with a documented retrieval process rather than an
+  exemption. An MFA policy with one exempt account is an MFA policy with one way past it.
+
+references:
+  nist_800_53: ["IA-2(1)", "AC-6"]
+  pci_dss: ["8.4.2"]
+  iso_27001: ["A.8.5"]
+  cwe: ["CWE-308"]
+
+tags: [aaa, authentication, management-plane]

@@ -220,6 +220,199 @@ class Aaa(NcmBase):
     servers: list[AaaServer] = Field(default_factory=list)
     local_fallback: bool | None = None
     radsec: bool | None = None
+    #: Server groups by name, each listing its member server hosts. IOS binds a method
+    #: list to a *group*, not to a server, so without this the chain from "which method
+    #: list does VTY use" to "which RADIUS server answers it" cannot be followed.
+    server_groups: dict[str, list[str]] = Field(default_factory=dict)
+
+
+# ─────────────────── AAA as a *server* (FR-AAA-02 … FR-AAA-05) ──────────────
+#
+# Everything above describes a device as an AAA *client*. The blocks below describe a
+# device that *is* the AAA service — Cisco ISE, FortiAuthenticator, a FreeRADIUS or
+# tac_plus host. They are a different subject with different questions: not "does this
+# switch authenticate centrally" but "which switches may authenticate against me, and
+# what am I prepared to accept from them".
+#
+# Added to NCM v1 rather than bumping the version: every field is optional with a
+# default, so a snapshot stored before Phase 5 deserialises unchanged and every
+# server-side check on it reports Not Evaluated, which is the honest answer for a device
+# that was never an AAA server.
+
+
+class RadiusClient(NcmBase):
+    """A network device permitted to authenticate against this server (FR-AAA-05)."""
+
+    name: str
+    address: str | None = None
+    #: Whether a shared secret is set — never the secret (C-2).
+    secret_configured: bool | None = None
+    #: A stable fingerprint of the secret, where the source exposes it at all. This is
+    #: what makes shared-secret *reuse* detectable across an estate without NetSecOps
+    #: ever handling the secret: two clients with the same fingerprint share a key.
+    #: None means the server did not expose it, which FR-AAA-05 requires be reported as
+    #: "unknown" rather than as "not reused".
+    secret_fingerprint: str | None = None
+    vendor: str | None = None
+    description: str | None = None
+    #: RadSec / TLS rather than the classic shared-secret transport.
+    tls: bool | None = None
+    enabled: bool | None = None
+
+
+class IdentityStore(NcmBase):
+    """Where the server looks up users: internal, Active Directory, LDAP, certificates."""
+
+    name: str
+    type: str | None = None
+    #: For AD/LDAP: whether the connection is encrypted. A directory bind in the clear
+    #: carries credentials across the network on every authentication.
+    tls: bool | None = None
+    host: str | None = None
+
+
+class AuthPolicy(NcmBase):
+    """One authentication or authorisation rule, in the order the server evaluates it."""
+
+    name: str
+    order: int = 0
+    enabled: bool | None = None
+    #: `authentication` or `authorization`.
+    kind: str | None = None
+    condition: str | None = None
+    #: Which protocols this rule is willing to accept. The weak ones are the finding.
+    allowed_protocols: list[str] = Field(default_factory=list)
+    identity_source: str | None = None
+    result: str | None = None
+
+
+class CommandSet(NcmBase):
+    """TACACS+ command authorisation — which commands a role may run."""
+
+    name: str
+    #: True when the set permits anything not explicitly denied, which makes the
+    #: remaining rules decoration.
+    permit_unmatched: bool | None = None
+    commands: list[str] = Field(default_factory=list)
+
+
+class DeviceGroup(NcmBase):
+    """A grouping of network devices, which policy rules match on (FR-AAA-02).
+
+    Worth collecting because ISE authorisation rules are frequently written against a
+    group rather than a device, so a rule reading "permit Device Type#All Device
+    Types#Switches" is unreadable — and unauditable — without knowing what is in that
+    group. It is also where a device quietly acquires privileges: adding a switch to the
+    wrong group grants it a policy nobody reviewed for it.
+    """
+
+    name: str
+    #: ISE nests groups as `Root#Parent#Child`; the parent is kept so the hierarchy
+    #: survives into the NCM rather than being flattened into an opaque string.
+    parent: str | None = None
+    description: str | None = None
+    #: What the group classifies — ISE calls this the root type (Device Type, Location).
+    kind: str | None = None
+
+
+class GuestAccess(NcmBase):
+    """Guest and sponsored-access settings (FR-AAA-02).
+
+    Guest portals are the part of an AAA deployment that is deliberately reachable by
+    people who have no account, which makes their defaults the ones worth reading. Self
+    -registration without sponsor approval means anyone within radio range can issue
+    themselves network access; a long account lifetime means the access outlives the
+    visit that justified it.
+    """
+
+    enabled: bool | None = None
+    #: Guests may create their own accounts without an employee sponsoring them.
+    self_registration: bool | None = None
+    #: A sponsor must approve before a self-registered account works. The pairing with
+    #: `self_registration` is the finding: either alone is a choice, both is open access.
+    sponsor_approval_required: bool | None = None
+    #: How long a guest account stays valid.
+    max_account_duration_days: int | None = None
+    #: Credentials sent to the guest in the clear, by SMS or email.
+    credentials_sent_in_clear: bool | None = None
+    #: The portal is served over HTTPS.
+    https_only: bool | None = None
+    portals: list[str] = Field(default_factory=list)
+
+
+class Repository(NcmBase):
+    """A configured backup or upgrade destination (FR-AAA-02).
+
+    An AAA server's backup contains every shared secret, every certificate and the
+    credentials for the whole estate, so where it is sent and whether it is encrypted in
+    transit is a question about the estate rather than about the server. An FTP or TFTP
+    repository moves that archive across the network in the clear.
+    """
+
+    name: str
+    #: `sftp`, `ftp`, `tftp`, `nfs`, `disk`, `http`, `https`.
+    protocol: str | None = None
+    host: str | None = None
+    path: str | None = None
+    #: True when the transport protects the archive in transit. None where the protocol
+    #: was not reported — not False, which would assert an insecurity we did not observe.
+    encrypted_transport: bool | None = None
+
+
+class BackupStatus(NcmBase):
+    """Whether configuration backups are actually running (FR-AAA-02).
+
+    Scheduled and succeeding are different facts, and a schedule that has been failing
+    since a password change looks identical to a healthy one in the configuration.
+    """
+
+    scheduled: bool | None = None
+    #: ISO-8601 as the device reported it. See `ncm.certificates.parse_expiry` for why
+    #: interpretation lives outside the parsers.
+    last_backup_at: str | None = None
+    last_backup_status: str | None = None
+    #: The backup archive itself is encrypted at rest, independently of the transport.
+    encrypted: bool | None = None
+    repository: str | None = None
+
+
+class AaaServerConfig(NcmBase):
+    """A device that *serves* AAA rather than consuming it."""
+
+    #: `ise`, `fortiauthenticator`, `freeradius`, `tac_plus`.
+    product: str | None = None
+    clients: list[RadiusClient] = Field(default_factory=list)
+    device_groups: list[DeviceGroup] = Field(default_factory=list)
+    identity_stores: list[IdentityStore] = Field(default_factory=list)
+    policies: list[AuthPolicy] = Field(default_factory=list)
+    command_sets: list[CommandSet] = Field(default_factory=list)
+    #: None rather than a default instance: an empty `GuestAccess` would answer every
+    #: guest question with "unknown", which is right, but a *present* empty block reads
+    #: as "we looked and there is no guest access", which is not the same thing.
+    guest: GuestAccess | None = None
+    repositories: list[Repository] = Field(default_factory=list)
+    backup: BackupStatus | None = None
+    #: Every protocol the server will accept anywhere in its policy set. Flattened here
+    #: because "does this server still allow MS-CHAPv1" is a question about the server,
+    #: not about one rule.
+    allowed_protocols: list[str] = Field(default_factory=list)
+    #: TLS versions offered for EAP-TLS / RadSec.
+    tls_versions: list[str] = Field(default_factory=list)
+    #: Administrative access to the AAA server itself (FR-AAA-02).
+    admin_session_timeout_s: int | None = None
+    admin_mfa_enabled: bool | None = None
+
+    @property
+    def weak_protocols(self) -> list[str]:
+        """The ones whose presence is a finding regardless of context.
+
+        PAP sends the password in the clear inside the RADIUS packet, protected only by
+        the shared secret. CHAP and MS-CHAPv1 are broken. EAP-MD5 offers no server
+        authentication, so a client will happily talk to any impostor. LEAP is trivially
+        crackable offline.
+        """
+        weak = {"pap", "chap", "ms-chapv1", "mschapv1", "eap-md5", "leap"}
+        return sorted({p for p in self.allowed_protocols if p.strip().lower() in weak})
 
 
 # ───────────────────────── logging, time, SNMP ──────────────────────────────
@@ -564,6 +757,10 @@ class NormalisedConfig(NcmBase):
     management: Management = Field(default_factory=Management)
     users: list[LocalUser] = Field(default_factory=list)
     aaa: Aaa = Field(default_factory=Aaa)
+    #: Populated only on a device that *is* an AAA service (FR-AAA-02 … FR-AAA-04).
+    #: Empty on everything else, which is why the server-side checks are scoped by
+    #: device class rather than reporting Not Evaluated on every switch in the estate.
+    aaa_server: AaaServerConfig = Field(default_factory=AaaServerConfig)
     logging: Logging = Field(default_factory=Logging)
     ntp: Ntp = Field(default_factory=Ntp)
     snmp: Snmp = Field(default_factory=Snmp)

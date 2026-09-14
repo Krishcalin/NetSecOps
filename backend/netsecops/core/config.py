@@ -123,6 +123,15 @@ class Settings(BaseSettings):
     device_command_timeout: int = Field(default=60, ge=1)
     worker_concurrency: int = Field(default=20, ge=1)
     allow_legacy_ssh_ciphers: bool = False
+    #: Whether an API-collected device's TLS certificate must validate against a trusted
+    #: chain. Off by default, and that is a considered position rather than laziness:
+    #: management interfaces overwhelmingly carry self-signed certificates, and an
+    #: operator who cannot change that would otherwise be unable to use the product at
+    #: all. Continuity comes from the per-device fingerprint pin instead — first contact
+    #: is recorded and any later change is refused (FR-COL-10) — which is the same
+    #: trust-on-first-use discipline already applied to SSH host keys. An estate with an
+    #: internal CA should turn this on.
+    verify_device_tls: bool = False
 
     # ── Vulnerability feeds (FR-VUL-07/08, used from Phase 6) ───────────────
     feeds_offline_mode: bool = False

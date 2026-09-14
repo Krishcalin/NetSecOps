@@ -234,6 +234,138 @@ PANOS_PROFILE: Final = CollectionProfile(
     ),
 )
 
+CISCO_WLC_PROFILE: Final = CollectionProfile(
+    platform="cisco_wlc_aireos",
+    setup=("config paging disable",),
+    commands=(
+        CollectionCommand(
+            "show run-config commands",
+            "The configuration as a command list — everything the parser reads",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("show sysinfo", "Software version and model, for vulnerability matching"),
+        CollectionCommand("show wlan summary", "WLAN inventory and state"),
+        CollectionCommand("show ap summary", "Joined access points"),
+        CollectionCommand("show radius summary", "RADIUS server reachability, absent from config"),
+        CollectionCommand("show tacacs summary", "TACACS+ server reachability"),
+        CollectionCommand("show mgmtuser", "Administrators and their roles"),
+        CollectionCommand("show rogue ap summary", "Rogue detection state and current rogues"),
+        CollectionCommand("show certificate summary", "Certificate expiry"),
+        CollectionCommand("show interface summary", "Interface addressing and VLANs"),
+        CollectionCommand("show wps summary", "Wireless protection policy posture"),
+    ),
+)
+
+CISCO_ISE_PROFILE: Final = CollectionProfile(
+    platform="cisco_ise",
+    # ISE is read over its REST APIs; there is no shell to configure. The ERS and
+    # OpenAPI endpoints are mixed deliberately — a deployment answers on whichever its
+    # version supports, and FR-COL-08 turns the other's 404 into a partial collection
+    # rather than a failure.
+    setup=(),
+    transport=Transport.HTTP,
+    commands=(
+        CollectionCommand(
+            "GET /ers/config/networkdevice",
+            "Every device permitted to authenticate here — the FR-AAA-05 correlation",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("GET /api/v1/deployment/node", "Node names, roles and version"),
+        CollectionCommand(
+            "GET /ers/config/activedirectory", "Active Directory joins used as identity sources"
+        ),
+        CollectionCommand("GET /ers/config/identitystore", "LDAP and token identity sources"),
+        CollectionCommand(
+            "GET /ers/config/allowedprotocols",
+            "Which authentication protocols the server will accept — PAP, MS-CHAPv1, EAP-MD5",
+        ),
+        CollectionCommand(
+            "GET /api/v1/policy/network-access/authentication", "Authentication rules, in order"
+        ),
+        CollectionCommand(
+            "GET /api/v1/policy/network-access/authorization", "Authorisation rules, in order"
+        ),
+        CollectionCommand(
+            "GET /api/v1/policy/device-admin/command-sets",
+            "TACACS+ command authorisation sets",
+        ),
+        CollectionCommand("GET /ers/config/adminuser", "Administrators of ISE itself"),
+        CollectionCommand(
+            "GET /api/v1/system-settings/admin-access", "Admin session timeout and MFA"
+        ),
+        CollectionCommand("GET /api/v1/certs/system-certificate", "EAP and admin certificates"),
+    ),
+)
+
+FORTIAUTHENTICATOR_PROFILE: Final = CollectionProfile(
+    platform="fortiauthenticator",
+    setup=(),
+    transport=Transport.HTTP,
+    commands=(
+        CollectionCommand(
+            "GET /api/v1/radiusclients/",
+            "Devices permitted to authenticate here — the FR-AAA-05 correlation",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("GET /api/v1/system/", "Hostname, firmware and admin access settings"),
+        CollectionCommand(
+            "GET /api/v1/ldapservers/", "Remote identity sources and their transport"
+        ),
+        CollectionCommand("GET /api/v1/localusers/", "Local user accounts"),
+        CollectionCommand("GET /api/v1/usergroups/", "Group membership"),
+        CollectionCommand("GET /api/v1/certificates/", "Certificate expiry"),
+        CollectionCommand("GET /api/v1/adminprofiles/", "Administrators of the appliance itself"),
+    ),
+)
+
+#: FreeRADIUS and tac_plus share this profile's *shape* but not its paths, so they are
+#: two profiles over one allow-list. Only `cat` of a file inside the approved directories
+#: is ever issued (SRS §8.2).
+FREERADIUS_PROFILE: Final = CollectionProfile(
+    platform="freeradius",
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "cat /etc/freeradius/3.0/clients.conf",
+            "The devices permitted to authenticate, and whether each has a shared secret",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "cat /etc/freeradius/3.0/mods-available/eap",
+            "Which EAP methods the server will accept, and its TLS floor",
+        ),
+        CollectionCommand(
+            "cat /etc/freeradius/3.0/radiusd.conf", "Logging and LDAP identity sources"
+        ),
+        CollectionCommand(
+            "cat /etc/freeradius/3.0/sites-enabled/default",
+            "The virtual server's authorise list, which is FreeRADIUS's policy",
+        ),
+        CollectionCommand("radiusd -v", "Version, for vulnerability matching"),
+        CollectionCommand("systemctl is-active freeradius", "Whether the service is running"),
+    ),
+)
+
+TACPLUS_PROFILE: Final = CollectionProfile(
+    platform="tac_plus",
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "cat /etc/tac_plus/tac_plus.conf",
+            "Clients, groups, command authorisation and local accounts",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("tac_plus -v", "Version, for vulnerability matching"),
+        CollectionCommand("systemctl is-active tac_plus", "Whether the service is running"),
+        CollectionCommand("ls -la /etc/tac_plus", "File permissions on a file full of secrets"),
+    ),
+)
+
 CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
     platform="checkpoint_mgmt",
     # The Management API is POST-only by design, so there is no session to configure and
@@ -301,10 +433,15 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_iosxe": CISCO_IOS_PROFILE,
     "cisco_nxos": CISCO_NXOS_PROFILE,
     "cisco_asa": CISCO_ASA_PROFILE,
+    "cisco_wlc_aireos": CISCO_WLC_PROFILE,
+    "cisco_ise": CISCO_ISE_PROFILE,
     "fortios": FORTIOS_PROFILE,
     "panos": PANOS_PROFILE,
     "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,
     "checkpoint_gaia": CHECKPOINT_GAIA_PROFILE,
+    "fortiauthenticator": FORTIAUTHENTICATOR_PROFILE,
+    "freeradius": FREERADIUS_PROFILE,
+    "tac_plus": TACPLUS_PROFILE,
 }
 
 

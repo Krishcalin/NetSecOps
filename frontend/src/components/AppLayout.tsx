@@ -26,7 +26,9 @@ const NAV_ITEMS: NavItem[] = [
   // A rulebase is configuration, so this sits behind the same permission as the config
   // viewer rather than behind a findings permission.
   { label: 'Firewall Analysis', to: '/firewall', permission: 'snapshot:read' },
-  { label: 'AAA Posture', phase: 'Phase 5' },
+  // A conclusion about the estate rather than configuration, so it sits behind the
+  // findings permission — unlike the rulebase viewer directly above it.
+  { label: 'AAA Posture', to: '/aaa', permission: 'finding:read' },
   { label: 'Compliance', to: '/compliance', permission: 'report:read' },
   { label: 'Reports', phase: 'Phase 7' },
   { label: 'Integrations', phase: 'Phase 7' },

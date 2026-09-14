@@ -1,0 +1,71 @@
+System Name.................................... campus-wlc-01
+Product Version................................ 8.10.190.0
+Model.......................................... AIR-CT5520-K9
+config sysname campus-wlc-01
+config network telnet disable
+config network ssh enable
+config network webmode enable
+config network secureweb enable
+config sessions timeout 30
+config mgmtuser add admin Sup3rS3cret! read-write
+config mgmtuser add auditor Aud1tP4ss! read-only
+config aaa auth mgmt tacacs+ local
+config radius auth add 1 10.100.5.60 1812 ascii R4d1usK3y!Secret
+config radius acct add 1 10.100.5.60 1813 ascii R4d1usK3y!Secret
+config tacacs auth add 1 10.100.5.70 49 ascii T4c4csK3y!Secret
+config snmp community create Ro-Community-9f3a
+config snmp community create public
+config snmp version v2c enable
+config logging syslog host 10.100.5.10
+config time ntp server 1 10.100.5.40
+config time ntp server 2 10.100.5.41
+config interface create management 10
+config interface address management 10.100.0.30
+config interface vlan management 10
+config interface create guest-30 30
+config interface address guest-30 10.30.0.1
+config wlan create 1 Corp-WiFi Corp-WiFi
+config wlan security wpa enable 1
+config wlan security wpa wpa2 enable 1
+config wlan security wpa akm 802.1x enable 1
+config wlan security wpa ciphers aes enable 1
+config wlan security pmf required 1
+config wlan radius_server auth add 1 1
+config wlan broadcast-ssid enable 1
+config wlan interface 1 management
+config wlan ft enable 1
+config wlan enable 1
+config wlan create 2 Guest-WiFi Guest-WiFi
+config wlan security wpa disable 2
+config wlan security none 2
+config wlan broadcast-ssid enable 2
+config wlan peer-blocking disable 2
+config wlan interface 2 guest-30
+config wlan enable 2
+config wlan create 3 Legacy-Scanners Legacy-Scanners
+config wlan security wpa enable 3
+config wlan security wpa wpa1 enable 3
+config wlan security wpa akm psk enable 3
+config wlan security wpa ciphers tkip enable 3
+config wlan security pmf disable 3
+config wlan broadcast-ssid disable 3
+config wlan enable 3
+config wlan create 4 Staff-PSK Staff-PSK
+config wlan security wpa enable 4
+config wlan security wpa wpa2 enable 4
+config wlan security wpa akm psk enable 4
+config wlan security wpa ciphers aes enable 4
+config wlan security pmf optional 4
+config wlan broadcast-ssid enable 4
+config wlan peer-blocking drop 4
+config wlan enable 4
+config wlan create 13 Contractor-WiFi Contractor-WiFi
+config wlan security wpa enable 13
+config wlan security wpa wpa3 enable 13
+config wlan security wpa akm sae enable 13
+config wlan security pmf required 13
+config wlan broadcast-ssid enable 13
+config wlan disable 13
+config wps rogue detection enable
+config mdns profile create default
+config country GB
