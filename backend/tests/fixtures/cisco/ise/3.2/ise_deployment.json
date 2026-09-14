@@ -207,7 +207,16 @@
     }
   ],
   "guestsettings": {
-    "note": "not read by any rule yet"
+    "enabled": true,
+    "selfRegistration": true,
+    "requireSponsorApproval": false,
+    "maxAccountDurationDays": 90,
+    "sendCredentialsBySms": true,
+    "httpsOnly": true,
+    "portals": [
+      "Self-Registered Guest Portal",
+      "Sponsored Guest Portal"
+    ]
   },
   "certs/system-certificate": {
     "response": [
@@ -256,5 +265,71 @@
         ]
       }
     ]
+  },
+  "networkdevicegroup": {
+    "SearchResult": {
+      "resources": [
+        {
+          "id": "a1",
+          "name": "Device Type#All Device Types#Switches",
+          "description": "Campus access and distribution switches",
+          "othername": "Device Type"
+        },
+        {
+          "id": "a2",
+          "name": "Location#All Locations#Campus-North",
+          "description": "North campus",
+          "othername": "Location"
+        },
+        {
+          "id": "a3",
+          "name": "All Device Types",
+          "othername": "Device Type"
+        }
+      ]
+    }
+  },
+  "internaluser": {
+    "SearchResult": {
+      "resources": [
+        {
+          "id": "u1",
+          "name": "svc-guest-sponsor",
+          "identityGroups": "Sponsors",
+          "enabled": true
+        },
+        {
+          "id": "u2",
+          "name": "contractor-jm",
+          "identityGroups": "Employee",
+          "enabled": false
+        }
+      ]
+    }
+  },
+  "repository": {
+    "response": [
+      {
+        "name": "campus-backup",
+        "protocol": "SFTP",
+        "serverName": "10.100.9.20",
+        "path": "/ise"
+      },
+      {
+        "name": "legacy-ftp",
+        "protocol": "FTP",
+        "serverName": "10.100.9.21",
+        "path": "/old"
+      }
+    ]
+  },
+  "backup-restore/config/last-backup-status": {
+    "response": {
+      "repositoryName": "campus-backup",
+      "status": "SUCCESS",
+      "startDate": "Wed Sep 10 02:00:00 UTC 2026",
+      "scheduled": true,
+      "encrypted": true
+    }
   }
 }

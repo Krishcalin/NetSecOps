@@ -117,5 +117,51 @@
         "usage": "server"
       }
     ]
+  },
+  "/api/v1/localusers/": {
+    "objects": [
+      {
+        "username": "jsmith",
+        "active": true,
+        "token_auth": true
+      },
+      {
+        "username": "contractor01",
+        "active": true,
+        "token_auth": false
+      },
+      {
+        "username": "svc-printer",
+        "active": true,
+        "token_auth": false
+      }
+    ]
+  },
+  "/api/v1/usergroups/": {
+    "objects": [
+      {
+        "name": "Employees",
+        "users": [
+          "jsmith"
+        ]
+      },
+      {
+        "name": "Contractors",
+        "users": [
+          {
+            "username": "contractor01"
+          }
+        ]
+      },
+      {
+        "name": "WiFi-Users",
+        "users": [
+          "jsmith",
+          {
+            "username": "contractor01"
+          }
+        ]
+      }
+    ]
   }
 }

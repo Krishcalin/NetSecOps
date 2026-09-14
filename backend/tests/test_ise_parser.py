@@ -211,8 +211,44 @@ class TestParserHealth:
         """Which server-side checks apply turns on this."""
         assert server(ncm)["product"] == "ise"
 
-    def test_a_response_nothing_reads_is_reported(self, ncm: dict[str, Any]) -> None:
-        assert ncm["raw_unparsed"] == ["1: no rule reads the response to 'guestsettings'"]
+    def test_a_response_nothing_reads_is_reported(self) -> None:
+        """A response the collector fetched and no rule here reads is a silent gap: the
+        data arrived, the check that needed it reported Not Evaluated, and nothing
+        connected the two. Asked of the bundle as it is read, so the claim cannot drift
+        from the code the way a hand-kept list of "endpoints we read" did."""
+        config = json.dumps(
+            {
+                "networkdevice": {"SearchResult": {"resources": [{"name": "sw"}]}},
+                "show-unicorns": {"response": [{"horn": True}]},
+            }
+        )
+        parsed = get_parser("cisco_ise").parse(ParseContext(text=config)).to_storage()
+
+        assert parsed["raw_unparsed"] == ["1: no rule reads the response to 'show-unicorns'"]
+
+    def test_every_response_the_collector_asks_for_is_read(self, ncm: dict[str, Any]) -> None:
+        """The regression guard for the drift this replaced. The fixture mirrors what the
+        collection profile requests, so an endpoint added to the profile without a rule
+        to read it fails here rather than being quietly listed as "known"."""
+        assert ncm["raw_unparsed"] == []
+
+    def test_an_endpoint_whose_section_crashed_is_reported_unread(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Correct, and the more useful answer. The response was collected and its
+        contents did not reach the NCM, which is what the reader needs to know —
+        reporting it as read because a rule *tried* would hide a broken parser."""
+        parser = get_parser("cisco_ise")
+        monkeypatch.setattr(
+            type(parser),
+            "_parse_network_devices",
+            lambda self, bundle, result: (_ for _ in ()).throw(RuntimeError("boom")),
+        )
+        config = json.dumps({"networkdevice": {"SearchResult": {"resources": [{"name": "sw"}]}}})
+
+        parsed = parser.parse(ParseContext(text=config)).to_storage()
+
+        assert parsed["raw_unparsed"] == ["1: no rule reads the response to 'networkdevice'"]
 
     def test_a_partial_collection_still_yields_what_arrived(self) -> None:
         """FR-COL-08. If the policy endpoint returned 403 because the account lacks the
@@ -243,3 +279,101 @@ class TestParserHealth:
 
         assert NormalisedConfig().aaa_server.clients == []
         assert NormalisedConfig().aaa_server.product is None
+
+
+# ═════════════════════ the rest of FR-AAA-02's list ═════════════════════════
+
+
+class TestDeviceGroups:
+    def test_the_hierarchy_survives_rather_than_being_one_opaque_string(
+        self, ncm: dict[str, Any]
+    ) -> None:
+        """An ISE rule reads `Device Type#All Device Types#Switches`. Stored whole, the
+        group is unsearchable and its place in the tree is invisible; split, a reader can
+        see what the rule actually matches."""
+        groups = {g["name"]: g for g in server(ncm)["device_groups"]}
+
+        assert groups["Switches"]["parent"] == "Device Type#All Device Types"
+        assert groups["Switches"]["kind"] == "Device Type"
+        assert groups["Campus-North"]["kind"] == "Location"
+
+    def test_a_root_group_has_no_parent(self, ncm: dict[str, Any]) -> None:
+        groups = {g["name"]: g for g in server(ncm)["device_groups"]}
+
+        assert groups["All Device Types"]["parent"] is None
+
+
+class TestInternalUsers:
+    def test_accounts_in_ise_own_store_are_recorded(self, ncm: dict[str, Any]) -> None:
+        """These survive a directory outage and, more often, a leaver process built
+        entirely around the directory."""
+        names = [u["name"] for u in ncm["users"]]
+
+        assert "svc-guest-sponsor" in names
+        assert "contractor-jm" in names
+
+    def test_no_password_material_is_invented(self, ncm: dict[str, Any]) -> None:
+        """ISE returns no hash, so the weak-hash checks must report Not Evaluated rather
+        than concluding anything from the silence."""
+        user = next(u for u in ncm["users"] if u["name"] == "svc-guest-sponsor")
+
+        assert user["secret_type"] is None
+        assert user["weak_hash"] is None
+
+
+class TestGuestAccess:
+    def test_self_registration_without_sponsor_approval_is_visible(
+        self, ncm: dict[str, Any]
+    ) -> None:
+        """The pairing is the finding. Self-registration alone is a deliberate choice;
+        self-registration with no sponsor approval is network access for anyone within
+        radio range, and it is the shipped default."""
+        guest = server(ncm)["guest"]
+
+        assert guest["self_registration"] is True
+        assert guest["sponsor_approval_required"] is False
+
+    def test_the_block_is_absent_rather_than_empty_when_not_collected(self) -> None:
+        """An empty object reads as "we looked and there is no guest access", which is a
+        different claim from "the endpoint was not collected"."""
+        parsed = get_parser("cisco_ise").parse(ParseContext(text="{}")).to_storage()
+
+        assert parsed["aaa_server"]["guest"] is None
+
+    def test_account_duration_and_portals_are_carried(self, ncm: dict[str, Any]) -> None:
+        guest = server(ncm)["guest"]
+
+        assert guest["max_account_duration_days"] == 90
+        assert "Self-Registered Guest Portal" in guest["portals"]
+
+
+class TestRepositoriesAndBackup:
+    def test_an_unencrypted_transport_is_marked(self, ncm: dict[str, Any]) -> None:
+        """An ISE backup holds every shared secret and certificate in the estate, so FTP
+        here moves the estate's credentials across the network in the clear."""
+        repositories = {r["name"]: r for r in server(ncm)["repositories"]}
+
+        assert repositories["campus-backup"]["encrypted_transport"] is True
+        assert repositories["legacy-ftp"]["encrypted_transport"] is False
+
+    def test_an_unrecognised_protocol_stays_unknown(self) -> None:
+        """None, not False. Defaulting to False would assert an insecurity nobody
+        observed, and a finding invented that way is worse than a gap."""
+        config = json.dumps({"repository": {"response": [{"name": "x", "protocol": "quic-ish"}]}})
+        parsed = get_parser("cisco_ise").parse(ParseContext(text=config)).to_storage()
+
+        assert parsed["aaa_server"]["repositories"][0]["encrypted_transport"] is None
+
+    def test_backup_status_separates_scheduled_from_succeeding(self, ncm: dict[str, Any]) -> None:
+        """A schedule that has been failing since a password change looks identical to a
+        healthy one in the configuration alone."""
+        backup = server(ncm)["backup"]
+
+        assert backup["scheduled"] is True
+        assert backup["last_backup_status"] == "SUCCESS"
+        assert backup["repository"] == "campus-backup"
+
+    def test_the_date_is_kept_as_the_device_printed_it(self, ncm: dict[str, Any]) -> None:
+        """Interpretation belongs in `ncm.certificates`, where the formats are listed and
+        tested together. A parser that reformats a date can reformat it wrong."""
+        assert server(ncm)["backup"]["last_backup_at"] == "Wed Sep 10 02:00:00 UTC 2026"

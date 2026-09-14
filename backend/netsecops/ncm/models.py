@@ -296,15 +296,102 @@ class CommandSet(NcmBase):
     commands: list[str] = Field(default_factory=list)
 
 
+class DeviceGroup(NcmBase):
+    """A grouping of network devices, which policy rules match on (FR-AAA-02).
+
+    Worth collecting because ISE authorisation rules are frequently written against a
+    group rather than a device, so a rule reading "permit Device Type#All Device
+    Types#Switches" is unreadable — and unauditable — without knowing what is in that
+    group. It is also where a device quietly acquires privileges: adding a switch to the
+    wrong group grants it a policy nobody reviewed for it.
+    """
+
+    name: str
+    #: ISE nests groups as `Root#Parent#Child`; the parent is kept so the hierarchy
+    #: survives into the NCM rather than being flattened into an opaque string.
+    parent: str | None = None
+    description: str | None = None
+    #: What the group classifies — ISE calls this the root type (Device Type, Location).
+    kind: str | None = None
+
+
+class GuestAccess(NcmBase):
+    """Guest and sponsored-access settings (FR-AAA-02).
+
+    Guest portals are the part of an AAA deployment that is deliberately reachable by
+    people who have no account, which makes their defaults the ones worth reading. Self
+    -registration without sponsor approval means anyone within radio range can issue
+    themselves network access; a long account lifetime means the access outlives the
+    visit that justified it.
+    """
+
+    enabled: bool | None = None
+    #: Guests may create their own accounts without an employee sponsoring them.
+    self_registration: bool | None = None
+    #: A sponsor must approve before a self-registered account works. The pairing with
+    #: `self_registration` is the finding: either alone is a choice, both is open access.
+    sponsor_approval_required: bool | None = None
+    #: How long a guest account stays valid.
+    max_account_duration_days: int | None = None
+    #: Credentials sent to the guest in the clear, by SMS or email.
+    credentials_sent_in_clear: bool | None = None
+    #: The portal is served over HTTPS.
+    https_only: bool | None = None
+    portals: list[str] = Field(default_factory=list)
+
+
+class Repository(NcmBase):
+    """A configured backup or upgrade destination (FR-AAA-02).
+
+    An AAA server's backup contains every shared secret, every certificate and the
+    credentials for the whole estate, so where it is sent and whether it is encrypted in
+    transit is a question about the estate rather than about the server. An FTP or TFTP
+    repository moves that archive across the network in the clear.
+    """
+
+    name: str
+    #: `sftp`, `ftp`, `tftp`, `nfs`, `disk`, `http`, `https`.
+    protocol: str | None = None
+    host: str | None = None
+    path: str | None = None
+    #: True when the transport protects the archive in transit. None where the protocol
+    #: was not reported — not False, which would assert an insecurity we did not observe.
+    encrypted_transport: bool | None = None
+
+
+class BackupStatus(NcmBase):
+    """Whether configuration backups are actually running (FR-AAA-02).
+
+    Scheduled and succeeding are different facts, and a schedule that has been failing
+    since a password change looks identical to a healthy one in the configuration.
+    """
+
+    scheduled: bool | None = None
+    #: ISO-8601 as the device reported it. See `ncm.certificates.parse_expiry` for why
+    #: interpretation lives outside the parsers.
+    last_backup_at: str | None = None
+    last_backup_status: str | None = None
+    #: The backup archive itself is encrypted at rest, independently of the transport.
+    encrypted: bool | None = None
+    repository: str | None = None
+
+
 class AaaServerConfig(NcmBase):
     """A device that *serves* AAA rather than consuming it."""
 
     #: `ise`, `fortiauthenticator`, `freeradius`, `tac_plus`.
     product: str | None = None
     clients: list[RadiusClient] = Field(default_factory=list)
+    device_groups: list[DeviceGroup] = Field(default_factory=list)
     identity_stores: list[IdentityStore] = Field(default_factory=list)
     policies: list[AuthPolicy] = Field(default_factory=list)
     command_sets: list[CommandSet] = Field(default_factory=list)
+    #: None rather than a default instance: an empty `GuestAccess` would answer every
+    #: guest question with "unknown", which is right, but a *present* empty block reads
+    #: as "we looked and there is no guest access", which is not the same thing.
+    guest: GuestAccess | None = None
+    repositories: list[Repository] = Field(default_factory=list)
+    backup: BackupStatus | None = None
     #: Every protocol the server will accept anywhere in its policy set. Flattened here
     #: because "does this server still allow MS-CHAPv1" is a question about the server,
     #: not about one rule.

@@ -32,6 +32,7 @@ from netsecops.ncm.models import (
     RadiusClient,
 )
 from netsecops.parsers.base import ConfigParser, ParseContext, ParseResult, first_known
+from netsecops.parsers.bundle import ResponseBundle, last_path_segment
 
 log = get_logger(__name__)
 
@@ -79,19 +80,6 @@ class FortiAuthenticatorParser(ConfigParser):
     vendor = "fortinet"
     platform = "fortiauthenticator"
 
-    _KNOWN = frozenset(
-        {
-            "radiusclients",
-            "localusers",
-            "usergroups",
-            "ldapservers",
-            "certificates",
-            "system",
-            "adminprofiles",
-            "policies",
-        }
-    )
-
     def parse(self, context: ParseContext) -> NormalisedConfig:
         result = ParseResult(context)
         result.ncm.device.vendor = self.vendor
@@ -99,15 +87,17 @@ class FortiAuthenticatorParser(ConfigParser):
         result.ncm.aaa_server.product = "fortiauthenticator"
 
         try:
-            bundle = json.loads(context.text) if context.text.strip() else {}
+            raw = json.loads(context.text) if context.text.strip() else {}
         except ValueError as exc:
             log.warning("parser.json_invalid", platform=self.platform, error=str(exc))
             result.ncm.raw_unparsed = [f"1: the collected artefact is not valid JSON: {exc}"]
             return result.ncm
 
-        if not isinstance(bundle, dict):
+        if not isinstance(raw, dict):
             result.ncm.raw_unparsed = ["1: the collected artefact is not a bundle of responses"]
             return result.ncm
+
+        bundle = ResponseBundle(raw, normalise=last_path_segment, extract=_objects)
 
         for section in (
             self._parse_system,
@@ -115,6 +105,7 @@ class FortiAuthenticatorParser(ConfigParser):
             self._parse_identity_stores,
             self._parse_policies,
             self._parse_users,
+            self._parse_local_users,
             self._parse_certificates,
         ):
             try:
@@ -127,27 +118,23 @@ class FortiAuthenticatorParser(ConfigParser):
                     error=str(exc),
                 )
 
+        # Asked of the bundle rather than checked against a hand-kept list of endpoints
+        # we believe we read. That list had drifted — it named `localusers` and
+        # `usergroups`, which nothing here touched — and a false claim of coverage
+        # silences the exact gap this line exists to report.
         result.ncm.raw_unparsed = [
-            f"1: no rule reads the response to '{endpoint}'"
-            for endpoint in sorted(bundle)
-            if endpoint.strip("/").split("/")[-1].lower() not in self._KNOWN
+            f"1: no rule reads the response to '{endpoint}'" for endpoint in bundle.unread()
         ]
         result.consume(1, max(1, len(context.lines)))
         return result.ncm
-
-    def _get(self, bundle: dict[str, Any], name: str) -> list[dict[str, Any]]:
-        for key, payload in bundle.items():
-            if key.strip("/").split("/")[-1].lower() == name:
-                return _objects(payload)
-        return []
 
     def _record(self, result: ParseResult, path: str) -> None:
         result.ncm.provenance.record(path, result.context.provenance(1, 1))
 
     # ── sections ────────────────────────────────────────────────────────
 
-    def _parse_system(self, bundle: dict[str, Any], result: ParseResult) -> None:
-        for record in self._get(bundle, "system"):
+    def _parse_system(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        for record in bundle.get("system"):
             device = result.ncm.device
             device.hostname = str(record.get("hostname") or "") or None
             device.version = (
@@ -168,10 +155,10 @@ class FortiAuthenticatorParser(ConfigParser):
                 result.ncm.aaa_server.admin_mfa_enabled = mfa
                 self._record(result, "aaa_server.admin_mfa_enabled")
 
-    def _parse_clients(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_clients(self, bundle: ResponseBundle, result: ParseResult) -> None:
         aaa_server = result.ncm.aaa_server
 
-        for record in self._get(bundle, "radiusclients"):
+        for record in bundle.get("radiusclients"):
             aaa_server.clients.append(
                 RadiusClient(
                     name=str(record.get("name") or "") or "unnamed",
@@ -188,10 +175,10 @@ class FortiAuthenticatorParser(ConfigParser):
             )
             self._record(result, f"aaa_server.clients.{len(aaa_server.clients) - 1}")
 
-    def _parse_identity_stores(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_identity_stores(self, bundle: ResponseBundle, result: ParseResult) -> None:
         aaa_server = result.ncm.aaa_server
 
-        for record in self._get(bundle, "ldapservers"):
+        for record in bundle.get("ldapservers"):
             aaa_server.identity_stores.append(
                 IdentityStore(
                     name=str(record.get("name") or "") or "unnamed",
@@ -204,11 +191,11 @@ class FortiAuthenticatorParser(ConfigParser):
                 result, f"aaa_server.identity_stores.{len(aaa_server.identity_stores) - 1}"
             )
 
-    def _parse_policies(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_policies(self, bundle: ResponseBundle, result: ParseResult) -> None:
         aaa_server = result.ncm.aaa_server
         protocols: set[str] = set()
 
-        for order, record in enumerate(self._get(bundle, "policies"), start=1):
+        for order, record in enumerate(bundle.get("policies"), start=1):
             methods = record.get("eap_types") or record.get("auth_methods") or []
             named = sorted(
                 {
@@ -236,8 +223,8 @@ class FortiAuthenticatorParser(ConfigParser):
             aaa_server.allowed_protocols = sorted(protocols)
             self._record(result, "aaa_server.allowed_protocols")
 
-    def _parse_users(self, bundle: dict[str, Any], result: ParseResult) -> None:
-        for record in self._get(bundle, "adminprofiles"):
+    def _parse_users(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        for record in bundle.get("adminprofiles"):
             result.ncm.users.append(
                 LocalUser(
                     name=str(record.get("name") or "") or "unnamed",
@@ -249,9 +236,36 @@ class FortiAuthenticatorParser(ConfigParser):
             )
             self._record(result, f"users.{len(result.ncm.users) - 1}")
 
+    def _parse_local_users(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        """Accounts held on the appliance itself, and their group membership (FR-AAA-03).
+
+        These are the end-user accounts FortiAuthenticator authenticates — the ones that
+        survive a directory outage, and the ones a leaver process built entirely around
+        Active Directory never touches. Group membership is carried on the user rather
+        than as a separate structure because that is the direction every question runs:
+        "what can this account reach" rather than "who is in this group".
+        """
+        groups = _membership(bundle)
+
+        for record in bundle.get("localusers"):
+            name = str(record.get("username") or record.get("name") or "") or "unnamed"
+            member_of = sorted(groups.get(name.lower(), set()))
+            result.ncm.users.append(
+                LocalUser(
+                    name=name,
+                    role=", ".join(member_of) or None,
+                    # The API returns no password material at all, so the hash-strength
+                    # questions report Not Evaluated rather than being guessed from the
+                    # absence. Two-factor state is a real answer and is kept.
+                    secret_type=None,
+                    weak_hash=None,
+                )
+            )
+            self._record(result, f"users.{len(result.ncm.users) - 1}")
+
     # ── certificates ────────────────────────────────────────────────────
 
-    def _parse_certificates(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_certificates(self, bundle: ResponseBundle, result: ParseResult) -> None:
         """Local and CA certificates, for the expiry timeline (FR-AAA-06).
 
         FortiAuthenticator is the EAP endpoint for the FortiGate wireless estate, so the
@@ -259,7 +273,7 @@ class FortiAuthenticatorParser(ConfigParser):
         wireless outage with a date on it, which is exactly the kind of thing that is
         obvious in hindsight and invisible until the morning it happens.
         """
-        for record in self._get(bundle, "certificates"):
+        for record in bundle.get("certificates"):
             result.ncm.certificates.append(
                 Certificate(
                     name=str(record.get("name") or record.get("cn") or "") or None,
@@ -275,6 +289,34 @@ class FortiAuthenticatorParser(ConfigParser):
                 )
             )
             self._record(result, f"certificates.{len(result.ncm.certificates) - 1}")
+
+
+def _membership(bundle: ResponseBundle) -> dict[str, set[str]]:
+    """Username (lowercased) -> the groups naming it.
+
+    Read as a separate pass so that `usergroups` is marked read even when no local user
+    references it — a group response nothing looked at is a gap, and an empty result
+    from looking is not.
+    """
+    membership: dict[str, set[str]] = {}
+
+    for group in bundle.get("usergroups"):
+        name = str(group.get("name") or "") or "unnamed"
+        members = group.get("users") or group.get("members") or []
+        if not isinstance(members, list):
+            continue
+        for member in members:
+            # Members come back as bare names on some firmware and as objects with a
+            # `username` on others.
+            label = (
+                str(member.get("username") or member.get("name") or "")
+                if isinstance(member, dict)
+                else str(member)
+            ).strip()
+            if label:
+                membership.setdefault(label.lower(), set()).add(name)
+
+    return membership
 
 
 def _usage(record: dict[str, Any]) -> list[str]:

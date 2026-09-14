@@ -29,14 +29,19 @@ from typing import Any
 from netsecops.core.logging import get_logger
 from netsecops.ncm.models import (
     AuthPolicy,
+    BackupStatus,
     Certificate,
     CommandSet,
+    DeviceGroup,
+    GuestAccess,
     IdentityStore,
     LocalUser,
     NormalisedConfig,
     RadiusClient,
+    Repository,
 )
-from netsecops.parsers.base import ConfigParser, ParseContext, ParseResult
+from netsecops.parsers.base import ConfigParser, ParseContext, ParseResult, first_known
+from netsecops.parsers.bundle import ResponseBundle, whole_key
 
 log = get_logger(__name__)
 
@@ -114,24 +119,30 @@ class CiscoIseParser(ConfigParser):
         result.ncm.aaa_server.product = "ise"
 
         try:
-            bundle = json.loads(context.text) if context.text.strip() else {}
+            raw = json.loads(context.text) if context.text.strip() else {}
         except ValueError as exc:
             log.warning("parser.json_invalid", platform=self.platform, error=str(exc))
             result.ncm.raw_unparsed = [f"1: the collected artefact is not valid JSON: {exc}"]
             return result.ncm
 
-        if not isinstance(bundle, dict):
+        if not isinstance(raw, dict):
             result.ncm.raw_unparsed = ["1: the collected artefact is not a bundle of responses"]
             return result.ncm
+
+        bundle = ResponseBundle(raw, normalise=whole_key, extract=_records)
 
         for section in (
             self._parse_deployment,
             self._parse_network_devices,
+            self._parse_device_groups,
             self._parse_identity_stores,
+            self._parse_internal_users,
             self._parse_policies,
             self._parse_command_sets,
             self._parse_admins,
             self._parse_certificates,
+            self._parse_guest_access,
+            self._parse_repositories,
         ):
             try:
                 section(bundle, result)
@@ -148,46 +159,26 @@ class CiscoIseParser(ConfigParser):
 
     # ── bookkeeping ─────────────────────────────────────────────────────
 
-    _KNOWN = frozenset(
-        {
-            "deployment/node",
-            "networkdevice",
-            "networkdevicegroup",
-            "activedirectory",
-            "identitystore",
-            "internaluser",
-            "policy/network-access/policy-set",
-            "policy/network-access/authentication",
-            "policy/network-access/authorization",
-            "allowedprotocols",
-            "policy/device-admin/command-sets",
-            "adminuser",
-            "admin/settings",
-            "certs/system-certificate",
-        }
-    )
+    def _account_for_commands(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        """Responses nothing in this parser read.
 
-    def _account_for_commands(self, bundle: dict[str, Any], result: ParseResult) -> None:
+        Asked of the bundle rather than compared against a hand-kept list of endpoints
+        we believe we read. That list had drifted — it named three endpoints no rule
+        here touched — and a claim of coverage the code does not have silences exactly
+        the gap it was written to report.
+        """
         result.ncm.raw_unparsed = [
-            f"1: no rule reads the response to '{endpoint}'"
-            for endpoint in sorted(bundle)
-            if endpoint.lower() not in self._KNOWN
+            f"1: no rule reads the response to '{endpoint}'" for endpoint in bundle.unread()
         ]
         result.consume(1, max(1, len(result.context.lines)))
 
     def _record(self, result: ParseResult, path: str) -> None:
         result.ncm.provenance.record(path, result.context.provenance(1, 1))
 
-    def _get(self, bundle: dict[str, Any], endpoint: str) -> list[dict[str, Any]]:
-        for key, payload in bundle.items():
-            if key.lower() == endpoint:
-                return _records(payload)
-        return []
-
     # ── deployment ──────────────────────────────────────────────────────
 
-    def _parse_deployment(self, bundle: dict[str, Any], result: ParseResult) -> None:
-        nodes = self._get(bundle, "deployment/node")
+    def _parse_deployment(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        nodes = bundle.get("deployment/node")
         if not nodes:
             return
 
@@ -200,7 +191,7 @@ class CiscoIseParser(ConfigParser):
 
     # ── network devices, which FR-AAA-05 correlates ─────────────────────
 
-    def _parse_network_devices(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_network_devices(self, bundle: ResponseBundle, result: ParseResult) -> None:
         """Every switch, controller and firewall permitted to authenticate here.
 
         This is the half of FR-AAA-05 that finds devices nobody put in the inventory: a
@@ -209,7 +200,7 @@ class CiscoIseParser(ConfigParser):
         """
         aaa_server = result.ncm.aaa_server
 
-        for record in self._get(bundle, "networkdevice"):
+        for record in bundle.get("networkdevice"):
             addresses = record.get("NetworkDeviceIPList") or record.get("ipList") or []
             address = None
             if isinstance(addresses, list) and addresses:
@@ -244,10 +235,10 @@ class CiscoIseParser(ConfigParser):
 
     # ── identity stores ─────────────────────────────────────────────────
 
-    def _parse_identity_stores(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_identity_stores(self, bundle: ResponseBundle, result: ParseResult) -> None:
         aaa_server = result.ncm.aaa_server
 
-        for record in self._get(bundle, "activedirectory"):
+        for record in bundle.get("activedirectory"):
             aaa_server.identity_stores.append(
                 IdentityStore(
                     name=str(record.get("name") or "") or "active-directory",
@@ -262,7 +253,7 @@ class CiscoIseParser(ConfigParser):
                 result, f"aaa_server.identity_stores.{len(aaa_server.identity_stores) - 1}"
             )
 
-        for record in self._get(bundle, "identitystore"):
+        for record in bundle.get("identitystore"):
             aaa_server.identity_stores.append(
                 IdentityStore(
                     name=str(record.get("name") or "") or "unnamed",
@@ -277,11 +268,11 @@ class CiscoIseParser(ConfigParser):
 
     # ── policy, and the protocols it will accept ────────────────────────
 
-    def _parse_policies(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_policies(self, bundle: ResponseBundle, result: ParseResult) -> None:
         aaa_server = result.ncm.aaa_server
         protocols: set[str] = set()
 
-        for record in self._get(bundle, "allowedprotocols"):
+        for record in bundle.get("allowedprotocols"):
             for key, value in record.items():
                 name = _PROTOCOL_NAMES.get(key.lower())
                 if name and _bool(value):
@@ -311,9 +302,7 @@ class CiscoIseParser(ConfigParser):
                     aaa_server.tls_versions.append(version)
 
         for kind in ("authentication", "authorization"):
-            for order, record in enumerate(
-                self._get(bundle, f"policy/network-access/{kind}"), start=1
-            ):
+            for order, record in enumerate(bundle.get(f"policy/network-access/{kind}"), start=1):
                 rule = record.get("rule") or record
                 aaa_server.policies.append(
                     AuthPolicy(
@@ -339,10 +328,10 @@ class CiscoIseParser(ConfigParser):
 
     # ── TACACS+ command authorisation ───────────────────────────────────
 
-    def _parse_command_sets(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_command_sets(self, bundle: ResponseBundle, result: ParseResult) -> None:
         aaa_server = result.ncm.aaa_server
 
-        for record in self._get(bundle, "policy/device-admin/command-sets"):
+        for record in bundle.get("policy/device-admin/command-sets"):
             commands = record.get("commands") or {}
             entries = commands.get("commandList") if isinstance(commands, dict) else commands
             listed = [
@@ -364,8 +353,8 @@ class CiscoIseParser(ConfigParser):
 
     # ── administrators of ISE itself ────────────────────────────────────
 
-    def _parse_admins(self, bundle: dict[str, Any], result: ParseResult) -> None:
-        for record in self._get(bundle, "adminuser"):
+    def _parse_admins(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        for record in bundle.get("adminuser"):
             result.ncm.users.append(
                 LocalUser(
                     name=str(record.get("name") or "") or "unnamed",
@@ -375,7 +364,7 @@ class CiscoIseParser(ConfigParser):
             )
             self._record(result, f"users.{len(result.ncm.users) - 1}")
 
-        for record in self._get(bundle, "admin/settings"):
+        for record in bundle.get("admin/settings"):
             session = record.get("sessionTimeout") or record.get("maxSessionTime")
             if isinstance(session, int | str) and str(session).isdigit():
                 # ISE states it in minutes; the NCM is seconds everywhere.
@@ -396,7 +385,7 @@ class CiscoIseParser(ConfigParser):
 
     # ── the EAP certificate, which is the one that matters ──────────────
 
-    def _parse_certificates(self, bundle: dict[str, Any], result: ParseResult) -> None:
+    def _parse_certificates(self, bundle: ResponseBundle, result: ParseResult) -> None:
         """System certificates, with what each one is used for.
 
         The usage list is the reason this is worth collecting separately from any other
@@ -410,7 +399,7 @@ class CiscoIseParser(ConfigParser):
         Interpreting them is :mod:`netsecops.ncm.certificates`' job, and it reports a
         date it cannot read rather than dropping the certificate.
         """
-        for record in self._get(bundle, "certs/system-certificate"):
+        for record in bundle.get("certs/system-certificate"):
             usage = _usage(record)
             result.ncm.certificates.append(
                 Certificate(
@@ -428,6 +417,159 @@ class CiscoIseParser(ConfigParser):
                 )
             )
             self._record(result, f"certificates.{len(result.ncm.certificates) - 1}")
+
+    # ── network device groups (FR-AAA-02) ───────────────────────────────
+
+    def _parse_device_groups(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        """The groups authorisation rules are actually written against.
+
+        An ISE rule reads `DEVICE:Device Type EQUALS Device Type#All Device Types#
+        Switches`, which says nothing about which switches. Without the group membership
+        the rule is unauditable — and adding a device to the wrong group is how a device
+        quietly acquires a policy nobody reviewed for it.
+        """
+        aaa_server = result.ncm.aaa_server
+
+        for record in bundle.get("networkdevicegroup"):
+            name = str(record.get("name") or "") or "unnamed"
+            # ISE writes the hierarchy into the name as `Root#Parent#Child`. Split so
+            # the structure survives into the NCM rather than being one opaque string.
+            parts = [part for part in name.split("#") if part]
+            aaa_server.device_groups.append(
+                DeviceGroup(
+                    name=parts[-1] if parts else name,
+                    parent="#".join(parts[:-1]) or None if len(parts) > 1 else None,
+                    description=str(record.get("description") or "") or None,
+                    kind=str(record.get("othername") or record.get("rootGroupName") or "")
+                    or (parts[0] if len(parts) > 1 else None),
+                )
+            )
+            self._record(result, f"aaa_server.device_groups.{len(aaa_server.device_groups) - 1}")
+
+    # ── internal users (FR-AAA-02) ──────────────────────────────────────
+
+    def _parse_internal_users(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        """Accounts held in ISE's own store rather than in the directory.
+
+        These are the accounts that survive a directory outage and, more often, the ones
+        that survive a leaver process built entirely around the directory. ISE does not
+        return the password hash, so `secret_type` stays None and the weak-hash checks
+        report Not Evaluated rather than guessing.
+        """
+        for record in bundle.get("internaluser"):
+            groups = record.get("identityGroups")
+            result.ncm.users.append(
+                LocalUser(
+                    name=str(record.get("name") or "") or "unnamed",
+                    role=str(groups) if isinstance(groups, str) and groups else None,
+                    # `enabled: false` is not "no account"; it is an account someone can
+                    # re-enable. It is recorded as a user either way.
+                    privilege=None,
+                )
+            )
+            self._record(result, f"users.{len(result.ncm.users) - 1}")
+
+    # ── guest access (FR-AAA-02) ────────────────────────────────────────
+
+    def _parse_guest_access(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        """The deliberately-reachable part of the deployment.
+
+        Only populated when the endpoint answered. An absent `guest` block means the
+        settings were not collected, which is why it is `None` rather than an empty
+        object — an empty object reads as "we looked and there is no guest access".
+        """
+        record = bundle.first("guestsettings")
+        if record is None:
+            return
+
+        portals = record.get("portals") or record.get("portalNames") or []
+        result.ncm.aaa_server.guest = GuestAccess(
+            enabled=_bool(record.get("enabled")),
+            self_registration=first_known(
+                _bool(record.get("selfRegistration")),
+                _bool(record.get("allowGuestToCreateAccounts")),
+            ),
+            # The pairing is the finding: self-registration alone is a choice,
+            # self-registration without sponsor approval is open access.
+            sponsor_approval_required=first_known(
+                _bool(record.get("requireSponsorApproval")),
+                _bool(record.get("sponsorApprovalRequired")),
+            ),
+            max_account_duration_days=_int_or_none(
+                record.get("maxAccountDurationDays") or record.get("accountDurationDays")
+            ),
+            credentials_sent_in_clear=first_known(
+                _bool(record.get("sendCredentialsBySms")),
+                _bool(record.get("sendCredentialsByEmail")),
+            ),
+            https_only=first_known(
+                _bool(record.get("httpsOnly")), _bool(record.get("securePortalOnly"))
+            ),
+            portals=[str(portal) for portal in portals if portal]
+            if isinstance(portals, list)
+            else [],
+        )
+        self._record(result, "aaa_server.guest")
+
+    # ── repositories and backup (FR-AAA-02) ─────────────────────────────
+
+    def _parse_repositories(self, bundle: ResponseBundle, result: ParseResult) -> None:
+        """Where the backup goes, and whether it is arriving.
+
+        An ISE backup holds every shared secret, every certificate and the credentials
+        for the estate, so the transport that carries it is an estate-wide question. FTP
+        and TFTP move that archive across the network in the clear.
+        """
+        aaa_server = result.ncm.aaa_server
+
+        for record in bundle.get("repository"):
+            protocol = str(record.get("protocol") or "").strip().lower() or None
+            aaa_server.repositories.append(
+                Repository(
+                    name=str(record.get("name") or "") or "unnamed",
+                    protocol=protocol,
+                    host=str(record.get("serverName") or record.get("host") or "") or None,
+                    path=str(record.get("path") or "") or None,
+                    # None where the protocol was not reported. Defaulting to False
+                    # would assert an insecurity we did not observe.
+                    encrypted_transport=_SECURE_TRANSPORT.get(protocol)
+                    if protocol is not None
+                    else None,
+                )
+            )
+            self._record(result, f"aaa_server.repositories.{len(aaa_server.repositories) - 1}")
+
+        status = bundle.first("backup-restore/config/last-backup-status")
+        if status is None:
+            return
+
+        outcome = str(status.get("status") or status.get("lastBackupStatus") or "") or None
+        aaa_server.backup = BackupStatus(
+            # Scheduled and succeeding are different facts, and a schedule failing since
+            # a password change looks identical to a healthy one in the configuration.
+            scheduled=first_known(_bool(status.get("scheduled")), _bool(status.get("isScheduled"))),
+            last_backup_at=str(status.get("startDate") or status.get("lastBackupOn") or "") or None,
+            last_backup_status=outcome,
+            encrypted=_bool(status.get("encrypted")),
+            repository=str(status.get("repositoryName") or status.get("repository") or "") or None,
+        )
+        self._record(result, "aaa_server.backup")
+
+
+#: Whether a repository protocol protects the archive in transit. Absent from the map
+#: means the protocol is unrecognised, and the field stays None rather than being
+#: guessed either way.
+_SECURE_TRANSPORT: dict[str, bool] = {
+    "sftp": True,
+    "scp": True,
+    "https": True,
+    "nfs": False,
+    "ftp": False,
+    "tftp": False,
+    "http": False,
+    "disk": True,
+    "cdrom": True,
+}
 
 
 def _usage(record: dict[str, Any]) -> list[str]:

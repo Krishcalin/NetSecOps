@@ -263,7 +263,43 @@ class TestFortiAuthenticator:
         assert stores["corp-ldap"]["tls"] is True
 
     def test_an_endpoint_nothing_reads_is_reported(self, fac: dict[str, Any]) -> None:
-        assert any("guestportals" in line for line in fac["raw_unparsed"])
+        """Reported from what the parser actually read, not from a hand-kept list of
+        endpoints it claims to read. That list had drifted — it named `localusers` and
+        `usergroups` while nothing touched either — which silenced exactly the gap this
+        line exists to surface."""
+        assert fac["raw_unparsed"] == ["1: no rule reads the response to '/api/v1/guestportals/'"]
+
+    def test_local_users_are_read(self, fac: dict[str, Any]) -> None:
+        """FR-AAA-03 names them, and they are the accounts a leaver process built around
+        Active Directory never touches."""
+        names = [u["name"] for u in fac["users"]]
+
+        assert "jsmith" in names
+        assert "contractor01" in names
+
+    def test_group_membership_is_carried_on_the_user(self, fac: dict[str, Any]) -> None:
+        """The direction every question runs: "what can this account reach", not "who is
+        in this group"."""
+        users = {u["name"]: u for u in fac["users"]}
+
+        assert users["jsmith"]["role"] == "Employees, WiFi-Users"
+        assert users["contractor01"]["role"] == "Contractors, WiFi-Users"
+
+    def test_a_user_in_no_group_is_still_recorded(self, fac: dict[str, Any]) -> None:
+        """An account belonging to nothing is worth being able to see — it is either
+        unused or authorised by something other than group membership."""
+        users = {u["name"]: u for u in fac["users"]}
+
+        assert "svc-printer" in users
+        assert users["svc-printer"]["role"] is None
+
+    def test_no_password_material_is_invented_for_a_local_user(self, fac: dict[str, Any]) -> None:
+        """The API returns none, so the hash-strength checks must report Not Evaluated
+        rather than concluding anything from the silence."""
+        user = next(u for u in fac["users"] if u["name"] == "jsmith")
+
+        assert user["secret_type"] is None
+        assert user["weak_hash"] is None
 
 
 # ══════════════════════ what all three share ═════════════════════════════════
