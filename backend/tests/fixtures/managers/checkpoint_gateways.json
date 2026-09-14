@@ -1,0 +1,45 @@
+{
+  "total": 5,
+  "objects": [
+    {
+      "uid": "aa000001-0000-0000-0000-000000000001",
+      "name": "cp-gw-edge-01",
+      "type": "simple-gateway",
+      "ipv4-address": "203.0.113.2",
+      "version": "R81.20",
+      "hardware": "Open server",
+      "policy": { "access-policy-installed": true }
+    },
+    {
+      "uid": "aa000001-0000-0000-0000-000000000002",
+      "name": "cp-cluster-dc",
+      "type": "simple-cluster",
+      "ipv4-address": "10.50.0.1",
+      "version": "R81.20",
+      "hardware": "15600 Appliance",
+      "policy": { "access-policy-installed": true }
+    },
+    {
+      "uid": "aa000001-0000-0000-0000-000000000003",
+      "name": "cp-mgmt-primary",
+      "type": "management-server",
+      "ipv4-address": "10.100.0.5",
+      "version": "R81.20"
+    },
+    {
+      "uid": "aa000001-0000-0000-0000-000000000004",
+      "name": "cp-log-server",
+      "type": "log-server",
+      "ipv4-address": "10.100.0.6",
+      "version": "R81.20"
+    },
+    {
+      "uid": "aa000001-0000-0000-0000-000000000005",
+      "name": "cp-gw-newtype",
+      "type": "quantum-spark-gateway",
+      "ipv4-address": "10.60.0.1",
+      "version": "R81.10",
+      "hardware": "1570 Appliance"
+    }
+  ]
+}

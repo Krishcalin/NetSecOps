@@ -1,0 +1,50 @@
+{
+  "id": 1,
+  "result": [
+    {
+      "status": { "code": 0, "message": "OK" },
+      "url": "/dvmdb/device",
+      "data": [
+        {
+          "name": "FGT-branch-oslo",
+          "ip": "10.30.1.1",
+          "sn": "FGT60FTK20001234",
+          "platform_str": "FortiGate-60F",
+          "os_ver": 7,
+          "mr": 2,
+          "patch": 5,
+          "conn_status": 1,
+          "adom": "root",
+          "ha_mode": 0,
+          "vdom": 1
+        },
+        {
+          "name": "FGT-branch-bergen",
+          "ip": "10.30.2.1",
+          "sn": "FGT60FTK20005678",
+          "platform_str": "FortiGate-60F",
+          "os_ver": 7,
+          "mr": 0,
+          "patch": 12,
+          "conn_status": 0,
+          "adom": "root",
+          "ha_mode": 0,
+          "vdom": 1
+        },
+        {
+          "name": "FGT-dc-cluster",
+          "ip": "10.40.0.1",
+          "sn": "FG200FTK21009999",
+          "platform_str": "FortiGate-200F",
+          "os_ver": 7,
+          "mr": 4,
+          "patch": 1,
+          "conn_status": 1,
+          "adom": "Datacentre",
+          "ha_mode": 1,
+          "vdom": 3
+        }
+      ]
+    }
+  ]
+}

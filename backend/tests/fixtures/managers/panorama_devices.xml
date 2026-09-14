@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<response status="success">
+  <result>
+    <devices>
+      <entry name="001901234501">
+        <serial>001901234501</serial>
+        <hostname>fw-branch-london</hostname>
+        <ip-address>10.10.1.1</ip-address>
+        <model>PA-460</model>
+        <sw-version>11.0.2</sw-version>
+        <connected>yes</connected>
+        <multi-vsys>no</multi-vsys>
+        <device-group>EMEA-Branches</device-group>
+        <ha>
+          <state>active</state>
+        </ha>
+      </entry>
+      <entry name="001901234502">
+        <serial>001901234502</serial>
+        <hostname>fw-branch-frankfurt</hostname>
+        <ip-address>10.10.2.1</ip-address>
+        <model>PA-460</model>
+        <sw-version>10.2.9</sw-version>
+        <connected>yes</connected>
+        <multi-vsys>no</multi-vsys>
+        <device-group>EMEA-Branches</device-group>
+        <ha>
+          <state>passive</state>
+        </ha>
+      </entry>
+      <entry name="001901234503">
+        <serial>001901234503</serial>
+        <hostname>fw-dc-primary</hostname>
+        <ip-address>10.20.0.1</ip-address>
+        <model>PA-5250</model>
+        <sw-version>11.0.2</sw-version>
+        <connected>no</connected>
+        <multi-vsys>yes</multi-vsys>
+        <device-group>Datacentre</device-group>
+      </entry>
+      <entry name="001901234504">
+        <serial>001901234504</serial>
+        <hostname>fw-awaiting-provisioning</hostname>
+        <model>PA-440</model>
+        <connected>no</connected>
+      </entry>
+    </devices>
+  </result>
+</response>

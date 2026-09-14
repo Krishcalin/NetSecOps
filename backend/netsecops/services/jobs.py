@@ -21,7 +21,14 @@ from netsecops.core.errors import ConflictError, NotFoundError, ValidationProble
 from netsecops.core.logging import correlation_id, get_logger
 from netsecops.core.rbac import Principal, Scope
 from netsecops.db.models.audit import AuditAction, AuditOutcome
-from netsecops.db.models.inventory import Device, DeviceGroup, DeviceGroupMember, DeviceTag, Tag
+from netsecops.db.models.inventory import (
+    Device,
+    DeviceGroup,
+    DeviceGroupMember,
+    DeviceStatus,
+    DeviceTag,
+    Tag,
+)
 from netsecops.db.models.jobs import (
     DeviceJobStatus,
     ErrorClass,
@@ -201,7 +208,16 @@ class JobService:
             Device.org_id == org_id, or_(*conditions)
         )
         if not scope.include_archived:
-            stmt = stmt.where(Device.status != "archived")
+            stmt = stmt.where(Device.status != DeviceStatus.ARCHIVED.value)
+
+        # A device discovered from a manager (FR-INV-04) or by a scan is never collected
+        # from until a human approves it. This exclusion is the whole approval gate:
+        # without it, `pending_review` would be a label with no behaviour behind it, and
+        # importing four hundred firewalls from a Panorama would put every one of them
+        # into the next scheduled job — connecting to devices nobody chose to assess.
+        # There is deliberately no flag to include them: "assess this device" is
+        # expressed by approving it, not by widening a job.
+        stmt = stmt.where(Device.status != DeviceStatus.PENDING_REVIEW.value)
 
         inventory = InventoryService(self.session)
         stmt = await inventory._apply_scope(stmt, principal_scope)
