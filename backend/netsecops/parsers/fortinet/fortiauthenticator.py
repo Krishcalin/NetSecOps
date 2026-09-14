@@ -25,6 +25,7 @@ from typing import Any
 from netsecops.core.logging import get_logger
 from netsecops.ncm.models import (
     AuthPolicy,
+    Certificate,
     IdentityStore,
     LocalUser,
     NormalisedConfig,
@@ -114,6 +115,7 @@ class FortiAuthenticatorParser(ConfigParser):
             self._parse_identity_stores,
             self._parse_policies,
             self._parse_users,
+            self._parse_certificates,
         ):
             try:
                 section(bundle, result)
@@ -246,6 +248,52 @@ class FortiAuthenticatorParser(ConfigParser):
                 )
             )
             self._record(result, f"users.{len(result.ncm.users) - 1}")
+
+    # ── certificates ────────────────────────────────────────────────────
+
+    def _parse_certificates(self, bundle: dict[str, Any], result: ParseResult) -> None:
+        """Local and CA certificates, for the expiry timeline (FR-AAA-06).
+
+        FortiAuthenticator is the EAP endpoint for the FortiGate wireless estate, so the
+        server certificate here is presented to every supplicant. Its expiry is a
+        wireless outage with a date on it, which is exactly the kind of thing that is
+        obvious in hindsight and invisible until the morning it happens.
+        """
+        for record in self._get(bundle, "certificates"):
+            result.ncm.certificates.append(
+                Certificate(
+                    name=str(record.get("name") or record.get("cn") or "") or None,
+                    subject=str(record.get("subject") or record.get("cn") or "") or None,
+                    issuer=str(record.get("issuer") or record.get("ca") or "") or None,
+                    not_before=str(record.get("valid_from") or record.get("not_before") or "")
+                    or None,
+                    not_after=str(record.get("valid_to") or record.get("not_after") or "") or None,
+                    key_bits=_int_or_none(record.get("key_size") or record.get("keysize")),
+                    sig_alg=str(record.get("signature_algorithm") or "") or None,
+                    self_signed=_bool(record.get("self_signed")),
+                    usage=_usage(record),
+                )
+            )
+            self._record(result, f"certificates.{len(result.ncm.certificates) - 1}")
+
+
+def _usage(record: dict[str, Any]) -> list[str]:
+    value = record.get("usage") or record.get("type")
+    if isinstance(value, list):
+        return [str(item) for item in value if item]
+    if isinstance(value, str) and value.strip():
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
 
 
 __all__ = ["FortiAuthenticatorParser"]

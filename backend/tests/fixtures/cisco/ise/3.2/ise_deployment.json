@@ -2,7 +2,13 @@
   "deployment/node": {
     "SearchResult": {
       "resources": [
-        { "hostname": "ise-pan-01", "nodeversion": "3.2.0.542", "roles": ["PRIMARY"] }
+        {
+          "hostname": "ise-pan-01",
+          "nodeversion": "3.2.0.542",
+          "roles": [
+            "PRIMARY"
+          ]
+        }
       ]
     }
   },
@@ -13,7 +19,12 @@
           "name": "core-sw-01",
           "description": "Campus core switch",
           "profileName": "Cisco",
-          "NetworkDeviceIPList": [{ "ipaddress": "198.51.100.31", "mask": 32 }],
+          "NetworkDeviceIPList": [
+            {
+              "ipaddress": "198.51.100.31",
+              "mask": 32
+            }
+          ],
           "authenticationSettings": {
             "radiusSharedSecret": "********",
             "enableKeyWrap": false,
@@ -24,7 +35,12 @@
           "name": "campus-wlc-01",
           "description": "AireOS controller",
           "profileName": "Cisco",
-          "NetworkDeviceIPList": [{ "ipaddress": "10.100.0.30", "mask": 32 }],
+          "NetworkDeviceIPList": [
+            {
+              "ipaddress": "10.100.0.30",
+              "mask": 32
+            }
+          ],
           "authenticationSettings": {
             "radiusSharedSecret": "********",
             "dtlsRequired": true
@@ -34,15 +50,27 @@
           "name": "branch-sw-99",
           "description": "Branch switch nobody put in the CMDB",
           "profileName": "Cisco",
-          "NetworkDeviceIPList": [{ "ipaddress": "10.77.0.9", "mask": 32 }],
-          "authenticationSettings": { "radiusSharedSecret": "********" }
+          "NetworkDeviceIPList": [
+            {
+              "ipaddress": "10.77.0.9",
+              "mask": 32
+            }
+          ],
+          "authenticationSettings": {
+            "radiusSharedSecret": "********"
+          }
         }
       ]
     }
   },
   "activedirectory": {
     "SearchResult": {
-      "resources": [{ "name": "corp-ad", "domain": "corp.example.com" }]
+      "resources": [
+        {
+          "name": "corp-ad",
+          "domain": "corp.example.com"
+        }
+      ]
     }
   },
   "identitystore": [
@@ -67,8 +95,13 @@
       "processHostLookup": true,
       "allowTLS12": true,
       "allowTLS13": false,
-      "peap": { "allowPeapEapMsChapV2": true, "allowPeapEapMd5": false },
-      "eapTls": { "allowEapTlsAuthOfExpiredCerts": false }
+      "peap": {
+        "allowPeapEapMsChapV2": true,
+        "allowPeapEapMd5": false
+      },
+      "eapTls": {
+        "allowEapTlsAuthOfExpiredCerts": false
+      }
     }
   ],
   "policy/network-access/authentication": [
@@ -87,17 +120,29 @@
       "identitySourceName": "corp-ad"
     },
     {
-      "rule": { "name": "MAB fallback", "rank": 2, "state": "enabled" },
+      "rule": {
+        "name": "MAB fallback",
+        "rank": 2,
+        "state": "enabled"
+      },
       "identitySourceName": "Internal Endpoints"
     }
   ],
   "policy/network-access/authorization": [
     {
-      "rule": { "name": "Corp laptops", "rank": 1, "state": "enabled" },
+      "rule": {
+        "name": "Corp laptops",
+        "rank": 1,
+        "state": "enabled"
+      },
       "profile": "PermitAccess"
     },
     {
-      "rule": { "name": "Legacy printers", "rank": 2, "state": "disabled" },
+      "rule": {
+        "name": "Legacy printers",
+        "rank": 2,
+        "state": "disabled"
+      },
       "profile": "PermitAccess"
     }
   ],
@@ -107,25 +152,109 @@
       "permitUnmatched": false,
       "commands": {
         "commandList": [
-          { "grant": "PERMIT", "command": "show", "arguments": ".*" },
-          { "grant": "DENY", "command": "configure", "arguments": ".*" }
+          {
+            "grant": "PERMIT",
+            "command": "show",
+            "arguments": ".*"
+          },
+          {
+            "grant": "DENY",
+            "command": "configure",
+            "arguments": ".*"
+          }
         ]
       }
     },
     {
       "name": "NetworkAdmin",
       "permitUnmatched": true,
-      "commands": { "commandList": [{ "grant": "PERMIT", "command": "show" }] }
+      "commands": {
+        "commandList": [
+          {
+            "grant": "PERMIT",
+            "command": "show"
+          }
+        ]
+      }
     }
   ],
   "adminuser": {
     "SearchResult": {
       "resources": [
-        { "name": "iseadmin", "adminGroups": [{ "name": "Super Admin" }] },
-        { "name": "auditor", "adminGroups": [{ "name": "Read Only Admin" }] }
+        {
+          "name": "iseadmin",
+          "adminGroups": [
+            {
+              "name": "Super Admin"
+            }
+          ]
+        },
+        {
+          "name": "auditor",
+          "adminGroups": [
+            {
+              "name": "Read Only Admin"
+            }
+          ]
+        }
       ]
     }
   },
-  "admin/settings": [{ "sessionTimeout": 30, "mfaEnabled": false }],
-  "guestsettings": { "note": "not read by any rule yet" }
+  "admin/settings": [
+    {
+      "sessionTimeout": 30,
+      "mfaEnabled": false
+    }
+  ],
+  "guestsettings": {
+    "note": "not read by any rule yet"
+  },
+  "certs/system-certificate": {
+    "response": [
+      {
+        "id": "8d2f1b70-5a41-11ee-9c1a-000c29ab7d31",
+        "friendlyName": "campus-eap",
+        "issuedTo": "ise-psn-01.campus.example.com",
+        "issuedBy": "Campus Issuing CA G2",
+        "validFrom": "Wed Mar 13 09:14:22 UTC 2024",
+        "expirationDate": "Thu Mar 13 09:14:22 UTC 2031",
+        "keySize": 2048,
+        "signatureAlgorithm": "SHA256WITHRSA",
+        "selfSigned": false,
+        "usedBy": [
+          "EAP Authentication",
+          "RADIUS DTLS"
+        ]
+      },
+      {
+        "id": "9a41c2e8-5a41-11ee-9c1a-000c29ab7d31",
+        "friendlyName": "Default self-signed server certificate",
+        "issuedTo": "ise-psn-01.campus.example.com",
+        "issuedBy": "ise-psn-01.campus.example.com",
+        "validFrom": "Mon Jan 08 11:02:00 UTC 2024",
+        "expirationDate": "Tue Jan 07 11:02:00 UTC 2025",
+        "keySize": 2048,
+        "signatureAlgorithm": "SHA256WITHRSA",
+        "selfSigned": true,
+        "usedBy": [
+          "Admin",
+          "Portal"
+        ]
+      },
+      {
+        "id": "b7e0aa14-5a41-11ee-9c1a-000c29ab7d31",
+        "friendlyName": "pxgrid-node",
+        "issuedTo": "ise-pan-01.campus.example.com",
+        "issuedBy": "Campus Issuing CA G2",
+        "validFrom": "unknown",
+        "expirationDate": "",
+        "keySize": 4096,
+        "signatureAlgorithm": "SHA384WITHRSA",
+        "selfSigned": false,
+        "usedBy": [
+          "pxGrid"
+        ]
+      }
+    ]
+  }
 }

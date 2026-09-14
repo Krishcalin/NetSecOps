@@ -29,6 +29,7 @@ from typing import Any
 from netsecops.core.logging import get_logger
 from netsecops.ncm.models import (
     AuthPolicy,
+    Certificate,
     CommandSet,
     IdentityStore,
     LocalUser,
@@ -130,6 +131,7 @@ class CiscoIseParser(ConfigParser):
             self._parse_policies,
             self._parse_command_sets,
             self._parse_admins,
+            self._parse_certificates,
         ):
             try:
                 section(bundle, result)
@@ -161,6 +163,7 @@ class CiscoIseParser(ConfigParser):
             "policy/device-admin/command-sets",
             "adminuser",
             "admin/settings",
+            "certs/system-certificate",
         }
     )
 
@@ -390,6 +393,74 @@ class CiscoIseParser(ConfigParser):
                     result.ncm.aaa_server.admin_mfa_enabled = mfa
                     self._record(result, "aaa_server.admin_mfa_enabled")
                     break
+
+    # ── the EAP certificate, which is the one that matters ──────────────
+
+    def _parse_certificates(self, bundle: dict[str, Any], result: ParseResult) -> None:
+        """System certificates, with what each one is used for.
+
+        The usage list is the reason this is worth collecting separately from any other
+        certificate inventory. An ISE node holds several — admin, portal, pxGrid, EAP —
+        and only one of them is presented to every wireless supplicant on the network
+        during 802.1X. When that one expires, every EAP-TLS and PEAP client fails
+        authentication at once, and the outage looks like a wireless fault rather than a
+        certificate fault for the first hour of it.
+
+        The dates are stored exactly as ISE printed them (Java's ``Date.toString``).
+        Interpreting them is :mod:`netsecops.ncm.certificates`' job, and it reports a
+        date it cannot read rather than dropping the certificate.
+        """
+        for record in self._get(bundle, "certs/system-certificate"):
+            usage = _usage(record)
+            result.ncm.certificates.append(
+                Certificate(
+                    name=str(record.get("friendlyName") or record.get("name") or "") or None,
+                    subject=str(record.get("issuedTo") or record.get("subject") or "") or None,
+                    issuer=str(record.get("issuedBy") or record.get("issuer") or "") or None,
+                    not_before=str(record.get("validFrom") or record.get("notBefore") or "")
+                    or None,
+                    not_after=str(record.get("expirationDate") or record.get("notAfter") or "")
+                    or None,
+                    key_bits=_int_or_none(record.get("keySize")),
+                    sig_alg=str(record.get("signatureAlgorithm") or "") or None,
+                    self_signed=_bool(record.get("selfSigned")),
+                    usage=usage,
+                )
+            )
+            self._record(result, f"certificates.{len(result.ncm.certificates) - 1}")
+
+
+def _usage(record: dict[str, Any]) -> list[str]:
+    """What ISE says the certificate is presented for.
+
+    Spelled several ways across versions — a list under ``usedBy``, a comma-joined
+    string under ``keyUsage``, or a set of booleans per role.
+    """
+    for key in ("usedBy", "keyUsage", "usages"):
+        value = record.get(key)
+        if isinstance(value, list):
+            return [str(item) for item in value if item]
+        if isinstance(value, str) and value.strip():
+            return [part.strip() for part in value.split(",") if part.strip()]
+
+    flags = {
+        "eap": ("eapAuthentication", "eap"),
+        "admin": ("admin",),
+        "portal": ("portal",),
+        "pxgrid": ("pxgrid",),
+        "radsec": ("radsec",),
+    }
+    return sorted(label for label, keys in flags.items() if any(_bool(record.get(k)) for k in keys))
+
+
+def _int_or_none(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return None
 
 
 def _condition_summary(condition: Any) -> str | None:

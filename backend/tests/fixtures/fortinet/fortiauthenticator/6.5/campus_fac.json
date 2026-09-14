@@ -34,7 +34,9 @@
         "enabled": false
       }
     ],
-    "meta": { "total_count": 3 }
+    "meta": {
+      "total_count": 3
+    }
   },
   "/api/v1/ldapservers/": {
     "objects": [
@@ -56,23 +58,64 @@
         "name": "Wireless 802.1X",
         "order": 1,
         "enabled": true,
-        "eap_types": ["EAP-TLS", "PEAP", "MS-CHAPv2"],
+        "eap_types": [
+          "EAP-TLS",
+          "PEAP",
+          "MS-CHAPv2"
+        ],
         "realm": "corp"
       },
       {
         "name": "Legacy VPN",
         "order": 2,
         "enabled": true,
-        "auth_methods": ["PAP", "MS-CHAP"],
+        "auth_methods": [
+          "PAP",
+          "MS-CHAP"
+        ],
         "realm": "vpn"
       }
     ]
   },
   "/api/v1/adminprofiles/": {
     "objects": [
-      { "name": "facadmin", "profile": "admin" },
-      { "name": "reporter", "profile": "read_only" }
+      {
+        "name": "facadmin",
+        "profile": "admin"
+      },
+      {
+        "name": "reporter",
+        "profile": "read_only"
+      }
     ]
   },
-  "/api/v1/guestportals/": { "objects": [] }
+  "/api/v1/guestportals/": {
+    "objects": []
+  },
+  "/api/v1/certificates/": {
+    "objects": [
+      {
+        "name": "fac-eap-server",
+        "cn": "fac.campus.example.com",
+        "issuer": "Campus Issuing CA G2",
+        "valid_from": "2024-06-01T00:00:00Z",
+        "valid_to": "2027-05-31T23:59:59Z",
+        "key_size": 2048,
+        "signature_algorithm": "SHA256withRSA",
+        "self_signed": false,
+        "usage": "server, eap"
+      },
+      {
+        "name": "legacy-portal",
+        "cn": "portal.campus.example.com",
+        "issuer": "portal.campus.example.com",
+        "valid_from": "2022-02-01T00:00:00Z",
+        "valid_to": "2025-01-31T23:59:59Z",
+        "key_size": 1024,
+        "signature_algorithm": "SHA1withRSA",
+        "self_signed": true,
+        "usage": "server"
+      }
+    ]
+  }
 }
