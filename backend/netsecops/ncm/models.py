@@ -419,6 +419,10 @@ class SecurityRule(NcmBase):
     src: list[str] = Field(default_factory=list)
     dst_zones: list[str] = Field(default_factory=list)
     dst: list[str] = Field(default_factory=list)
+    #: Check Point writes rules as "anything *except* these". The resolver inverts the
+    #: address set when this is set; ignoring it would read the rule as its opposite.
+    src_negate: bool = False
+    dst_negate: bool = False
     services: list[str] = Field(default_factory=list)
     applications: list[str] = Field(default_factory=list)
     users: list[str] = Field(default_factory=list)

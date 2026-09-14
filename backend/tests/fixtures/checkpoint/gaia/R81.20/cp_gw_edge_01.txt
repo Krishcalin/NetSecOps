@@ -1,0 +1,53 @@
+# Configuration of cp-gw-edge-01
+# Language version: 13.4v1
+#
+# Exported by admin at Sun Sep 13 07:40:11 2026
+set hostname cp-gw-edge-01
+set domainname example.com
+set timezone Europe / London
+set inactivity-timeout 10
+set message banner on "Authorised users only. All activity is monitored and recorded."
+set interface eth0 state on
+set interface eth0 ipv4-address 203.0.113.2 mask-length 24
+set interface eth0 comments Internet-uplink
+set interface eth1 state on
+set interface eth1 ipv4-address 10.20.0.1 mask-length 24
+set interface eth1 comments DMZ
+set interface eth2 state on
+set interface eth2 ipv4-address 10.10.0.1 mask-length 24
+set interface eth2 comments Internal
+set interface eth3 state off
+set interface eth3 comments Spare
+set user admin uid 0
+set user admin homedir /home/admin
+set user admin shell /bin/bash
+set user admin password-hash $1$Kx8tPqLm$0aZbYcXdWeVfUgThSiRj01
+set user netsecops uid 101
+set user netsecops homedir /home/netsecops
+set user netsecops shell /etc/cli.sh
+set user netsecops password-hash $6$Nm4rQwEr$TyUiOpAsDfGhJkLzXcVbNm1234567890AbCdEf
+set user contractor uid 102
+set user contractor shell /etc/cli.sh
+set user contractor password-hash $6$Zx9cVbNm$QwErTyUiOpAsDfGhJkLzXcVbNm0987654321FeDcBa
+add rba user netsecops roles adminRole
+add rba user contractor roles monitorRole
+set snmp agent on
+set snmp community PUBLIC read-only
+set snmp contact noc@example.com
+set snmp location Datacentre A Rack 14
+add snmp usm user snmpmon security-level authPriv authentication-protocol SHA256 privacy-protocol AES
+add syslog log-remote-address 10.100.5.10 level info
+set syslog auditlog permanent
+add ntp server primary 10.100.5.40 version 4
+add ntp server secondary 10.100.5.41 version 4
+set ntp active on
+set web ssl-port 443
+set ssh server port 22
+set password-controls min-password-length 12
+set password-controls complexity 3
+set password-controls password-expiration-days 90
+set password-controls password-history-length 8
+set password-controls lockout-attempts 5
+add allowed-client host any
+set arp table cache-size 4096
+set max-path-splits 8

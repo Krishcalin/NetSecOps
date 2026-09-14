@@ -1,0 +1,35 @@
+id: panos-ha-configured
+title: The firewall is a member of an HA pair
+description: >-
+  High availability is enabled in the device configuration.
+rationale: >-
+  A standalone perimeter firewall takes the site off the network when it reboots, and
+  PAN-OS content updates and software upgrades both require one. An HA pair also allows
+  those updates to be applied without a maintenance window, which in practice is what
+  decides whether they are applied promptly — an estate that must schedule an outage to
+  patch its firewalls patches them late.
+severity: low
+
+applicability:
+  vendors: [paloalto]
+  platforms: [panos]
+  device_classes: [firewall]
+
+logic:
+  type: ncm
+  expression: device.ha.enabled
+  assert:
+    equals: true
+  missing: not_evaluated
+
+remediation: >-
+  Configure the HA pair under Device → High Availability with a dedicated HA1 control
+  link and HA2 data link. Both members need identical licensed features and the same
+  PAN-OS version, or the pair will form and refuse to synchronise.
+
+references:
+  nist_800_53: ["CP-2", "SC-5"]
+  iso_27001: ["A.8.14"]
+
+tags: [availability, paloalto]
+enabled_by_default: false

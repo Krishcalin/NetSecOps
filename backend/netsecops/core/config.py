@@ -126,7 +126,70 @@ class Settings(BaseSettings):
 
     # ── Vulnerability feeds (FR-VUL-07/08, used from Phase 6) ───────────────
     feeds_offline_mode: bool = False
-    nvd_api_key: SecretStr | None = None
+
+    # Appendix C names these without the NETSECOPS_ prefix, so each needs the same
+    # AliasChoices treatment as DATABASE_URL and SECRET_KEY — with the field name kept
+    # as the first choice, or constructing Settings(...) directly stops working.
+    #
+    # The prefixed spelling is listed too, and is not redundant: setting any
+    # validation_alias stops pydantic-settings applying env_prefix to that field, so
+    # omitting it would silently break `NETSECOPS_NVD_API_KEY`, which is the form
+    # .env.example has documented since Phase 0.
+    nvd_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("nvd_api_key", "NVD_API_KEY", "NETSECOPS_NVD_API_KEY"),
+    )
+
+    #: Cisco PSIRT openVuln API (FR-VUL-02, Appendix C). Obtained from the Cisco API
+    #: Console as a Service application using the Client Credentials grant; the pair is
+    #: exchanged at https://id.cisco.com/oauth2/default/v1/token for a bearer token
+    #: that lasts an hour, so the Phase 6 client caches and refreshes it rather than
+    #: authenticating per request.
+    #:
+    #: Optional, and must stay optional: FR-VUL-08 requires air-gapped deployments to
+    #: work from `feeds_offline_mode` and imported bundles, so nothing may fail to
+    #: start because these are unset. SecretStr so the client secret is masked in
+    #: `netsecops-cli show-config`, in logs and in every error path (C-2).
+    cisco_psirt_client_id: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "cisco_psirt_client_id",
+            "CISCO_PSIRT_CLIENT_ID",
+            "NETSECOPS_CISCO_PSIRT_CLIENT_ID",
+        ),
+    )
+    cisco_psirt_client_secret: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "cisco_psirt_client_secret",
+            "CISCO_PSIRT_CLIENT_SECRET",
+            "NETSECOPS_CISCO_PSIRT_CLIENT_SECRET",
+        ),
+    )
+
+    @field_validator(
+        "nvd_api_key", "cisco_psirt_client_id", "cisco_psirt_client_secret", mode="before"
+    )
+    @classmethod
+    def _blank_optional_secret_is_unset(cls, value: object) -> object:
+        """Treat an empty environment variable as absent.
+
+        `docker compose` renders `${CISCO_PSIRT_CLIENT_ID:-}` as an empty string, not as
+        an unset variable, so the default deployment would otherwise produce
+        `SecretStr('')` — and `cisco_psirt_configured` would answer True for credentials
+        that cannot authenticate. The symptom would be an opaque 401 from Cisco rather
+        than the clean fallback to offline mode that FR-VUL-08 requires.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @property
+    def cisco_psirt_configured(self) -> bool:
+        """True only when both halves are present. A client id without a secret cannot
+        obtain a token, so reporting it as configured turns a setup mistake into a
+        runtime failure somewhere much less obvious."""
+        return self.cisco_psirt_client_id is not None and self.cisco_psirt_client_secret is not None
 
     # ── Observability (NFR-LOG-01, NFR-OBS-01) ──────────────────────────────
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"

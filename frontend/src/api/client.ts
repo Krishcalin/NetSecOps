@@ -64,6 +64,13 @@ type RequestOptions = Omit<RequestInit, 'body'> & {
    * the request unparseable on the server.
    */
   rawBody?: boolean;
+  /**
+   * Return the `Response` itself rather than its parsed JSON. Needed for downloads —
+   * the CSV rulebase export (FR-FW-07) — where the body is not JSON and the caller
+   * wants a blob. Error handling and the 401-refresh retry still apply, which is the
+   * reason to go through here rather than calling `fetch` directly.
+   */
+  parseAs?: 'json' | 'response';
 };
 
 /** Shared in-flight refresh, so parallel 401s cause exactly one rotation. */
@@ -98,7 +105,7 @@ function csrfHeaders(): Record<string, string> {
 }
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { body, skipRefresh, rawBody, headers, ...rest } = options;
+  const { body, skipRefresh, rawBody, parseAs, headers, ...rest } = options;
 
   const send = (): Promise<Response> =>
     fetch(`${API_BASE}${path}`, {
@@ -124,8 +131,15 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
     return undefined as T;
   }
 
+  // Checked before the parse choice: an error body is problem+json whatever the caller
+  // asked for, and handing a download caller a failed Response to discover for itself
+  // would lose the detail the server sent.
   if (!response.ok) {
     throw new ApiError(await toProblem(response));
+  }
+
+  if (parseAs === 'response') {
+    return response as T;
   }
 
   return (await response.json()) as T;

@@ -1,0 +1,31 @@
+id: interfaces-documented
+title: Interfaces carry a description
+description: >-
+  Every configured interface has a description or comment.
+rationale: >-
+  An undocumented interface on a firewall or a core switch is one nobody can safely
+  change, and one nobody can safely leave alone. During an incident the first question
+  about any interface is what is on the other end of it, and an estate that answers that
+  by tracing cables loses hours it does not have. The same gap is why decommissioned
+  links stay configured for years: no one is willing to remove something they cannot
+  identify.
+severity: info
+
+logic:
+  type: ncm
+  expression: interfaces[?description == null].name
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Add a description to each interface naming the far end and the service it carries.
+  Doing this as part of the change that creates an interface is the only version that
+  stays accurate; a one-off documentation exercise is out of date within a quarter.
+
+references:
+  nist_800_53: ["CM-8"]
+  iso_27001: ["A.5.9"]
+
+tags: [documentation, hygiene]
+enabled_by_default: false

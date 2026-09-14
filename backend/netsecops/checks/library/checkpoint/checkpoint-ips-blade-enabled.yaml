@@ -1,0 +1,37 @@
+id: checkpoint-ips-blade-enabled
+title: The IPS blade is enabled on the gateway
+description: >-
+  `network-security-blades` reports the IPS blade as active.
+rationale: >-
+  On Check Point the inspection a rule performs depends on which software blades are
+  running, and a rule can name a threat-prevention profile while the blade that would
+  apply it is switched off. The rulebase then reads as though traffic is inspected and
+  it is not. This is also what decides whether other findings are meaningful: a rule
+  reported as lacking an IPS profile is a real gap on a gateway with IPS licensed, and
+  Not Applicable on one without it.
+severity: medium
+
+applicability:
+  vendors: [checkpoint]
+  platforms: [checkpoint_mgmt]
+  device_classes: [firewall]
+
+logic:
+  type: ncm
+  expression: firewall.profiles.ips
+  assert:
+    equals: true
+  missing: not_evaluated
+
+remediation: >-
+  Enable the IPS blade on the gateway object in SmartConsole and install policy. Check
+  the licence first — enabling a blade that is not licensed produces an install failure
+  rather than protection — and start the profile in Detect before moving it to Prevent,
+  so a false positive does not take production traffic down.
+
+references:
+  nist_800_53: ["SI-4", "SC-7"]
+  pci_dss: ["11.5.1"]
+  iso_27001: ["A.8.16"]
+
+tags: [threat-prevention, checkpoint]

@@ -584,6 +584,61 @@ class TestRedactionOfFixtures:
         assert REDACTED in redact_config(fixture.text())
 
 
+class TestTheSecretKeywordRuleIsNeitherTooWideNorTooNarrow:
+    """Both halves matter, and they pull against each other.
+
+    Too narrow and a credential reaches a finding — which is how the FortiOS rule came to
+    exist, after a RADIUS shared secret arrived in the NCM through a provenance excerpt.
+    Too wide and it eats ordinary configuration: the first version matched
+    `set password-controls min-password-length 12` and redacted the minimum password
+    length, destroying the evidence a password-policy finding is meant to show.
+    """
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "    set password ENC SH2abcdefghijklmnop",
+            "    set passwd MySecretValue",
+            "    set psksecret ENC abcdef123456",
+            "    set secret R4d1usK3y!Secret",
+            "    set auth-pwd SnmpAuthK3y",
+            "    set priv-pwd SnmpPrivK3y",
+            "    set ssl-key ENC abcdef",
+            # FortiOS appends a one-letter suffix for the local/remote SNMP passwords.
+            "    set auth-pwd-l SnmpLocalK3y",
+        ],
+    )
+    def test_a_real_secret_is_redacted(self, line: str) -> None:
+        from netsecops.core.redaction import redact_line
+
+        redacted, _ = redact_line(line)
+        assert REDACTED in redacted, f"{line!r} was not redacted"
+        assert line.split()[-1] not in redacted
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            # Gaia password *policy*. None of these are credentials, and redacting the
+            # value hides the very setting a password-policy check reports on.
+            "set password-controls min-password-length 12",
+            "set password-controls password-expiration-days 90",
+            "set password-controls password-history-length 8",
+            "set password-controls complexity 3",
+            # FortiOS equivalents.
+            "    set password-expire-days 90",
+            "    set password-policy enable",
+        ],
+    )
+    def test_a_policy_setting_is_left_alone(self, line: str) -> None:
+        from netsecops.core.redaction import redact_line
+
+        redacted, _ = redact_line(line)
+        assert redacted.strip() == line.strip(), (
+            f"{line!r} is a policy setting, not a credential, and redacting it removes "
+            "the evidence the finding is supposed to show"
+        )
+
+
 # ─────────────────────────── line-number discipline ──────────────────────────
 
 

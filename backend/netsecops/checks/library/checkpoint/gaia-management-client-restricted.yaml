@@ -1,0 +1,37 @@
+id: gaia-management-client-restricted
+title: Gaia management access is restricted to named clients
+description: >-
+  `allowed-client` is set to specific hosts or networks rather than `any`.
+rationale: >-
+  Gaia's allowed-client list governs who may reach the web interface and SSH on the
+  gateway itself. It defaults to `any`, and the security policy does not constrain it —
+  traffic addressed to the gateway's own management plane is handled before the rulebase
+  the administrator spent their time writing. A gateway with a careful policy and
+  `allowed-client any` is reachable for authentication attempts from every network it
+  touches.
+severity: high
+
+applicability:
+  vendors: [checkpoint]
+  platforms: [checkpoint_gaia]
+
+logic:
+  type: ncm
+  expression: management.management_acls."allowed-client"
+  assert:
+    not_matches: '(?i)^any$'
+  missing: fail
+
+remediation: >-
+  `add allowed-client host any` is the default and should be replaced with
+  `add allowed-client network <management network> mask-length <n>`. Include the
+  addresses NetSecOps and any monitoring collect from before applying, and keep console
+  access available while you do.
+
+references:
+  nist_800_53: ["AC-3", "SC-7"]
+  pci_dss: ["1.3.1"]
+  iso_27001: ["A.8.20"]
+  cwe: ["CWE-284"]
+
+tags: [management-plane, access-control, checkpoint]

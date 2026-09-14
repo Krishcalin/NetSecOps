@@ -96,6 +96,34 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # ── ASA / NX-OS spellings ───────────────────────────────────────────
     _rule("asa_passwd", r"^(\s*passwd\s+)(\S+)"),
     _rule("nxos_user", r"^(\s*username\s+\S+\s+password\s+(?:\d\s+)?)(\S+)"),
+    # ── FortiOS ─────────────────────────────────────────────────────────
+    # Every secret on a FortiGate is a `set <key> [ENC] <value>` statement, and the key
+    # names are consistent: password, passwd, secret, *-pwd, key, psksecret. One rule
+    # covers them all, which matters because the set is open-ended — FortiOS adds new
+    # `set ...-pwd` fields between releases, and a list of literal key names would be
+    # out of date the first time it did.
+    #
+    # This was added after a RADIUS shared secret reached the NCM through a provenance
+    # excerpt: the rules above are Cisco-shaped and `set secret ENC <value>` matched
+    # none of them. A new vendor's syntax slipping past redaction is the failure mode
+    # this whole module exists to prevent.
+    #
+    # The keyword must *end* the setting name, give or take a one-letter suffix — FortiOS
+    # writes `set auth-pwd-l` for the local SNMP password. A trailing `\S*` was tried
+    # first and was wrong in the other direction: it matched `set password-controls 12`
+    # and `set password-expiration-days 90`, which are Gaia *policy settings*, and
+    # redacted the minimum password length as though it were a credential. Over-redaction
+    # is the safer failure, but it destroys the evidence a finding is supposed to show.
+    _rule(
+        "fortios_secret",
+        r"^(\s*set\s+(?:\S+[-_])?(?:password|passwd|secret|pwd|key|psksecret|privatekey)"
+        r"(?:[-_][a-z])?\s+(?:ENC\s+)?)(\S+)",
+    ),
+    # `set member` on a user group can carry a token; `set ppk-secret`, `set ssl-key`
+    # and friends are covered by the rule above. Community strings on FortiOS use the
+    # `set name` field inside `config system snmp community`, which cannot be matched
+    # by keyword alone without redacting every object name in the file — the parser
+    # masks it instead, at the point it knows the context.
     # ── Wireless ────────────────────────────────────────────────────────
     _rule("wpa_psk", r"^(\s*(?:wpa-psk|psk)\s+(?:ascii|hex)\s+(?:\d\s+)?)(\S+)"),
     # ── Key material ────────────────────────────────────────────────────

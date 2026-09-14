@@ -1,0 +1,34 @@
+id: syslog-servers-redundant
+title: Logs are sent to more than one collector
+description: >-
+  At least two syslog destinations are configured.
+rationale: >-
+  A single collector means that anything which stops it receiving — a failed host, a
+  full disk, a firewall change, or an attacker who has worked out where the logs go —
+  removes the only record of what happened next, and does so silently, because a device
+  sending syslog over UDP has no way to know it is not being heard. A second destination
+  on different infrastructure turns log loss from a single action into two, and is the
+  cheapest control available against an attacker covering their tracks.
+severity: low
+
+logic:
+  type: ncm
+  expression: logging.syslog_servers
+  assert:
+    count_gte: 2
+  missing: fail
+
+remediation: >-
+  Add a second syslog destination on separate infrastructure from the first — ideally in
+  a different failure domain, since two collectors in one rack fail together. Where the
+  platform supports it, send at least one stream over TCP or TLS so delivery failures
+  are detectable rather than silent.
+
+references:
+  nist_800_53: ["AU-4", "AU-9"]
+  pci_dss: ["10.5.1"]
+  iso_27001: ["A.8.15"]
+  cwe: ["CWE-778"]
+
+tags: [logging, availability, resilience]
+enabled_by_default: false

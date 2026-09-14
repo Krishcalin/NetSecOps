@@ -1,0 +1,37 @@
+id: checkpoint-admin-roles-limited
+title: Few management administrators hold full read-write access
+description: >-
+  At most two administrators have a Super User or Read Write All permissions profile.
+rationale: >-
+  A Check Point management server holds the policy for every gateway it manages, so an
+  administrator with Read Write All can change the rulebase of the whole estate from one
+  console — a far wider blast radius than an administrator on any single device. Check
+  Point's permissions profiles are granular enough that most work does not need it, and
+  the read-only profiles are sufficient for auditing, monitoring and for NetSecOps
+  itself, which never writes to a device.
+severity: medium
+
+applicability:
+  vendors: [checkpoint]
+  platforms: [checkpoint_mgmt]
+
+logic:
+  type: ncm
+  expression: users[?privilege == `15`].name
+  assert:
+    count_lte: 2
+  missing: not_evaluated
+
+remediation: >-
+  Move administrators to a permissions profile matching their actual work, and keep full
+  read-write for a break-glass account and one named owner. Give integrations a
+  read-only profile; a collector that can change policy is a supply-chain risk for every
+  gateway the server manages.
+
+references:
+  nist_800_53: ["AC-6"]
+  pci_dss: ["7.2.1"]
+  iso_27001: ["A.8.2"]
+  cwe: ["CWE-269"]
+
+tags: [authorisation, least-privilege, checkpoint]

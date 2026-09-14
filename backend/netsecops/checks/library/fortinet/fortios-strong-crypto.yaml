@@ -1,0 +1,38 @@
+id: fortios-strong-crypto
+title: Strong cryptography is enforced globally
+description: >-
+  FortiOS `set strong-crypto enable` is set under `config system global`.
+rationale: >-
+  This single setting governs the cipher suites FortiOS will negotiate for every service
+  it terminates or originates — the administrative HTTPS interface, SSL VPN, FortiGuard
+  updates, LDAPS and syslog over TLS. With it disabled the device continues to accept
+  SSLv3, TLS 1.0, RC4 and 3DES for backwards compatibility, so a management session can
+  be downgraded to a cipher suite that has been broken in public for a decade. It is the
+  highest-leverage crypto setting on the platform: nothing else has to be configured
+  per-service once it is on.
+severity: high
+
+applicability:
+  vendors: [fortinet]
+  platforms: [fortios]
+
+logic:
+  type: ncm
+  expression: features.extra.strong_crypto
+  assert:
+    equals: true
+  missing: not_evaluated
+
+remediation: >-
+  `config system global` / `set strong-crypto enable` / `end`. Confirm first that any
+  legacy management station, LDAP server or syslog collector the device talks to
+  supports TLS 1.2 with AES — enabling this will stop conversations with anything that
+  does not, which is the point, but is disruptive if discovered afterwards.
+
+references:
+  nist_800_53: ["SC-8", "SC-13"]
+  pci_dss: ["2.2.5", "4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327"]
+
+tags: [crypto, management-plane, fortinet]

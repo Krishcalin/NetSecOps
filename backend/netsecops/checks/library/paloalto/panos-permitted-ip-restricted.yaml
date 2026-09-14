@@ -1,0 +1,39 @@
+id: panos-permitted-ip-restricted
+title: Management access is restricted to named source addresses
+description: >-
+  `permitted-ip` is configured on the management interface.
+rationale: >-
+  PAN-OS applies the security policy to traffic *through* the firewall, not to traffic
+  addressed to its own management interface. The rulebase therefore says nothing about
+  who may reach the web interface or SSH, however carefully it is written — the only
+  control is the `permitted-ip` list under the management interface settings. A firewall
+  whose rulebase is exemplary and whose management plane is reachable from any subnet it
+  is connected to is a common and serious combination, precisely because the rulebase
+  looks like it should have covered it.
+severity: high
+
+applicability:
+  vendors: [paloalto]
+  platforms: [panos]
+
+logic:
+  type: ncm
+  expression: management.management_acls
+  assert:
+    empty: false
+  missing: fail
+
+remediation: >-
+  Device → Setup → Management → Management Interface Settings, and add the management
+  networks to Permitted IP Addresses. Include the addresses NetSecOps collects from, and
+  any monitoring system, before applying — locking yourself out of a perimeter firewall
+  requires console access to undo.
+
+references:
+  cis: ["1.2.1"]
+  nist_800_53: ["AC-3", "SC-7"]
+  pci_dss: ["1.3.1"]
+  iso_27001: ["A.8.20"]
+  cwe: ["CWE-284"]
+
+tags: [management-plane, access-control, paloalto]

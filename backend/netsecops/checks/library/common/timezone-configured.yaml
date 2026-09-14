@@ -1,0 +1,32 @@
+id: timezone-configured
+title: A timezone is configured
+description: >-
+  The device has an explicit timezone rather than the vendor default.
+rationale: >-
+  A device left on its default timezone stamps its logs in that zone while every other
+  system stamps in another, and nothing in the log line says which. During an incident
+  the two sets of events are then reconciled by hand, under time pressure, by someone
+  guessing at an offset — and a one-hour error is enough to put cause after effect and
+  send an investigation in the wrong direction. Whether the estate standardises on UTC
+  or on local time matters far less than that the setting is deliberate and consistent.
+severity: low
+
+logic:
+  type: ncm
+  expression: ntp.timezone
+  assert:
+    not_equals: null
+  missing: not_evaluated
+
+remediation: >-
+  Set the timezone to whatever the estate has standardised on — UTC is the usual choice
+  for infrastructure, because it removes daylight-saving transitions during which
+  timestamps repeat or jump. Apply the same value everywhere; a correct-but-different
+  timezone per site reintroduces the problem.
+
+references:
+  nist_800_53: ["AU-8"]
+  pci_dss: ["10.6.1"]
+  iso_27001: ["A.8.17"]
+
+tags: [time, logging]

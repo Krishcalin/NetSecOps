@@ -1,0 +1,37 @@
+id: panos-no-md5-admin-hash
+title: No administrator password is stored as md5-crypt
+description: >-
+  Every local administrator's `phash` uses a modern algorithm.
+rationale: >-
+  PAN-OS still accepts md5-crypt password hashes carried forward from configurations
+  written a decade ago, and displays nothing to indicate that an account is using one.
+  md5-crypt has no configurable work factor and a commodity GPU recovers a typical
+  password from it in minutes, so an administrator hash read from a configuration backup
+  — or from a support bundle sent to a vendor — is a working credential rather than an
+  obstacle. Resetting the password is enough to re-hash it with the current algorithm.
+severity: high
+
+applicability:
+  vendors: [paloalto]
+  platforms: [panos]
+
+logic:
+  type: ncm
+  expression: users[?weak_hash == `true`].name
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Reset the password on each affected account; PAN-OS re-hashes with the current
+  algorithm on change. Treat any password that was stored this way as disclosed if the
+  configuration has ever left the device — change it rather than re-using it, and check
+  whether the same password is in use elsewhere.
+
+references:
+  nist_800_53: ["IA-5"]
+  pci_dss: ["8.3.2"]
+  iso_27001: ["A.5.17"]
+  cwe: ["CWE-916"]
+
+tags: [authentication, crypto, paloalto]

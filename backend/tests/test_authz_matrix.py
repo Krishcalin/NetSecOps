@@ -264,6 +264,40 @@ MATRIX: list[Case] = [
         },
     ),
     Case("DELETE", "/api/v1/exceptions/{exception_id}", _EXCEPTION_AUTHORS),
+    # ── Rulebase viewer and rule query (FR-FW-06, FR-FW-07) ─────────────────
+    # A rulebase *is* configuration, so it sits with the other device reads. Putting it
+    # behind a findings permission would leave an Auditor able to read the raw config
+    # but not the structured view of the same thing, which is a distinction nobody
+    # could defend.
+    Case("GET", "/api/v1/devices/{device_id}/firewall/rulebase", _DEVICE_READERS),
+    Case("GET", "/api/v1/devices/{device_id}/firewall/export", _DEVICE_READERS),
+    # The query simulates a packet against the stored rulebase; it is a read despite
+    # being a POST, because the parameters do not fit in a URL.
+    Case(
+        "POST",
+        "/api/v1/devices/{device_id}/firewall/query",
+        _DEVICE_READERS,
+        body={"source": "10.0.0.1", "destination": "10.20.0.10", "protocol": "tcp", "port": 443},
+    ),
+    # ── Manager child enumeration (FR-INV-04, FR-DISC-06) ───────────────────
+    # Previewing reads and writes nothing — a POST only because a manager's device list
+    # does not fit in a URL — so it sits with the other device reads.
+    Case(
+        "POST",
+        "/api/v1/devices/{device_id}/children/preview",
+        _DEVICE_READERS,
+        body={"payload": "<response><result><devices/></result></response>"},
+    ),
+    Case("GET", "/api/v1/devices/pending-review", _DEVICE_READERS),
+    # Importing creates devices, and approving one is the decision to start connecting
+    # to it. Both are device writes, and SRS §2.3 keeps a Network Engineer read-only.
+    Case(
+        "POST",
+        "/api/v1/devices/{device_id}/children/import",
+        _DEVICE_WRITERS,
+        body={"payload": "<response/>", "identities": ["001901234567"]},
+    ),
+    Case("POST", "/api/v1/devices/{device_id}/approve", _DEVICE_WRITERS),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS

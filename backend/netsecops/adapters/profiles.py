@@ -17,13 +17,33 @@ evaluated — missing data* rather than as passes (FR-COL-08).
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Final
 
 from netsecops.core.errors import ValidationProblem
 
 
+class Transport(StrEnum):
+    """How a platform is read.
+
+    This is not cosmetic: it decides which half of the read-only guard applies. A CLI
+    command is checked against the command allow-list and the write-verb deny-list; an
+    API call is checked against the HTTP method and path rules. Running a profile entry
+    against the wrong one would appear to pass and prove nothing.
+    """
+
+    CLI = "cli"
+    HTTP = "http"
+    #: A POST-only JSON-RPC API — Check Point's Management API, FortiManager's. The
+    #: method cannot carry the read-only guarantee here, because *everything* is a POST,
+    #: so the guard reads the body instead and the profile must supply one.
+    RPC = "rpc"
+
+
 @dataclass(frozen=True, slots=True)
 class CollectionCommand:
+    #: For CLI, the command. For HTTP, `"<METHOD> <path>"` — the same spelling the
+    #: audit log records, so an operator reading the trail sees exactly what was sent.
     command: str
     #: Why it is issued. Shown in the UI beside the artefact, so an operator watching a
     #: collection can tell what NetSecOps wanted rather than only what it sent.
@@ -33,14 +53,32 @@ class CollectionCommand:
     #: This command's output is the running configuration, and is what gets parsed.
     yields_config: bool = False
 
+    def as_request(self) -> tuple[str, str]:
+        """Split an HTTP entry into (method, path)."""
+        method, _, path = self.command.partition(" ")
+        return method.upper(), path
+
+    def as_body(self) -> dict[str, str]:
+        """The JSON body an RPC entry sends.
+
+        Derived from the path rather than declared separately: on the Check Point
+        Management API the operation *is* the last path segment, so deriving it means the
+        conformance test checks the same string that is actually sent. A hand-written
+        second copy could drift from the path and would then be proving nothing.
+        """
+        _method, path = self.as_request()
+        return {"command": path.rsplit("/", 1)[-1]}
+
 
 @dataclass(frozen=True, slots=True)
 class CollectionProfile:
     platform: str
     #: Session setup: paging, width. Never recorded as artefacts — they produce no data
-    #: and would clutter the evidence with noise.
+    #: and would clutter the evidence with noise. Empty for HTTP platforms, which have
+    #: no session to configure.
     setup: tuple[str, ...]
     commands: tuple[CollectionCommand, ...]
+    transport: Transport = Transport.CLI
 
     @property
     def config_command(self) -> str:
@@ -139,12 +177,134 @@ CISCO_ASA_PROFILE: Final = CollectionProfile(
     ),
 )
 
+FORTIOS_PROFILE: Final = CollectionProfile(
+    platform="fortios",
+    # No paging command: SRS §8.2 forbids piping on FortiGate, and `show
+    # full-configuration` is not paged over SSH in the first place.
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "show full-configuration",
+            "The configuration itself — everything the parser reads",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("get system status", "Firmware version, model and serial"),
+        CollectionCommand("get system ha status", "HA cluster role and peer state"),
+        CollectionCommand(
+            "get system interface physical", "Physical interface state, absent from config"
+        ),
+        CollectionCommand("get system admin list", "Administrators currently logged in"),
+        CollectionCommand("get user radius", "RADIUS server reachability"),
+        CollectionCommand(
+            "get router info routing-table all", "Routing table, for reachability context"
+        ),
+    ),
+)
+
+PANOS_PROFILE: Final = CollectionProfile(
+    platform="panos",
+    # PAN-OS is collected over the XML API, not a shell, so there is no paging to
+    # disable. Each entry here is an API request the §8.2 HTTP rules already permit.
+    setup=(),
+    transport=Transport.HTTP,
+    commands=(
+        CollectionCommand(
+            "GET /api/?type=config&action=show",
+            "The candidate-free running configuration, as XML",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "GET /api/?type=op&cmd=<show><system><info></info></system></show>",
+            "Software version, model and serial, for vulnerability matching",
+        ),
+        CollectionCommand(
+            "GET /api/?type=op&cmd=<show><high-availability><state></state></high-availability></show>",
+            "HA state and peer version",
+        ),
+        CollectionCommand(
+            "GET /api/?type=op&cmd=<show><running><security-policy></security-policy></running></show>",
+            "The effective rulebase as the dataplane holds it",
+        ),
+        CollectionCommand(
+            "GET /api/?type=op&cmd=<show><counter><global></global></counter></show>",
+            "Rule hit counts, which the configuration does not carry",
+        ),
+    ),
+)
+
+CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
+    platform="checkpoint_mgmt",
+    # The Management API is POST-only by design, so there is no session to configure and
+    # no read-only guarantee to be had from the method. Every entry below is a `show-*`
+    # command, which is what `checkpoint_show_only` in policies.py actually enforces.
+    setup=(),
+    transport=Transport.RPC,
+    commands=(
+        CollectionCommand(
+            "POST /web_api/show-access-rulebase",
+            "The security policy itself — on Check Point it lives here, not on the gateway",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "POST /web_api/show-nat-rulebase",
+            "NAT rules, for the exposed-service analysis",
+        ),
+        CollectionCommand(
+            "POST /web_api/show-gateways-and-servers",
+            "Gateway inventory, version and enabled blades",
+        ),
+        CollectionCommand(
+            "POST /web_api/show-administrators",
+            "Management administrators and their permission profiles",
+        ),
+        CollectionCommand(
+            "POST /web_api/show-groups",
+            "Object groups the rulebase dictionary may not carry in full",
+        ),
+        CollectionCommand(
+            "POST /web_api/show-service-groups",
+            "Service groups, for the same reason",
+        ),
+    ),
+)
+
+CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
+    platform="checkpoint_gaia",
+    setup=("set clienv rows 0",),
+    commands=(
+        CollectionCommand(
+            "show configuration",
+            "The Gaia OS configuration — interfaces, administrators, SNMP, logging",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("show version all", "Gaia version and build, for vulnerability matching"),
+        CollectionCommand("show asset all", "Hardware model and serial"),
+        CollectionCommand("show interfaces all", "Live interface state, absent from the config"),
+        CollectionCommand("show users", "Accounts that exist, including any the config omits"),
+        CollectionCommand("show password-controls all", "The effective password policy"),
+        CollectionCommand("show ntp servers", "NTP peering"),
+        CollectionCommand("show clock", "Whether the clock is plausibly synchronised"),
+        CollectionCommand("fw ver", "Firewall module version"),
+        CollectionCommand("fw stat", "Which policy is installed, and when"),
+        CollectionCommand("enabled_blades", "Which software blades are actually running"),
+        CollectionCommand("cplic print", "Licence state, which gates several blades"),
+    ),
+)
+
 #: IOS-XE shares IOS's configuration syntax and its command set.
 PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ios": CISCO_IOS_PROFILE,
     "cisco_iosxe": CISCO_IOS_PROFILE,
     "cisco_nxos": CISCO_NXOS_PROFILE,
     "cisco_asa": CISCO_ASA_PROFILE,
+    "fortios": FORTIOS_PROFILE,
+    "panos": PANOS_PROFILE,
+    "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,
+    "checkpoint_gaia": CHECKPOINT_GAIA_PROFILE,
 }
 
 
@@ -171,6 +331,7 @@ __all__ = [
     "CollectionCommand",
     "CollectionProfile",
     "NoProfileError",
+    "Transport",
     "get_profile",
     "has_profile",
 ]

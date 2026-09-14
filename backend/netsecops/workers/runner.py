@@ -58,6 +58,7 @@ PROBE_COMMANDS: dict[str, str] = {
     "checkpoint_gaia": "show version all",
     "checkpoint_gaia_expert": "show version all",
     "fortios": "get system status",
+    "fortimanager": "get system status",
     "linux_aaa": "cat /etc/os-release",
     "linux_aaa_sudo": "cat /etc/os-release",
 }

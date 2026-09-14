@@ -1,0 +1,37 @@
+id: snmp-v3-configured
+title: SNMPv3 is configured where SNMP is in use
+description: >-
+  At least one SNMPv3 user exists on a device running SNMP.
+rationale: >-
+  SNMPv1 and v2c authenticate with a community string sent in clear text on every poll,
+  so anyone who can see the traffic — or who guesses one of the handful of strings in
+  common use — can read the device's full configuration and interface tables. SNMPv3 is
+  the only version with real authentication and privacy, and the migration is usually
+  deferred because monitoring works and nobody has a reason to touch it. That is exactly
+  why the gap persists for years once it exists.
+severity: medium
+
+logic:
+  type: ncm
+  expression: snmp.v3_users
+  assert:
+    empty: false
+  # Not `fail`: a device with SNMP switched off entirely has nothing to migrate, and
+  # reporting it would flag the most secure configuration available.
+  missing: not_evaluated
+  requires: [snmp.v1v2c_enabled]
+
+remediation: >-
+  Create an SNMPv3 user with authPriv — SHA-256 authentication and AES privacy — and
+  move the monitoring system onto it before removing the v2c communities. Running both
+  during the migration is fine; leaving both afterwards means the weaker one is still
+  the one an attacker will use.
+
+references:
+  cis: ["2.2.1"]
+  nist_800_53: ["IA-3", "SC-8"]
+  pci_dss: ["2.2.5", "4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-319"]
+
+tags: [snmp, crypto, management-plane]
