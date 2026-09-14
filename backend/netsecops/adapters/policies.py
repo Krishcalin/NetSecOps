@@ -471,6 +471,14 @@ ALIASES: Final[dict[str, PlatformPolicy]] = {
     # IOS-XE is IOS at the CLI. The differences are in platform features, not in which
     # commands exist or which of them write.
     "cisco_iosxe": CISCO_IOS,
+    # FreeRADIUS and tac_plus are different products but the same *access*: an SSH
+    # session on an ordinary Linux host, reading configuration files with the same
+    # restricted command set. They are separate platforms because their configuration
+    # syntax differs and each needs its own parser; they share one allow-list because a
+    # reviewer approving "what may NetSecOps run on an AAA host" is answering one
+    # question, and two copies would drift the first time only one was amended.
+    "freeradius": LINUX_AAA,
+    "tac_plus": LINUX_AAA,
 }
 
 POLICIES: Final[dict[str, PlatformPolicy]] = {

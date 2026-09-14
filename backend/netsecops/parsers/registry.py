@@ -17,7 +17,10 @@ from netsecops.parsers.cisco.ios import CiscoIosParser
 from netsecops.parsers.cisco.ise import CiscoIseParser
 from netsecops.parsers.cisco.nxos import CiscoNxosParser
 from netsecops.parsers.cisco.wlc import CiscoWlcParser
+from netsecops.parsers.fortinet.fortiauthenticator import FortiAuthenticatorParser
 from netsecops.parsers.fortinet.fortios import FortiOsParser
+from netsecops.parsers.linux.freeradius import FreeRadiusParser
+from netsecops.parsers.linux.tacplus import TacPlusParser
 from netsecops.parsers.paloalto.panos import PanOsParser
 
 PARSERS: Final[dict[str, type[ConfigParser]]] = {
@@ -39,6 +42,11 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     # platforms rather than one parser guessing which it was handed.
     "checkpoint_mgmt": CheckPointMgmtParser,
     "checkpoint_gaia": CheckPointGaiaParser,
+    # AAA servers (FR-AAA-02 … FR-AAA-04). These fill `aaa_server` rather than `aaa`:
+    # they are the service the estate authenticates *against*, not a consumer of it.
+    "fortiauthenticator": FortiAuthenticatorParser,
+    "freeradius": FreeRadiusParser,
+    "tac_plus": TacPlusParser,
 }
 
 

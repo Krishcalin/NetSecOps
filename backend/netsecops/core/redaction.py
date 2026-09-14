@@ -75,7 +75,12 @@ RULES: Final[tuple[RedactionRule, ...]] = (
         r"(?!version\s)(\S+)",
     ),
     # ── AAA shared secrets ──────────────────────────────────────────────
-    _rule("tacacs_key", r"^(\s*(?:tacacs-server\s+)?key\s+(?:\d\s+)?)(\S+)"),
+    # The negative lookahead is the same fix the SNMP community rule needed, for the
+    # same reason. tac_plus writes `key = <secret>`, and without it this Cisco rule
+    # matched `key ` and redacted the **equals sign**, leaving the secret in a line that
+    # now carried a redaction placeholder and therefore looked handled. The `unix_conf`
+    # rule below is what should claim that line.
+    _rule("tacacs_key", r"^(\s*(?:tacacs-server\s+)?key\s+(?!=)(?:\d\s+)?)(\S+)"),
     _rule("radius_key", r"^(\s*radius-server\s+key\s+(?:\d\s+)?)(\S+)"),
     # NX-OS and IOS both allow the key inline on the host line:
     # `tacacs-server host 10.0.0.1 key 7 <secret> timeout 5`.
@@ -137,6 +142,25 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # `set name` field inside `config system snmp community`, which cannot be matched
     # by keyword alone without redacting every object name in the file — the parser
     # masks it instead, at the point it knows the context.
+    # ── FreeRADIUS and tac_plus (FR-AAA-04) ─────────────────────────────
+    # These are the one source that exposes a shared secret in the clear:
+    # `secret = R4d1usK3y` in clients.conf, `key = T4c4csK3y` in tac_plus.conf. Every
+    # other AAA source returns `********` or nothing.
+    #
+    # That is exactly why these rules were written *before* the parsers rather than
+    # after a leak test caught them: the Cisco `key <value>` rule above is
+    # whitespace-separated and matches neither, and this is the fourth vendor syntax to
+    # need its own rule after FortiOS, AireOS and IOS-XE.
+    # A leading qualifier is allowed, because FreeRADIUS writes
+    # `private_key_password = ...` and `ldap { password = ... }`, and an exact-keyword
+    # rule matched neither.
+    _rule(
+        "unix_conf_secret",
+        r"^(\s*(?:\w+[-_])?(?:secret|key|passphrase|password|passwd)\s*=\s*)(\S+)",
+    ),
+    # tac_plus stores per-user credentials inline: `login = des <hash>`, and
+    # `login = cleartext <password>`, which is worse and common.
+    _rule("tacplus_login", r"^(\s*(?:login|enable|pap|chap)\s*=\s*(?:des|cleartext|file)\s+)(\S+)"),
     # ── Cisco WLC AireOS ────────────────────────────────────────────────
     # AireOS is a flat command list, and its secrets sit in positional arguments with no
     # keyword in front of them — `config radius auth add 1 10.0.0.1 1812 ascii <secret>`

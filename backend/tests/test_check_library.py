@@ -52,6 +52,10 @@ CORPUS: dict[str, list[Path]] = {
     "cisco_wlc_aireos": sorted((FIXTURES / "cisco/wlc").rglob("*.txt")),
     # ISE is read as a bundle of API responses, like the Check Point management server.
     "cisco_ise": sorted((FIXTURES / "cisco/ise").rglob("*.json")),
+    # AAA servers: two API bundles and two Unix configuration files (FR-AAA-03/04).
+    "fortiauthenticator": sorted((FIXTURES / "fortinet/fortiauthenticator").rglob("*.json")),
+    "freeradius": sorted((FIXTURES / "linux/freeradius").rglob("*.json")),
+    "tac_plus": sorted((FIXTURES / "linux/tacplus").rglob("*.conf")),
     "fortios": sorted((FIXTURES / "fortinet/fortios").rglob("*.cfg")),
     "panos": sorted((FIXTURES / "paloalto/panos").rglob("*.xml")),
     "checkpoint_mgmt": sorted((FIXTURES / "checkpoint/mgmt").rglob("*.json")),

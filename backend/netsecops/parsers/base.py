@@ -200,6 +200,25 @@ def timeout_to_seconds(minutes: str | int | None, seconds: str | int | None = 0)
         return None
 
 
+def first_known(*values: bool | None) -> bool | None:
+    """The first value that is a real answer, treating ``False`` as one.
+
+    Exists because ``a or b`` is the obvious spelling and is wrong for three-state
+    fields: ``False or None`` is ``None``, so a source explicitly reporting a setting as
+    *off* — which is usually the finding — comes through as "not determined" and the
+    check reports Not Evaluated instead of Fail.
+
+    That bug was written four times during Phase 5 alone, in four different parsers, by
+    someone who knew about it: in ISE's MFA flag, FortiAuthenticator's LDAP TLS flag,
+    tac_plus's default-service verdict and FreeRADIUS's ``start_tls``. It is a helper
+    rather than a comment because the comment did not work.
+    """
+    for value in values:
+        if value is not None:
+            return value
+    return None
+
+
 def mask_secret(value: str) -> str:
     """Mask a credential found in configuration, keeping only its shape.
 
@@ -227,6 +246,7 @@ __all__ = [
     "ConfigParser",
     "ParseContext",
     "ParseResult",
+    "first_known",
     "is_default_community",
     "mask_secret",
     "timeout_to_seconds",

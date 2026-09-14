@@ -299,6 +299,73 @@ CISCO_ISE_PROFILE: Final = CollectionProfile(
     ),
 )
 
+FORTIAUTHENTICATOR_PROFILE: Final = CollectionProfile(
+    platform="fortiauthenticator",
+    setup=(),
+    transport=Transport.HTTP,
+    commands=(
+        CollectionCommand(
+            "GET /api/v1/radiusclients/",
+            "Devices permitted to authenticate here — the FR-AAA-05 correlation",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("GET /api/v1/system/", "Hostname, firmware and admin access settings"),
+        CollectionCommand(
+            "GET /api/v1/ldapservers/", "Remote identity sources and their transport"
+        ),
+        CollectionCommand("GET /api/v1/localusers/", "Local user accounts"),
+        CollectionCommand("GET /api/v1/usergroups/", "Group membership"),
+        CollectionCommand("GET /api/v1/certificates/", "Certificate expiry"),
+        CollectionCommand("GET /api/v1/adminprofiles/", "Administrators of the appliance itself"),
+    ),
+)
+
+#: FreeRADIUS and tac_plus share this profile's *shape* but not its paths, so they are
+#: two profiles over one allow-list. Only `cat` of a file inside the approved directories
+#: is ever issued (SRS §8.2).
+FREERADIUS_PROFILE: Final = CollectionProfile(
+    platform="freeradius",
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "cat /etc/freeradius/3.0/clients.conf",
+            "The devices permitted to authenticate, and whether each has a shared secret",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "cat /etc/freeradius/3.0/mods-available/eap",
+            "Which EAP methods the server will accept, and its TLS floor",
+        ),
+        CollectionCommand(
+            "cat /etc/freeradius/3.0/radiusd.conf", "Logging and LDAP identity sources"
+        ),
+        CollectionCommand(
+            "cat /etc/freeradius/3.0/sites-enabled/default",
+            "The virtual server's authorise list, which is FreeRADIUS's policy",
+        ),
+        CollectionCommand("radiusd -v", "Version, for vulnerability matching"),
+        CollectionCommand("systemctl is-active freeradius", "Whether the service is running"),
+    ),
+)
+
+TACPLUS_PROFILE: Final = CollectionProfile(
+    platform="tac_plus",
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "cat /etc/tac_plus/tac_plus.conf",
+            "Clients, groups, command authorisation and local accounts",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("tac_plus -v", "Version, for vulnerability matching"),
+        CollectionCommand("systemctl is-active tac_plus", "Whether the service is running"),
+        CollectionCommand("ls -la /etc/tac_plus", "File permissions on a file full of secrets"),
+    ),
+)
+
 CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
     platform="checkpoint_mgmt",
     # The Management API is POST-only by design, so there is no session to configure and
@@ -372,6 +439,9 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     "panos": PANOS_PROFILE,
     "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,
     "checkpoint_gaia": CHECKPOINT_GAIA_PROFILE,
+    "fortiauthenticator": FORTIAUTHENTICATOR_PROFILE,
+    "freeradius": FREERADIUS_PROFILE,
+    "tac_plus": TACPLUS_PROFILE,
 }
 
 
