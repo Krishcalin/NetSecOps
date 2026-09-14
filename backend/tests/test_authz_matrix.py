@@ -298,6 +298,17 @@ MATRIX: list[Case] = [
         body={"payload": "<response/>", "identities": ["001901234567"]},
     ),
     Case("POST", "/api/v1/devices/{device_id}/approve", _DEVICE_WRITERS),
+    # ── AAA posture and correlation (FR-AAA-05, FR-AAA-06) ──────────────────
+    # Everything these two return is a conclusion about the estate rather than
+    # configuration, so they sit with the findings reads rather than the device reads.
+    # An Auditor needs them: "which devices authenticate locally" is an audit question
+    # before it is an engineering one.
+    Case("GET", "/api/v1/aaa/posture", _CHECK_READERS),
+    Case("GET", "/api/v1/aaa/correlation", _CHECK_READERS),
+    # Assessing *writes* findings — it creates rows with first-seen dates and resolves
+    # ones that have gone away. That is a finding write, and it is why it is a separate
+    # endpoint from the dashboard read rather than a side effect of it.
+    Case("POST", "/api/v1/aaa/assess", _FINDING_TRIAGERS),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS

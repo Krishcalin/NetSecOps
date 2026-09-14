@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from netsecops.api.v1 import (
+    aaa,
     audit,
     auth,
     checks,
@@ -46,8 +47,11 @@ api_v1_router.include_router(checks.router)
 # Phase 4 but is registered above, for the routing reason noted there.
 api_v1_router.include_router(firewall.router)
 
+# Phase 5 — wireless and AAA. Every route here is estate-wide rather than per-device, so
+# there is no literal/UUID collision to worry about and the order is free.
+api_v1_router.include_router(aaa.router)
+
 # Routers added in later phases:
-#   Phase 5 — aaa
 #   Phase 6 — vulnerabilities
 #   Phase 7 — discovery, reports, integrations, settings
 
