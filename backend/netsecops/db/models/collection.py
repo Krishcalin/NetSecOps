@@ -56,6 +56,12 @@ class FindingKind(StrEnum):
     #: a config finding is resolved only when its check passes, while a rulebase finding
     #: is resolved when it is absent from a rulebase that was fully re-analysed.
     FIREWALL = "firewall"
+    #: AAA correlation (FR-AAA-05). The only finding kind that is not about one device:
+    #: it is produced by comparing an AAA server's client list against the inventory and
+    #: against every other device's configuration. It is attached to the device it most
+    #: concerns so it appears on that device's page, but it could not have been found by
+    #: looking at that device alone.
+    AAA = "aaa"
 
 
 class FindingSeverity(StrEnum):
