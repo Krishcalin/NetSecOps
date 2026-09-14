@@ -125,7 +125,11 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # is the safer failure, but it destroys the evidence a finding is supposed to show.
     _rule(
         "fortios_secret",
-        r"^(\s*set\s+(?:\S+[-_])?(?:password|passwd|secret|pwd|key|psksecret|privatekey)"
+        r"^(\s*set\s+(?:\S+[-_])?"
+        # `passphrase` was missing until the wireless work: a FortiAP VAP writes
+        # `set passphrase ENC <key>`, which none of the other keywords cover, and the
+        # WPA key reached a provenance excerpt.
+        r"(?:password|passphrase|passwd|secret|pwd|key|psksecret|privatekey)"
         r"(?:[-_][a-z])?\s+(?:ENC\s+)?)(\S+)",
     ),
     # `set member` on a user group can carry a token; `set ppk-secret`, `set ssl-key`
@@ -166,6 +170,14 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     ),
     # ── Wireless ────────────────────────────────────────────────────────
     _rule("wpa_psk", r"^(\s*(?:wpa-psk|psk)\s+(?:ascii|hex)\s+(?:\d\s+)?)(\S+)"),
+    # Catalyst 9800 puts the pre-shared key mid-line inside a WLAN block:
+    # `security wpa psk set-key ascii 0 <key>`. The rule above is anchored on `psk` at
+    # the start of the line, so it matched nothing here and the key reached a provenance
+    # excerpt — the third vendor syntax to slip past redaction, after FortiOS and AireOS.
+    _rule(
+        "iosxe_wlan_psk",
+        r"^(\s*security\s+wpa\s+psk\s+set-key\s+(?:ascii|hex)\s+(?:\d+\s+)?)(\S+)",
+    ),
     # ── Key material ────────────────────────────────────────────────────
     _rule("certificate_blob", r"^\s*(?:[0-9A-Fa-f]{32,})\s*$", whole_line=True),
 )

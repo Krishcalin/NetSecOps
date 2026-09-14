@@ -42,6 +42,7 @@ from netsecops.ncm.models import (
     SnmpV3User,
     SyslogServer,
     Vlan,
+    Wlan,
 )
 from netsecops.parsers.base import (
     CiscoStyleParser,
@@ -81,6 +82,7 @@ class CiscoIosParser(CiscoStyleParser):
             self._parse_snmp,
             self._parse_interfaces,
             self._parse_l2,
+            self._parse_wireless,
             self._parse_routing,
             self._parse_acls,
             self._parse_features,
@@ -653,6 +655,71 @@ class CiscoIosParser(CiscoStyleParser):
             l2.arp_inspection_enabled = True
             result.record("l2.arp_inspection_enabled", line=self.line_number(inspection))
 
+    # ───────────────────── wireless (Catalyst 9800) ─────────────────────
+
+    def _parse_wireless(self, parse: CiscoConfParse, result: ParseResult) -> None:
+        """Catalyst 9800 WLANs (Phase 5).
+
+        A 9800 runs IOS-XE, so its WLANs live in the same configuration as everything
+        else — but unlike AireOS they are *blocks*, and unlike every other block in this
+        parser their security is expressed mostly by **negation**:
+
+        ```
+        wlan Guest-WiFi 2 Guest-WiFi
+         no security wpa
+         no security wpa akm dot1x
+         no security wpa wpa2
+        ```
+
+        That is the shape this codebase has already been bitten by three times: a regex
+        anchored so it cannot match the negated form leaves the *secure* state — or here
+        the *open* one — unrecorded, and the check reports Not Evaluated forever. Every
+        rule below reads the `no ` prefix explicitly, and `test_an_open_9800_wlan_is_seen
+        _as_open` is the guard.
+        """
+        wireless = result.ncm.wireless
+
+        for obj in parse.find_objects(r"^wlan\s+\S+\s+\d+\s+"):
+            start, end = self.family_range(obj)
+            match = re.match(r"^wlan\s+(\S+)\s+(\d+)\s+(\S+)", obj.text.strip())
+            if match is None:
+                continue
+
+            children = [child.text.strip() for child in obj.all_children]
+            wireless.wlans.append(
+                Wlan(
+                    ssid=match.group(3),
+                    # A 9800 WLAN is shut down unless `no shutdown` is present, which is
+                    # the opposite of the AireOS default and the opposite of what the
+                    # word "shutdown" suggests when it appears negated.
+                    enabled=_ninenine_enabled(children),
+                    security=_ninenine_security(children),
+                    pmf=_ninenine_pmf(children),
+                    fast_transition=_ninenine_flag(children, r"security ft"),
+                    radius_group=_ninenine_capture(
+                        children, r"security dot1x authentication-list (\S+)"
+                    ),
+                    broadcast=_ninenine_flag(children, r"broadcast-ssid"),
+                    client_isolation=_ninenine_flag(children, r"peer-blocking"),
+                    vlan=None,
+                )
+            )
+            result.record(f"wireless.wlans.{len(wireless.wlans) - 1}", line=start, line_end=end)
+            result.consume(start, end)
+
+        # Per-AP blocks, which the NCM has no field for beyond the AP list. Matched on
+        # the two forms a 9800 actually writes — a MAC address or `ap name <x>` — rather
+        # than a bare `^ap\s`, so this cannot swallow an unrelated command on a
+        # non-wireless IOS device that happens to start with those two letters.
+        for obj in parse.find_objects(r"^ap\s+(?:[0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.|name\s)"):
+            start, end = self.family_range(obj)
+            result.consume(start, end)
+
+        # Rogue detection is a global 9800 setting, and its absence is the finding.
+        if rogue := self.first(parse, r"^wireless\s+wps\s+rogue\s+detection"):
+            wireless.rogue_detection["enabled"] = not rogue.text.strip().startswith("no ")
+            result.record("wireless.rogue_detection", line=self.line_number(rogue))
+
     # ────────────────────────────── routing ─────────────────────────────
 
     def _parse_routing(self, parse: CiscoConfParse, result: ParseResult) -> None:
@@ -827,6 +894,105 @@ class CiscoIosParser(CiscoStyleParser):
         obj = self.first(parse, disabled_pattern if value is False else enabled_pattern)
         if obj is not None:
             result.record(path, line=self.line_number(obj))
+
+
+# ───────────────── Catalyst 9800 wireless helpers (Phase 5) ─────────────────
+#
+# All five read the negated form explicitly. On a 9800 the interesting states are
+# usually the negated ones — `no security wpa` is what makes a WLAN open — so a rule
+# that only matched the positive form would leave exactly the finding unrecorded.
+
+
+def _ninenine_flag(children: list[str], pattern: str) -> bool | None:
+    """True, False or None for a setting that may appear positive, negated or not at all.
+
+    The three-way return is the point. `no broadcast-ssid` and an absent line are
+    different facts, and collapsing them would report every WLAN in a configuration that
+    simply did not mention broadcasting as a hidden network.
+    """
+    positive = re.compile(rf"^{pattern}\b")
+    negated = re.compile(rf"^no\s+{pattern}\b")
+
+    for line in children:
+        if negated.match(line):
+            return False
+    for line in children:
+        if positive.match(line):
+            return True
+    return None
+
+
+def _ninenine_capture(children: list[str], pattern: str) -> str | None:
+    compiled = re.compile(pattern)
+    for line in children:
+        if line.startswith("no "):
+            continue
+        if match := compiled.match(line):
+            return match.group(1)
+    return None
+
+
+def _ninenine_enabled(children: list[str]) -> bool | None:
+    """A 9800 WLAN is administratively down unless `no shutdown` is present.
+
+    The default is the opposite of AireOS's, and the wording is inverted on top of that,
+    so this is worth its own function rather than a flag lookup.
+    """
+    for line in children:
+        if line == "no shutdown":
+            return True
+        if line == "shutdown":
+            return False
+    return None
+
+
+def _ninenine_pmf(children: list[str]) -> str | None:
+    for line in children:
+        if match := re.match(r"^security pmf (\S+)", line):
+            return match.group(1)
+        if re.match(r"^no security pmf\b", line):
+            return "disabled"
+    return None
+
+
+def _ninenine_security(children: list[str]) -> str | None:
+    """Assemble a 9800 WLAN's security from its positive and negated lines.
+
+    Returns None on incomplete evidence rather than guessing, for the same reason as the
+    AireOS classifier: reporting an open guest network as protected means nobody looks
+    at it again.
+    """
+    wpa_off = any(re.match(r"^no security wpa\s*$", line) for line in children)
+    wpa2 = _ninenine_flag(children, r"security wpa wpa2")
+    wpa3 = _ninenine_flag(children, r"security wpa wpa3")
+
+    akms = {
+        match.group(1)
+        for line in children
+        if not line.startswith("no ") and (match := re.match(r"^security wpa akm (\S+)", line))
+    }
+
+    if wpa_off and not (wpa2 or wpa3):
+        return "open"
+    if "owe" in akms:
+        return "owe"
+    if wpa3:
+        if "sae" in akms:
+            return "wpa3-sae"
+        if "dot1x" in akms:
+            return "wpa3-ent"
+        return "wpa3"
+    if wpa2:
+        # `dot1x` is IOS-XE's spelling of what AireOS calls `802.1x`. The NCM uses one
+        # vocabulary so the checks do not have to know which controller they came from.
+        if "dot1x" in akms:
+            return "wpa2-ent"
+        if "psk" in akms:
+            return "wpa2-psk"
+        return "wpa2"
+    if wpa_off:
+        return "open"
+    return None
 
 
 __all__ = ["CiscoIosParser"]
