@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phase-3%20of%207-orange?style=flat-square" alt="Phase 3"/>
+  <img src="https://img.shields.io/badge/phase-5%20of%207-orange?style=flat-square" alt="Phase 5"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -41,7 +41,7 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
   writes a file or sends a packet from the device.
 - **No unchecked path.** Adapters hold a guarded session, not a transport. An adapter
   author cannot forget to check, because there is nothing unchecked to reach for.
-- **Proven in CI.** 271 conformance assertions check what the guard *decides*, and a
+- **Proven in CI.** 283 conformance assertions check what the guard *decides*, and a
   fake SSH device that records every byte it receives checks what actually *arrives*.
   The build fails on either.
 - **Transparent.** Every command sent to a device is recorded in a tamper-evident audit
@@ -49,7 +49,7 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phase 3 complete
+## Status — Phase 5 complete
 
 Development follows the phase plan in [SRS §12](docs/SRS.md), strictly in order: no
 phase starts before the previous one's acceptance criteria pass.
@@ -60,10 +60,70 @@ phase starts before the previous one's acceptance criteria pass.
 | **1** | Inventory, credentials, job engine, read-only enforcement framework | **Complete** |
 | **2** | Cisco IOS/IOS-XE/NX-OS/ASA collection, parsing, drift | **Complete** |
 | **3** | Check engine + baseline library, findings, compliance mapping | **Complete** |
-| 4 | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | Next |
-| 5 | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | Planned |
-| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | Planned |
+| **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
+| **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
+| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | Next |
 | 7 | Discovery, reporting, integrations, hardening | Planned |
+
+Thirteen platforms are collected and parsed, and the check library stands at 103.
+
+### What Phase 5 delivers
+
+- **Wireless from three controllers into one vocabulary** — Cisco WLC AireOS, Catalyst
+  9800 and FortiGate. AireOS is a command list rather than a configuration file and the
+  other two are hierarchical, but an SSID accepting WPA2-PSK is the same finding on all
+  three, so the security posture normalises even where the syntax cannot.
+- **AAA servers as first-class targets** — Cisco ISE and FortiAuthenticator over their
+  REST APIs, FreeRADIUS and tac_plus by reading their configuration files over SSH.
+  These fill `aaa_server` rather than `aaa`: they are the service the estate
+  authenticates *against*, not a consumer of it.
+- **Cross-estate correlation** (FR-AAA-05) — every device's configured AAA servers
+  against the servers in inventory, and every server's client list against the devices
+  in inventory. The highest-value output is the second direction: a switch configured on
+  ISE but absent from inventory is a device assessed by nothing, and a clean compliance
+  percentage measured over an estate that does not contain it.
+- **Three conclusions it refuses to draw.** With no AAA server collected, every device
+  trivially appears on no client list — reported as the absence of the question, never as
+  "every device is unregistered". ISE and FortiAuthenticator mask shared secrets, so
+  reuse is *unknown* for their clients rather than absent. Coverage over an estate
+  nothing was collected from is `null`, never 0%.
+- **An AAA posture dashboard** (FR-AAA-06) — coverage, accepted protocols, orphaned
+  clients and a certificate expiry timeline, each panel stating where it is blind. The
+  protocols panel is titled "accepted", not "in use", because nothing here observes a
+  live authentication. A certificate whose expiry could not be read is listed as undated
+  rather than dropped: an unreadable date is not a distant one.
+- **13 wireless and AAA checks**, and an audit that every check expression resolves
+  against real parser output — a check naming an NCM path no parser populates is not a
+  dead check but a false finding on every device, forever.
+- **The Phase 5 acceptance criterion, as a test.** Nine devices built from the shipped
+  fixtures through the shipped parsers, with every expected number read off the fixtures
+  by hand rather than off a run of the code
+  ([`test_phase5_acceptance.py`](backend/tests/test_phase5_acceptance.py)).
+
+### What Phase 4 delivers
+
+- **Three more vendors** — PAN-OS, FortiOS and Check Point. Check Point splits in two:
+  the policy lives on the management server and the gateway holds only Gaia, and neither
+  can answer the other's questions, so they are separate platforms rather than one
+  parser guessing which it was handed.
+- **Rulebase normalisation** — PAN-OS security rules, FortiOS policies and Check Point
+  access layers become one ordered rule model, with objects and groups resolved so that
+  analysis compares addresses rather than names.
+- **Relationship analysis** (FR-FW-03) — shadowing, redundancy, correlation and
+  generalisation between rules, plus the hygiene findings that matter in practice:
+  any–any rules, rules that log nothing, rules with no security profile, and unused
+  objects. Rule negation is handled rather than ignored, since a negated source inverts
+  the meaning of every comparison downstream.
+- **NAT analysis** (FR-FW-04) and **manager child enumeration** — Panorama, FortiManager
+  and Check Point SMS, behind an approval gate, because discovering devices through a
+  manager adds targets that nobody explicitly onboarded.
+- **A rulebase viewer** (FR-FW-06, FR-FW-07) with rule query and CSV export, so a
+  finding about rule 1,847 can be looked at rather than taken on trust.
+- **5,000 rules analysed in 2.7s against a two-minute budget** (NFR-PERF-03) — 8.7M rule
+  pairs considered, 9,453 fully compared. The rulebase is shaped like a real one,
+  overlapping /24s drawn from a shared object pool rather than a corpus where nothing
+  intersects and only the prefilter is exercised. A deliberately adversarial rulebase
+  where almost every pair overlaps still completes in 38s.
 
 ### What Phase 3 delivers
 
@@ -131,7 +191,7 @@ phase starts before the previous one's acceptance criteria pass.
 
 ### What Phase 1 delivers
 
-- **Read-only enforcement** — the four-layer guard described above, 16 platform
+- **Read-only enforcement** — the four-layer guard described above, 19 platform
   policies, and `netsecops-cli audit-commands` to print them for review.
 - **Device sessions** — adapters hold a guarded session, never a transport, so there is
   no unchecked path to a device. SSH with host-key pin-on-first-use, jump hosts and
@@ -250,7 +310,7 @@ and the vendor packs under `checks/library/`; core services remain vendor-agnost
 | [`adapters/profiles.py`](backend/netsecops/adapters/profiles.py) | What each platform is actually asked for, and why |
 | [`ncm/models.py`](backend/netsecops/ncm/models.py) | The vendor-neutral model every check reads |
 | [`services/snapshots.py`](backend/netsecops/services/snapshots.py) | How a change is told apart from noise |
-| [`tests/test_readonly.py`](backend/tests/test_readonly.py) | 271 assertions that the guard decides correctly |
+| [`tests/test_readonly.py`](backend/tests/test_readonly.py) | 283 assertions that the guard decides correctly |
 | [`tests/test_device_session.py`](backend/tests/test_device_session.py) | That nothing else reaches a real SSH server |
 | [`tests/test_profiles.py`](backend/tests/test_profiles.py) | That a profile cannot widen the device-facing surface |
 | [`checks/engine.py`](backend/netsecops/checks/engine.py) | Why a check declines to have an opinion |
