@@ -48,7 +48,16 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # Keyed on the `community` keyword wherever it appears, not on a line prefix:
     # ASA writes `snmp-server host <if> <ip> community <secret> version 2c`, so a rule
     # anchored to the start of the line misses it entirely.
-    _rule("snmp_community", r"(\bcommunity\s+)(\S+)"),
+    # The negative lookahead is not cosmetic. AireOS writes
+    # `config snmp community create <name>`, and without it this rule matched
+    # `community create` and redacted the word "create" — leaving the real community
+    # string in the line, in a line that now *contained a redaction placeholder* and so
+    # looked as though it had been handled. A rule that half-fires is worse than one
+    # that misses: a miss is caught by the leak tests, and this was not.
+    _rule(
+        "snmp_community",
+        r"(\bcommunity\s+)(?!(?:create|delete|mode|accessmode|ipaddr)\b)(\S+)",
+    ),
     # v3 auth and priv keys sit on the same line, so each needs its own rule and all
     # rules must be applied — see redact_line.
     _rule("snmp_v3_auth", r"(\bauth\s+(?:md5|sha|sha256|sha512)\s+)(\S+)"),
@@ -124,6 +133,37 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     # `set name` field inside `config system snmp community`, which cannot be matched
     # by keyword alone without redacting every object name in the file — the parser
     # masks it instead, at the point it knows the context.
+    # ── Cisco WLC AireOS ────────────────────────────────────────────────
+    # AireOS is a flat command list, and its secrets sit in positional arguments with no
+    # keyword in front of them — `config radius auth add 1 10.0.0.1 1812 ascii <secret>`
+    # matches none of the keyword-driven rules above. This is the same failure the
+    # FortiOS rule was added for, in a third syntax: a new vendor's shape slipping past
+    # redaction is what this module exists to prevent, and it has now happened twice.
+    #
+    # Anchored on `ascii`/`hex`, which is the token AireOS puts immediately before a
+    # shared secret on every one of these commands.
+    _rule(
+        "aireos_server_secret",
+        r"^(\s*config\s+(?:radius|tacacs)\s+\w+\s+add\s+.*?\b(?:ascii|hex)\s+)(\S+)",
+    ),
+    # `config mgmtuser add <name> <password> <role>`: positional, with the password in
+    # the middle. The trailing group is kept so the role survives — it is what the
+    # least-privilege check reads, and redacting the whole tail would blind it.
+    _rule(
+        "aireos_mgmtuser",
+        r"^(\s*config\s+mgmtuser\s+add\s+\S+\s+)(\S+)",
+    ),
+    _rule(
+        "aireos_mgmtuser_password",
+        r"^(\s*config\s+mgmtuser\s+password\s+\S+\s+)(\S+)",
+    ),
+    # A community string is a credential. The parser masks it into the NCM separately;
+    # this is what keeps the raw line out of a provenance excerpt.
+    _rule("aireos_snmp_community", r"^(\s*config\s+snmp\s+community\s+create\s+)(\S+)"),
+    _rule(
+        "aireos_wlan_psk",
+        r"^(\s*config\s+wlan\s+security\s+wpa\s+akm\s+psk\s+set-key\s+\S+\s+)(\S+)",
+    ),
     # ── Wireless ────────────────────────────────────────────────────────
     _rule("wpa_psk", r"^(\s*(?:wpa-psk|psk)\s+(?:ascii|hex)\s+(?:\d\s+)?)(\S+)"),
     # ── Key material ────────────────────────────────────────────────────

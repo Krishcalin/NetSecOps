@@ -234,6 +234,29 @@ PANOS_PROFILE: Final = CollectionProfile(
     ),
 )
 
+CISCO_WLC_PROFILE: Final = CollectionProfile(
+    platform="cisco_wlc_aireos",
+    setup=("config paging disable",),
+    commands=(
+        CollectionCommand(
+            "show run-config commands",
+            "The configuration as a command list — everything the parser reads",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("show sysinfo", "Software version and model, for vulnerability matching"),
+        CollectionCommand("show wlan summary", "WLAN inventory and state"),
+        CollectionCommand("show ap summary", "Joined access points"),
+        CollectionCommand("show radius summary", "RADIUS server reachability, absent from config"),
+        CollectionCommand("show tacacs summary", "TACACS+ server reachability"),
+        CollectionCommand("show mgmtuser", "Administrators and their roles"),
+        CollectionCommand("show rogue ap summary", "Rogue detection state and current rogues"),
+        CollectionCommand("show certificate summary", "Certificate expiry"),
+        CollectionCommand("show interface summary", "Interface addressing and VLANs"),
+        CollectionCommand("show wps summary", "Wireless protection policy posture"),
+    ),
+)
+
 CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
     platform="checkpoint_mgmt",
     # The Management API is POST-only by design, so there is no session to configure and
@@ -301,6 +324,7 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_iosxe": CISCO_IOS_PROFILE,
     "cisco_nxos": CISCO_NXOS_PROFILE,
     "cisco_asa": CISCO_ASA_PROFILE,
+    "cisco_wlc_aireos": CISCO_WLC_PROFILE,
     "fortios": FORTIOS_PROFILE,
     "panos": PANOS_PROFILE,
     "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,

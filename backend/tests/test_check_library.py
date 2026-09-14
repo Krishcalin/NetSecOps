@@ -48,6 +48,8 @@ CORPUS: dict[str, list[Path]] = {
     "cisco_ios": sorted((FIXTURES / "cisco/ios").rglob("*.cfg")),
     "cisco_nxos": sorted((FIXTURES / "cisco/nxos").rglob("*.cfg")),
     "cisco_asa": sorted((FIXTURES / "cisco/asa").rglob("*.cfg")),
+    # AireOS is a command list rather than a configuration file, hence `.txt`.
+    "cisco_wlc_aireos": sorted((FIXTURES / "cisco/wlc").rglob("*.txt")),
     "fortios": sorted((FIXTURES / "fortinet/fortios").rglob("*.cfg")),
     "panos": sorted((FIXTURES / "paloalto/panos").rglob("*.xml")),
     "checkpoint_mgmt": sorted((FIXTURES / "checkpoint/mgmt").rglob("*.json")),

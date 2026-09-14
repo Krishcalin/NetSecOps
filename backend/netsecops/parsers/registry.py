@@ -15,6 +15,7 @@ from netsecops.parsers.checkpoint.mgmt import CheckPointMgmtParser
 from netsecops.parsers.cisco.asa import CiscoAsaParser
 from netsecops.parsers.cisco.ios import CiscoIosParser
 from netsecops.parsers.cisco.nxos import CiscoNxosParser
+from netsecops.parsers.cisco.wlc import CiscoWlcParser
 from netsecops.parsers.fortinet.fortios import FortiOsParser
 from netsecops.parsers.paloalto.panos import PanOsParser
 
@@ -25,6 +26,8 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     "cisco_iosxe": CiscoIosParser,
     "cisco_nxos": CiscoNxosParser,
     "cisco_asa": CiscoAsaParser,
+    # AireOS is a command-list format, not a configuration file — see the parser.
+    "cisco_wlc_aireos": CiscoWlcParser,
     "fortios": FortiOsParser,
     "panos": PanOsParser,
     # Check Point splits in two: the security policy lives on the management server and
