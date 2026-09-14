@@ -1,0 +1,131 @@
+{
+  "deployment/node": {
+    "SearchResult": {
+      "resources": [
+        { "hostname": "ise-pan-01", "nodeversion": "3.2.0.542", "roles": ["PRIMARY"] }
+      ]
+    }
+  },
+  "networkdevice": {
+    "SearchResult": {
+      "resources": [
+        {
+          "name": "core-sw-01",
+          "description": "Campus core switch",
+          "profileName": "Cisco",
+          "NetworkDeviceIPList": [{ "ipaddress": "198.51.100.31", "mask": 32 }],
+          "authenticationSettings": {
+            "radiusSharedSecret": "********",
+            "enableKeyWrap": false,
+            "dtlsRequired": false
+          }
+        },
+        {
+          "name": "campus-wlc-01",
+          "description": "AireOS controller",
+          "profileName": "Cisco",
+          "NetworkDeviceIPList": [{ "ipaddress": "10.100.0.30", "mask": 32 }],
+          "authenticationSettings": {
+            "radiusSharedSecret": "********",
+            "dtlsRequired": true
+          }
+        },
+        {
+          "name": "branch-sw-99",
+          "description": "Branch switch nobody put in the CMDB",
+          "profileName": "Cisco",
+          "NetworkDeviceIPList": [{ "ipaddress": "10.77.0.9", "mask": 32 }],
+          "authenticationSettings": { "radiusSharedSecret": "********" }
+        }
+      ]
+    }
+  },
+  "activedirectory": {
+    "SearchResult": {
+      "resources": [{ "name": "corp-ad", "domain": "corp.example.com" }]
+    }
+  },
+  "identitystore": [
+    {
+      "name": "partner-ldap",
+      "type": "ldap",
+      "hostname": "ldap.partner.example.com",
+      "enableSecureConnection": false
+    }
+  ],
+  "allowedprotocols": [
+    {
+      "name": "Default Network Access",
+      "allowPapAscii": true,
+      "allowChap": true,
+      "allowMsChapV1": true,
+      "allowMsChapV2": true,
+      "allowEapMd5": true,
+      "allowEapTls": true,
+      "allowLeap": false,
+      "allowPeap": true,
+      "processHostLookup": true,
+      "allowTLS12": true,
+      "allowTLS13": false,
+      "peap": { "allowPeapEapMsChapV2": true, "allowPeapEapMd5": false },
+      "eapTls": { "allowEapTlsAuthOfExpiredCerts": false }
+    }
+  ],
+  "policy/network-access/authentication": [
+    {
+      "rule": {
+        "name": "Wired 802.1X",
+        "rank": 1,
+        "state": "enabled",
+        "condition": {
+          "conditionType": "ConditionAttributes",
+          "attributeName": "Radius-NAS-Port-Type",
+          "operator": "equals",
+          "attributeValue": "Ethernet"
+        }
+      },
+      "identitySourceName": "corp-ad"
+    },
+    {
+      "rule": { "name": "MAB fallback", "rank": 2, "state": "enabled" },
+      "identitySourceName": "Internal Endpoints"
+    }
+  ],
+  "policy/network-access/authorization": [
+    {
+      "rule": { "name": "Corp laptops", "rank": 1, "state": "enabled" },
+      "profile": "PermitAccess"
+    },
+    {
+      "rule": { "name": "Legacy printers", "rank": 2, "state": "disabled" },
+      "profile": "PermitAccess"
+    }
+  ],
+  "policy/device-admin/command-sets": [
+    {
+      "name": "ReadOnly-Commands",
+      "permitUnmatched": false,
+      "commands": {
+        "commandList": [
+          { "grant": "PERMIT", "command": "show", "arguments": ".*" },
+          { "grant": "DENY", "command": "configure", "arguments": ".*" }
+        ]
+      }
+    },
+    {
+      "name": "NetworkAdmin",
+      "permitUnmatched": true,
+      "commands": { "commandList": [{ "grant": "PERMIT", "command": "show" }] }
+    }
+  ],
+  "adminuser": {
+    "SearchResult": {
+      "resources": [
+        { "name": "iseadmin", "adminGroups": [{ "name": "Super Admin" }] },
+        { "name": "auditor", "adminGroups": [{ "name": "Read Only Admin" }] }
+      ]
+    }
+  },
+  "admin/settings": [{ "sessionTimeout": 30, "mfaEnabled": false }],
+  "guestsettings": { "note": "not read by any rule yet" }
+}

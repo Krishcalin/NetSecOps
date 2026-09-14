@@ -257,6 +257,48 @@ CISCO_WLC_PROFILE: Final = CollectionProfile(
     ),
 )
 
+CISCO_ISE_PROFILE: Final = CollectionProfile(
+    platform="cisco_ise",
+    # ISE is read over its REST APIs; there is no shell to configure. The ERS and
+    # OpenAPI endpoints are mixed deliberately — a deployment answers on whichever its
+    # version supports, and FR-COL-08 turns the other's 404 into a partial collection
+    # rather than a failure.
+    setup=(),
+    transport=Transport.HTTP,
+    commands=(
+        CollectionCommand(
+            "GET /ers/config/networkdevice",
+            "Every device permitted to authenticate here — the FR-AAA-05 correlation",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("GET /api/v1/deployment/node", "Node names, roles and version"),
+        CollectionCommand(
+            "GET /ers/config/activedirectory", "Active Directory joins used as identity sources"
+        ),
+        CollectionCommand("GET /ers/config/identitystore", "LDAP and token identity sources"),
+        CollectionCommand(
+            "GET /ers/config/allowedprotocols",
+            "Which authentication protocols the server will accept — PAP, MS-CHAPv1, EAP-MD5",
+        ),
+        CollectionCommand(
+            "GET /api/v1/policy/network-access/authentication", "Authentication rules, in order"
+        ),
+        CollectionCommand(
+            "GET /api/v1/policy/network-access/authorization", "Authorisation rules, in order"
+        ),
+        CollectionCommand(
+            "GET /api/v1/policy/device-admin/command-sets",
+            "TACACS+ command authorisation sets",
+        ),
+        CollectionCommand("GET /ers/config/adminuser", "Administrators of ISE itself"),
+        CollectionCommand(
+            "GET /api/v1/system-settings/admin-access", "Admin session timeout and MFA"
+        ),
+        CollectionCommand("GET /api/v1/certs/system-certificate", "EAP and admin certificates"),
+    ),
+)
+
 CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
     platform="checkpoint_mgmt",
     # The Management API is POST-only by design, so there is no session to configure and
@@ -325,6 +367,7 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_nxos": CISCO_NXOS_PROFILE,
     "cisco_asa": CISCO_ASA_PROFILE,
     "cisco_wlc_aireos": CISCO_WLC_PROFILE,
+    "cisco_ise": CISCO_ISE_PROFILE,
     "fortios": FORTIOS_PROFILE,
     "panos": PANOS_PROFILE,
     "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,

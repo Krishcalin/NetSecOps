@@ -220,6 +220,112 @@ class Aaa(NcmBase):
     servers: list[AaaServer] = Field(default_factory=list)
     local_fallback: bool | None = None
     radsec: bool | None = None
+    #: Server groups by name, each listing its member server hosts. IOS binds a method
+    #: list to a *group*, not to a server, so without this the chain from "which method
+    #: list does VTY use" to "which RADIUS server answers it" cannot be followed.
+    server_groups: dict[str, list[str]] = Field(default_factory=dict)
+
+
+# ─────────────────── AAA as a *server* (FR-AAA-02 … FR-AAA-05) ──────────────
+#
+# Everything above describes a device as an AAA *client*. The blocks below describe a
+# device that *is* the AAA service — Cisco ISE, FortiAuthenticator, a FreeRADIUS or
+# tac_plus host. They are a different subject with different questions: not "does this
+# switch authenticate centrally" but "which switches may authenticate against me, and
+# what am I prepared to accept from them".
+#
+# Added to NCM v1 rather than bumping the version: every field is optional with a
+# default, so a snapshot stored before Phase 5 deserialises unchanged and every
+# server-side check on it reports Not Evaluated, which is the honest answer for a device
+# that was never an AAA server.
+
+
+class RadiusClient(NcmBase):
+    """A network device permitted to authenticate against this server (FR-AAA-05)."""
+
+    name: str
+    address: str | None = None
+    #: Whether a shared secret is set — never the secret (C-2).
+    secret_configured: bool | None = None
+    #: A stable fingerprint of the secret, where the source exposes it at all. This is
+    #: what makes shared-secret *reuse* detectable across an estate without NetSecOps
+    #: ever handling the secret: two clients with the same fingerprint share a key.
+    #: None means the server did not expose it, which FR-AAA-05 requires be reported as
+    #: "unknown" rather than as "not reused".
+    secret_fingerprint: str | None = None
+    vendor: str | None = None
+    description: str | None = None
+    #: RadSec / TLS rather than the classic shared-secret transport.
+    tls: bool | None = None
+    enabled: bool | None = None
+
+
+class IdentityStore(NcmBase):
+    """Where the server looks up users: internal, Active Directory, LDAP, certificates."""
+
+    name: str
+    type: str | None = None
+    #: For AD/LDAP: whether the connection is encrypted. A directory bind in the clear
+    #: carries credentials across the network on every authentication.
+    tls: bool | None = None
+    host: str | None = None
+
+
+class AuthPolicy(NcmBase):
+    """One authentication or authorisation rule, in the order the server evaluates it."""
+
+    name: str
+    order: int = 0
+    enabled: bool | None = None
+    #: `authentication` or `authorization`.
+    kind: str | None = None
+    condition: str | None = None
+    #: Which protocols this rule is willing to accept. The weak ones are the finding.
+    allowed_protocols: list[str] = Field(default_factory=list)
+    identity_source: str | None = None
+    result: str | None = None
+
+
+class CommandSet(NcmBase):
+    """TACACS+ command authorisation — which commands a role may run."""
+
+    name: str
+    #: True when the set permits anything not explicitly denied, which makes the
+    #: remaining rules decoration.
+    permit_unmatched: bool | None = None
+    commands: list[str] = Field(default_factory=list)
+
+
+class AaaServerConfig(NcmBase):
+    """A device that *serves* AAA rather than consuming it."""
+
+    #: `ise`, `fortiauthenticator`, `freeradius`, `tac_plus`.
+    product: str | None = None
+    clients: list[RadiusClient] = Field(default_factory=list)
+    identity_stores: list[IdentityStore] = Field(default_factory=list)
+    policies: list[AuthPolicy] = Field(default_factory=list)
+    command_sets: list[CommandSet] = Field(default_factory=list)
+    #: Every protocol the server will accept anywhere in its policy set. Flattened here
+    #: because "does this server still allow MS-CHAPv1" is a question about the server,
+    #: not about one rule.
+    allowed_protocols: list[str] = Field(default_factory=list)
+    #: TLS versions offered for EAP-TLS / RadSec.
+    tls_versions: list[str] = Field(default_factory=list)
+    #: Administrative access to the AAA server itself (FR-AAA-02).
+    admin_session_timeout_s: int | None = None
+    admin_mfa_enabled: bool | None = None
+
+    @property
+    def weak_protocols(self) -> list[str]:
+        """The ones whose presence is a finding regardless of context.
+
+        PAP sends the password in the clear inside the RADIUS packet, protected only by
+        the shared secret. CHAP and MS-CHAPv1 are broken. EAP-MD5 offers no server
+        authentication, so a client will happily talk to any impostor. LEAP is trivially
+        crackable offline.
+        """
+        weak = {"pap", "chap", "ms-chapv1", "mschapv1", "eap-md5", "leap"}
+        return sorted({p for p in self.allowed_protocols if p.strip().lower() in weak})
 
 
 # ───────────────────────── logging, time, SNMP ──────────────────────────────
@@ -564,6 +670,10 @@ class NormalisedConfig(NcmBase):
     management: Management = Field(default_factory=Management)
     users: list[LocalUser] = Field(default_factory=list)
     aaa: Aaa = Field(default_factory=Aaa)
+    #: Populated only on a device that *is* an AAA service (FR-AAA-02 … FR-AAA-04).
+    #: Empty on everything else, which is why the server-side checks are scoped by
+    #: device class rather than reporting Not Evaluated on every switch in the estate.
+    aaa_server: AaaServerConfig = Field(default_factory=AaaServerConfig)
     logging: Logging = Field(default_factory=Logging)
     ntp: Ntp = Field(default_factory=Ntp)
     snmp: Snmp = Field(default_factory=Snmp)
