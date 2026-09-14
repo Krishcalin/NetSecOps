@@ -1,0 +1,35 @@
+id: aaa-command-sets-deny-unmatched
+title: No command authorisation set permits everything it does not name
+description: >-
+  No TACACS+ command set is configured to permit unmatched commands.
+rationale: >-
+  A command set that permits anything it has not explicitly denied makes every rule in
+  it advisory. The set reads as a careful list of what an operator may run; it behaves
+  as a list of the few things they may not, with everything else — including
+  `configure terminal` and `copy running-config tftp` — allowed by default. The
+  difference is one checkbox, it is not visible in the rule list, and a reviewer reading
+  the rules will reach exactly the wrong conclusion.
+severity: high
+
+applicability:
+  requires_features: [aaa_server.command_sets]
+
+logic:
+  type: ncm
+  expression: aaa_server.command_sets[?permit_unmatched == `true`].name
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Set the command set to deny unmatched, then add explicit permits for what the role
+  actually needs. Take the list from the accounting log rather than from imagination:
+  the server already records every command each role has run.
+
+references:
+  nist_800_53: ["AC-6", "AC-3"]
+  pci_dss: ["7.2.1"]
+  iso_27001: ["A.8.2"]
+  cwe: ["CWE-1220"]
+
+tags: [aaa, authorisation, least-privilege]

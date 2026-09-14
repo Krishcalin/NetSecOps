@@ -1,0 +1,35 @@
+id: wlan-rogue-detection-enabled
+title: Rogue access point detection is enabled
+description: >-
+  The controller is watching for access points it does not manage.
+rationale: >-
+  A rogue AP is the cheapest way into a wired network: someone plugs a consumer access
+  point into a desk port, and the perimeter is now a device in a drawer with default
+  credentials. The other shape is an evil twin broadcasting the corporate SSID from a
+  car park, harvesting credentials from clients that connect automatically. The
+  controller already hears both — every AP reports what it sees on air — so the only
+  question is whether anything is looking at it.
+severity: medium
+
+applicability:
+  device_classes: [wireless_controller, firewall]
+  requires_features: [wireless.rogue_detection]
+
+logic:
+  type: ncm
+  expression: wireless.rogue_detection.enabled
+  assert:
+    equals: true
+  missing: not_evaluated
+
+remediation: >-
+  Enable rogue detection on the controller and give someone the resulting report.
+  Detection with nobody reading it is worth very little; a weekly review of new rogues,
+  with the known-neighbour ones classified once, turns it into something actionable.
+
+references:
+  nist_800_53: ["SI-4", "AC-18"]
+  pci_dss: ["11.2.1"]
+  iso_27001: ["A.8.16"]
+
+tags: [wireless, monitoring]

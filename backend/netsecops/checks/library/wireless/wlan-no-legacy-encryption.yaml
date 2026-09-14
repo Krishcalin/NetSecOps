@@ -1,0 +1,37 @@
+id: wlan-no-legacy-encryption
+title: No wireless network uses WEP or WPA1
+description: >-
+  No SSID is configured with WEP or with WPA1/TKIP.
+rationale: >-
+  WEP is recoverable in minutes with freely available tools and has been since 2001.
+  WPA1 with TKIP is not far behind: the Beck-Tews and Ohigashi-Morii attacks let an
+  adjacent attacker inject frames without ever learning the key. Both survive in
+  production for the same reason — one barcode scanner or building-management controller
+  that cannot do anything newer — and the whole SSID is held at the weakest client's
+  level, so that one device sets the security of everything on it.
+severity: critical
+
+applicability:
+  device_classes: [wireless_controller, firewall, switch]
+  requires_features: [wireless.wlans]
+
+logic:
+  type: ncm
+  expression: wireless.wlans[?security == 'wep' || security == 'wpa1'].ssid
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Move the legacy clients onto their own SSID and VLAN with the tightest firewall policy
+  they can work under, and take the main network to WPA2-AES or WPA3. Replacing one
+  scanner is usually cheaper than the alternative, and an SSID kept at WPA1 for a single
+  device is an open door for everything else on it.
+
+references:
+  nist_800_53: ["SC-13", "AC-18"]
+  pci_dss: ["4.2.1"]
+  iso_27001: ["A.8.24"]
+  cwe: ["CWE-327"]
+
+tags: [wireless, crypto]

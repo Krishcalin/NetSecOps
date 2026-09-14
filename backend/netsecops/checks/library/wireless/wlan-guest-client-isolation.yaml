@@ -1,0 +1,37 @@
+id: wlan-guest-client-isolation
+title: Client isolation is not disabled on any wireless network
+description: >-
+  No SSID has peer-to-peer traffic explicitly permitted between clients.
+rationale: >-
+  Without client isolation, every device on the SSID can reach every other one directly.
+  On a guest network that means a visitor's compromised laptop can scan and attack the
+  phones and laptops of everyone else in the building, none of which are managed and
+  many of which are unpatched. The traffic never passes the firewall, so no rule on it
+  helps and nothing in the logs shows it happened.
+severity: medium
+
+applicability:
+  device_classes: [wireless_controller, firewall, switch]
+  requires_features: [wireless.wlans]
+
+logic:
+  type: ncm
+  # Explicitly disabled only. An unstated setting has not been shown to be off, and
+  # flagging every WLAN that does not mention it would make the finding meaningless.
+  expression: wireless.wlans[?client_isolation == `false`].ssid
+  assert:
+    empty: true
+  missing: not_evaluated
+
+remediation: >-
+  Enable peer-blocking or intra-VAP privacy on guest and BYOD networks. Corporate SSIDs
+  often need peer-to-peer traffic for printing and casting, so this is a per-SSID
+  decision rather than a global one — but a guest network almost never needs it.
+
+references:
+  nist_800_53: ["SC-7", "AC-18"]
+  pci_dss: ["1.3.1"]
+  iso_27001: ["A.8.22"]
+  cwe: ["CWE-923"]
+
+tags: [wireless, segmentation]
