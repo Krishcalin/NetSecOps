@@ -10,10 +10,15 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Krishnendu De" }]
 
-# Runtime dependencies for Phase 0 (Foundation).
-# Later phases add device-access and parsing libraries (scrapli, netmiko, asyncssh,
-# ciscoconfparse2, ttp, lxml) — see SRS §2.2. They are deliberately NOT installed yet
-# so the Phase 0 image stays minimal and auditable.
+# Runtime dependencies. Grouped by the phase that needed them, because the reason a
+# library is here is usually more useful than the library's name.
+#
+# This list is what the container image installs — the Dockerfile runs `pip install .`
+# and nothing else — so anything imported by `netsecops/` and missing here produces an
+# image that cannot start, while the development venv keeps working because it has the
+# package from somewhere else. `tests/test_dependencies.py` exists to catch that,
+# after `ciscoconfparse2` went undeclared from Phase 2 until Phase 7 and made every
+# image built in that window unstartable.
 dependencies = [
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
@@ -40,6 +45,10 @@ dependencies = [
     "pyyaml>=6.0",
     "jmespath>=1.0",
     "packaging>=24.2",
+    # Phase 2 — the Cisco parsers. Supplies the indentation hierarchy that IOS, NX-OS
+    # and ASA configurations are structured by; `parsers/base.py` imports it directly,
+    # so without it the application does not import at all.
+    "ciscoconfparse2>=0.9",
     # Phase 4 — PAN-OS and Check Point export XML. defusedxml, not the stdlib parser:
     # a device configuration is attacker-influenced input, and ElementTree will happily
     # process external entities and billion-laughs expansions (SEC-05).
