@@ -615,6 +615,17 @@ netsecops/
 
 ## 12. Development phases (execution plan for the coding agent)
 
+> **Ordering departure, recorded 2026-09-15.** Phase 7 was started at the product
+> owner's direction while Phase 6 was still open, so §0's "no phase starts before the
+> previous one's acceptance criteria pass" does not hold for this pair. Phase 6 stands
+> at version parsing, CPE construction, operational-artefact collection and CSAF
+> ingestion on `phase-6-vulnerability`; its acceptance criterion — known-vulnerable
+> fixture versions producing expected CVEs — is **not** met, and the feature-aware
+> matcher, NVD/EoL ingestion, feed sync and vulnerability UI are outstanding. Phase 7
+> work begins with discovery, which does not depend on any of that. Reporting's
+> vulnerability templates and the TEST-08 acceptance do, and cannot close until Phase 6
+> does.
+
 **Phase 0 — Foundation (week 1–2)**
 Monorepo scaffold; FastAPI app with health, settings, structured logging; PostgreSQL + Alembic; users/roles/JWT/MFA; RBAC middleware; audit log; React shell with auth flow; CI (lint, type, test, security scans); Docker Compose. *Acceptance:* login/MFA works, authz matrix tests pass, `make up` boots.
 
