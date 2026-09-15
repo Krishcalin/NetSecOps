@@ -199,6 +199,38 @@ class TestIncomparable:
             _ = left < right  # type: ignore[operator]
 
 
+class TestBracketedAndDottedSpellings:
+    """The same release, written two ways by two sources.
+
+    A Cisco device reports `9.18(2)` from `show version`; the NVD states the same
+    release as `9.18.2`. If those are different schemes they are incomparable, and every
+    NVD advisory against an ASA or a Nexus returns "not evaluated" — a whole vendor's
+    matching dead, silently, with no error anywhere. Found by the NVD parser's tests.
+    """
+
+    def test_an_asa_bracketed_and_dotted_version_are_equal(self) -> None:
+        assert compare(v("9.18(4)", "cisco_asa"), v("9.18.4", "cisco_asa")) is Ordering.EQUAL
+
+    def test_an_asa_range_bound_from_nvd_compares_against_a_device(self) -> None:
+        assert compare(v("9.18(2)", "cisco_asa"), v("9.18.4", "cisco_asa")) is Ordering.LESS
+
+    def test_a_nexus_bracketed_and_dotted_version_compare(self) -> None:
+        assert compare(v("10.3(4)", "cisco_nxos"), v("10.3.5", "cisco_nxos")) is Ordering.LESS
+
+    def test_a_longer_nvd_bound_still_compares(self) -> None:
+        """NVD writes `9.12.4.67`; the device says `9.12(4)`. Padding makes them rank."""
+        assert compare(v("9.12(4)", "cisco_asa"), v("9.12.4.67", "cisco_asa")) is Ordering.LESS
+
+    def test_ios_is_deliberately_excluded_from_this(self) -> None:
+        """The IOS train letter is meaning, not notation.
+
+        A dotted `15.2.7` does not say whether it means the E train or the M train, so
+        it stays incomparable with a device on a named train. Unlike the ASA case, the
+        silence here is the correct answer rather than a bug.
+        """
+        assert compare(v("15.2(7)E3", "cisco_ios"), v("15.2.7", "cisco_ios")) is None
+
+
 class TestPaddingAndSuffixes:
     def test_a_shorter_release_is_padded_with_zeros_not_treated_as_lower(self) -> None:
         """`17.9` and `17.9.0` are one release written two ways."""

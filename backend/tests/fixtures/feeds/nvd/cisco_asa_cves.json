@@ -1,0 +1,196 @@
+{
+  "resultsPerPage": 4,
+  "startIndex": 0,
+  "totalResults": 4,
+  "format": "NVD_CVE",
+  "version": "2.0",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2024-20353",
+        "sourceIdentifier": "psirt@cisco.com",
+        "published": "2024-04-24T17:15:37.017",
+        "lastModified": "2024-11-21T09:12:18.190",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "A vulnerability in the management and VPN web servers for Cisco ASA Software could allow an unauthenticated, remote attacker to cause the device to reload unexpectedly, resulting in a denial of service."
+          }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "source": "nvd@nist.gov",
+              "type": "Primary",
+              "cvssData": {
+                "version": "3.1",
+                "vectorString": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H",
+                "baseScore": 8.6,
+                "baseSeverity": "HIGH"
+              },
+              "exploitabilityScore": 3.9,
+              "impactScore": 4.0
+            }
+          ]
+        },
+        "weaknesses": [
+          {
+            "source": "nvd@nist.gov",
+            "type": "Primary",
+            "description": [{ "lang": "en", "value": "CWE-835" }]
+          }
+        ],
+        "configurations": [
+          {
+            "nodes": [
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": true,
+                    "criteria": "cpe:2.3:o:cisco:adaptive_security_appliance_software:*:*:*:*:*:*:*:*",
+                    "versionStartIncluding": "9.12.0",
+                    "versionEndExcluding": "9.12.4.67",
+                    "matchCriteriaId": "A1B2C3D4-0000-0000-0000-000000000001"
+                  },
+                  {
+                    "vulnerable": true,
+                    "criteria": "cpe:2.3:o:cisco:adaptive_security_appliance_software:*:*:*:*:*:*:*:*",
+                    "versionStartIncluding": "9.18.0",
+                    "versionEndExcluding": "9.18.4",
+                    "matchCriteriaId": "A1B2C3D4-0000-0000-0000-000000000002"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "references": [
+          {
+            "url": "https://sec.cloudapps.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-asaftd-websrvs-dos",
+            "source": "psirt@cisco.com"
+          }
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2024-20359",
+        "published": "2024-04-24T17:15:37.500",
+        "lastModified": "2024-11-21T09:12:18.500",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          { "lang": "en", "value": "A persistent local code execution vulnerability in Cisco ASA Software." }
+        ],
+        "metrics": {
+          "cvssMetricV31": [
+            {
+              "cvssData": {
+                "version": "3.1",
+                "vectorString": "CVSS:3.1/AV:L/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H",
+                "baseScore": 6.0,
+                "baseSeverity": "MEDIUM"
+              }
+            }
+          ]
+        },
+        "weaknesses": [
+          { "description": [{ "lang": "en", "value": "CWE-noinfo" }] }
+        ],
+        "configurations": [
+          {
+            "nodes": [
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": true,
+                    "criteria": "cpe:2.3:o:cisco:adaptive_security_appliance_software:*:*:*:*:*:*:*:*",
+                    "versionEndIncluding": "9.18.3",
+                    "matchCriteriaId": "A1B2C3D4-0000-0000-0000-000000000003"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "references": []
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2024-99001",
+        "published": "2024-06-01T00:00:00.000",
+        "lastModified": "2024-06-02T00:00:00.000",
+        "vulnStatus": "Analyzed",
+        "descriptions": [
+          { "lang": "en", "value": "An application flaw that applies only when running on a particular platform." }
+        ],
+        "metrics": {},
+        "configurations": [
+          {
+            "operator": "AND",
+            "nodes": [
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": true,
+                    "criteria": "cpe:2.3:a:cisco:identity_services_engine:3.2.0:*:*:*:*:*:*:*",
+                    "matchCriteriaId": "A1B2C3D4-0000-0000-0000-000000000004"
+                  }
+                ]
+              },
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": false,
+                    "criteria": "cpe:2.3:o:cisco:adaptive_security_appliance_software:9.18.4:*:*:*:*:*:*:*",
+                    "matchCriteriaId": "A1B2C3D4-0000-0000-0000-000000000005"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "references": []
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2024-99002",
+        "published": "2024-06-03T00:00:00.000",
+        "lastModified": "2024-06-04T00:00:00.000",
+        "vulnStatus": "Rejected",
+        "descriptions": [
+          { "lang": "en", "value": "** REJECT ** This candidate was withdrawn by its CNA." }
+        ],
+        "metrics": {},
+        "configurations": [
+          {
+            "nodes": [
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": true,
+                    "criteria": "cpe:2.3:o:cisco:adaptive_security_appliance_software:*:*:*:*:*:*:*:*",
+                    "matchCriteriaId": "A1B2C3D4-0000-0000-0000-000000000006"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "references": []
+      }
+    }
+  ]
+}

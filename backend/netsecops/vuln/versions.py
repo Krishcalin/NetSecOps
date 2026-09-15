@@ -249,7 +249,19 @@ def parse(raw: str | None, *, platform: str | None = None) -> DeviceVersion | No
         suffix = match.group("suffix")
         # An unbracketed dotted version keeps the caller's scheme so that an IOS-XE
         # `17.9.4a` never compares against a FortiOS `17.9.4a` that means something else.
-        scheme = hinted if hinted not in (Scheme.NXOS, Scheme.ASA, Scheme.IOS) else Scheme.DOTTED
+        #
+        # For ASA and NX-OS the brackets are *notation*, not meaning: a device reports
+        # `9.18(2)` and the NVD states the same release as `9.18.2`. Classifying the
+        # dotted spelling as a different scheme made the two incomparable, which meant
+        # every NVD advisory against an ASA or a Nexus silently returned "not evaluated"
+        # — a whole vendor's worth of matching quietly dead. They stay in the platform's
+        # own scheme so the two spellings compare.
+        #
+        # IOS is deliberately not in that list. Its train letter is semantic, not
+        # notation, and a dotted `15.2.7` does not say whether it means the E train or
+        # the M train. Leaving it DOTTED keeps it incomparable with a device on a named
+        # train, which is the honest answer rather than a coin flip.
+        scheme = Scheme.DOTTED if hinted is Scheme.IOS else hinted
         return DeviceVersion(
             raw=text,
             scheme=scheme,
