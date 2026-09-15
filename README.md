@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phase-5%20of%207-orange?style=flat-square" alt="Phase 5"/>
+  <img src="https://img.shields.io/badge/phases-5%20of%207%20complete-orange?style=flat-square" alt="5 of 7 phases complete"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -49,10 +49,17 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phase 5 complete
+## Status — Phases 0–5 complete, 6 and 7 under way
 
-Development follows the phase plan in [SRS §12](docs/SRS.md), strictly in order: no
-phase starts before the previous one's acceptance criteria pass.
+Development follows the phase plan in [SRS §12](docs/SRS.md). Phases 0–5 were built
+strictly in order, each one's acceptance criteria passing before the next began.
+
+Phases 6 and 7 are open at the same time, which is a deliberate departure from that
+rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Phase 6's
+acceptance criterion is **not** met: the foundations are in place but nothing yet
+produces a vulnerability finding. Phase 7 begins with discovery, which depends on none
+of it — but reporting's vulnerability templates and the TEST-08 acceptance both do, and
+cannot close until Phase 6 does.
 
 | Phase | Scope | Status |
 |:-----:|-------|--------|
@@ -62,10 +69,65 @@ phase starts before the previous one's acceptance criteria pass.
 | **3** | Check engine + baseline library, findings, compliance mapping | **Complete** |
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
-| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | Next |
-| 7 | Discovery, reporting, integrations, hardening | Planned |
+| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** |
+| 7 | Discovery, reporting, integrations, hardening | **In progress** |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
+
+### Phase 6 so far — and what is still missing
+
+Vulnerability assessment is **not usable yet**. No feed is ingested on a schedule,
+nothing is matched against a device, and no vulnerability finding is produced. What
+exists is the part the rest of it has to stand on:
+
+- **Versions that are not a total order.** `packaging.Version` and every semver library
+  assume any two versions can be ranked. Cisco IOS breaks that: `15.2(7)E3` and
+  `15.2(4)M5` are parallel trains with independent fix schedules and neither is later.
+  Forcing an order there is not approximately right — it reports a patched device as
+  exploitable, or an exploitable one as patched, depending which way the comparison
+  falls. `compare()` returns "not ordered" as a third answer, and `DeviceVersion` has no
+  `__lt__`, because `<` cannot express it.
+- **Operational state reaches the parsers.** Version, model and serial are not in a
+  running configuration on most platforms; they come from `show version` and friends,
+  which the collection runner used to store as an artefact and then discard. Supporting
+  artefacts are now carried beside the configuration — never inside it, because
+  `show version` reports an uptime that would make every device drift on every poll.
+- **CPE 2.3 identifiers, with two refusals.** No CPE without a version, because a
+  wildcard matches every advisory ever written for the product. No CPE for an unmapped
+  product, because a guessed name matches nothing while looking like a clean result.
+  The product names are provisional until checked against a real NVD dictionary —
+  `unverified_products()` exists for exactly that, and until it runs any wrong name is a
+  device silently reporting zero vulnerabilities.
+- **CSAF 2.0 ingestion that keeps what it cannot read.** A prose version range or a
+  product id the document never defines is recorded as *unparsed* with the vendor's own
+  text, not dropped and not guessed. Dropping it hides a real vulnerability; guessing
+  flags every device running the product. An advisory that is only partly understood can
+  rule a device *in*, never *out*.
+
+Still to come: NVD JSON and EoL ingestion, scheduled feed sync and offline bundle import
+(FR-VUL-07/08), the feature-aware matcher and its confidence levels (FR-VUL-03),
+vulnerability findings and states (FR-VUL-04/09), and the upgrade-path view (FR-VUL-10).
+
+### Phase 7 so far
+
+- **A discovery probe allow-list.** SRS §1.2 rules out port sweeps, exploitation and
+  brute-forcing; FR-DISC-02 names the five things discovery may do instead. That set is
+  closed and asserted, because the way it erodes is not a bug but a drift — one more
+  port for a customer running SSH on 2222, a slightly longer banner read, a second OID,
+  each defensible alone and a port scanner in sum. A scope may name at most eight TCP
+  ports, since "configurable list" otherwise permits a sweep assembled entirely from
+  permitted probes. SNMP is refused outright without a configured credential: probing
+  anyway means trying `public`, which is a credential guess.
+- **Scopes that refuse a mistyped prefix.** `10.0.0.0/8` is one character from
+  `10.0.0.0/18` and sixteen million probes from what the operator meant. The ceiling is
+  counted from network sizes without expanding anything, exclusions are *subtracted*
+  from the address space rather than filtered at probe time — so an excluded host is
+  never enumerated at all — and the refusal names the likely cause, because an operator
+  who reads only "over the limit" raises the limit.
+
+Still to come: fingerprinting with confidence scoring (FR-DISC-03), the pending-review
+queue (FR-DISC-04), rate limiting (FR-DISC-05), managers as a discovery source
+(FR-DISC-06), then reporting, integrations and hardening.
 
 ### What Phase 5 delivers
 
@@ -283,22 +345,25 @@ netsecops/
 │  │  ├─ core/         # config, logging, crypto, security, RBAC, errors
 │  │  ├─ db/           # declarative base, session, models, Alembic migrations
 │  │  ├─ checks/       # the check engine, its YAML library and policy packs
+│  │  ├─ discovery/    # the probe allow-list and scopes (Phase 7)
+│  │  ├─ firewall/     # rulebase model, relationship analysis, NAT, hygiene
 │  │  ├─ ncm/          # the Normalised Config Model (NCM v1)
 │  │  ├─ parsers/      # vendor config parsers, one package per vendor
 │  │  ├─ schemas/      # Pydantic request/response models
 │  │  ├─ services/     # business logic, independent of HTTP
+│  │  ├─ vuln/         # versions, CPEs, advisories, feed parsing (Phase 6)
 │  │  ├─ workers/      # job runner, credential probe, queue abstraction
 │  │  └─ cli.py        # netsecops-cli
 │  └─ tests/
-│     └─ fixtures/     # anonymised configs, by vendor/platform/version
+│     └─ fixtures/     # anonymised configs and operational output, by platform
 ├─ frontend/           # Vite + React 18 + TypeScript SPA
 ├─ scripts/            # smoke_test.py — post-deployment verification
 ├─ deploy/             # Dockerfiles, docker-compose, Caddy, Postgres init
 └─ docs/               # SRS, ADRs, device-account guidance, deployment
 ```
 
-Later phases add `vuln/`. Vendor-specific logic stays inside `adapters/`, `parsers/`
-and the vendor packs under `checks/library/`; core services remain vendor-agnostic (C-6).
+Vendor-specific logic stays inside `adapters/`, `parsers/` and the vendor packs under
+`checks/library/`; core services remain vendor-agnostic (C-6).
 
 ### The files worth reading first
 
@@ -313,6 +378,8 @@ and the vendor packs under `checks/library/`; core services remain vendor-agnost
 | [`tests/test_readonly.py`](backend/tests/test_readonly.py) | 283 assertions that the guard decides correctly |
 | [`tests/test_device_session.py`](backend/tests/test_device_session.py) | That nothing else reaches a real SSH server |
 | [`tests/test_profiles.py`](backend/tests/test_profiles.py) | That a profile cannot widen the device-facing surface |
+| [`discovery/probes.py`](backend/netsecops/discovery/probes.py) | The five things discovery may send, and why the list is closed |
+| [`vuln/versions.py`](backend/netsecops/vuln/versions.py) | Why two versions are sometimes not ordered at all |
 | [`checks/engine.py`](backend/netsecops/checks/engine.py) | Why a check declines to have an opinion |
 | [`checks/library/`](backend/netsecops/checks/library/) | Every check, as data, with its reasoning |
 | [`services/risk.py`](backend/netsecops/services/risk.py) | The risk formula, and why it is shaped that way |
