@@ -21,6 +21,13 @@ from netsecops.db.models.collection import (
     FindingStatus,
     Snapshot,
 )
+from netsecops.db.models.discovery import (
+    DiscoveredHost,
+    DiscoveredHostStatus,
+    DiscoveryRun,
+    DiscoveryRunStatus,
+    DiscoveryScope,
+)
 from netsecops.db.models.inventory import (
     Credential,
     CredentialAssignment,
@@ -96,6 +103,11 @@ __all__ = [
     "DeviceJobStatus",
     "DeviceStatus",
     "DeviceTag",
+    "DiscoveredHost",
+    "DiscoveredHostStatus",
+    "DiscoveryRun",
+    "DiscoveryRunStatus",
+    "DiscoveryScope",
     "EolRecordRow",
     "ErrorClass",
     "ExceptionScope",
