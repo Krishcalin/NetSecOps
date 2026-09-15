@@ -103,15 +103,42 @@ class CiscoAsaParser(CiscoStyleParser):
             ncm.device.domain_name = self.capture(domain, r"^domain-name\s+(\S+)")
             result.record("device.domain_name", line=self.line_number(domain))
 
+        # An ASA configuration states its own image version on the first line, so the
+        # config alone identifies the software for CVE matching.
         for line_number, text in enumerate(result.context.lines, start=1):
             if match := re.match(r"^ASA Version\s+(\S+)", text.strip()):
                 ncm.device.version = match.group(1)
                 result.record("device.version", line=line_number)
                 break
 
+        self._parse_show_version(result)
+
         if failover := self.first(parse, r"^failover\s*$"):
             ncm.device.ha.enabled = True
             result.record("device.ha.enabled", line=self.line_number(failover))
+
+    #: `Model Id: ASA5525` or `Hardware:   ASA5525, 8192 MB RAM, ...`
+    _MODEL = re.compile(r"^\s*(?:Model Id|Hardware)\s*:\s*([\w-]+)", re.I | re.M)
+    #: `Serial Number: JMX1935L0GT`
+    _SERIAL = re.compile(r"^\s*Serial Number\s*:\s*(\S+)", re.I | re.M)
+
+    def _parse_show_version(self, result: ParseResult) -> None:
+        """Hardware model and serial from `show version` (FR-VUL-01).
+
+        The software version is already in the configuration; the appliance model is
+        not, and an ASA advisory is frequently scoped to particular hardware.
+        """
+        output = result.context.artifact("show version")
+        if output is None:
+            return
+
+        if match := self._MODEL.search(output):
+            result.ncm.device.model = match.group(1).rstrip(",")
+            result.record("device.model", line=1)
+
+        if match := self._SERIAL.search(output):
+            result.ncm.device.serials = [match.group(1)]
+            result.record("device.serials", line=1)
 
     # ───────────────────────────── management ───────────────────────────
 

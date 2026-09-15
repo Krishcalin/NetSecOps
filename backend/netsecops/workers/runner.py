@@ -401,6 +401,12 @@ async def _collect_profile(
             log.info("collect.setup_failed", command=command, error=str(exc))
 
     config_text: str | None = None
+    #: Everything the collection captured that is not the configuration, keyed by the
+    #: command that produced it. Kept apart from `config_text` on purpose: only the
+    #: configuration is hashed and diffed, and `show version` reports an uptime that
+    #: changes on every collection, so folding it in would make every run look like
+    #: drift. The parsers read version, model and serial from here (FR-VUL-01).
+    supporting: dict[str, str] = {}
     failures: list[str] = []
 
     over_api = profile.transport is not Transport_.CLI
@@ -439,6 +445,8 @@ async def _collect_profile(
         )
         if entry.yields_config:
             config_text = result.output
+        elif result.succeeded:
+            supporting[entry.command] = result.output
         if not result.succeeded:
             failures.append(entry.command)
 
@@ -461,6 +469,7 @@ async def _collect_profile(
         collection=collection,
         platform=platform,
         command=profile.config_command,
+        supporting=supporting,
     )
 
     drift = await snapshots.detect_drift(device, snapshot)

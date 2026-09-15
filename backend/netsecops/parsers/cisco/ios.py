@@ -115,21 +115,69 @@ class CiscoIosParser(CiscoStyleParser):
             ncm.device.domain_name = self.capture(domain, r"name\s+(\S+)")
             result.record("device.domain_name", line=self.line_number(domain))
 
-        # `show version` output, when the collection profile included it, is prepended
-        # to the config text; the version line is the only part we need here.
-        for line_number, text in enumerate(result.context.lines, start=1):
-            if match := re.search(r"Cisco IOS.*?Version\s+([\w.()]+)", text):
-                ncm.device.version = match.group(1)
-                result.record("device.version", line=line_number)
-                break
+        self._parse_show_version(result)
 
-        if ncm.device.version is None and (version := self.first(parse, r"^version\s+\d")):
-            # A running-config opens with a bare `version 17.9`. It is coarser than the
-            # `show version` string — no maintenance letter — but it is what an
-            # uploaded configuration (FR-COL-11) has, and Phase 6 needs *something* to
-            # match a CPE against rather than nothing.
-            ncm.device.version = self.capture(version, r"^version\s+(\S+)")
-            result.record("device.version", line=self.line_number(version))
+        if version := self.first(parse, r"^version\s+\d"):
+            # A running-config opens with a bare `version 17.9`. This is the *configuration
+            # syntax* version, not the running image: it carries no train and no rebuild,
+            # so `15.2(7)E3` and `15.2(7)E6` both appear here as `15.2`.
+            #
+            # The line is consumed either way. Only its *value* is conditional — if
+            # `show version` answered, that is the better source. Leaving the line
+            # unconsumed when it did would push a line we understand perfectly well into
+            # `raw_unparsed`, which means "we could not read this", and would drop the
+            # parse-coverage figure for a device that was in fact parsed more completely
+            # than one without the artefact.
+            if ncm.device.version is None:
+                # An uploaded configuration (FR-COL-11) has nothing else, so the coarse
+                # value is better than none — but the matcher must treat it as the
+                # imprecise identifier it is, since the rebuild it omits is frequently
+                # the entire advisory.
+                ncm.device.version = self.capture(version, r"^version\s+(\S+)")
+                result.record("device.version", line=self.line_number(version))
+            else:
+                result.consume(self.line_number(version))
+
+    #: `Cisco IOS Software, C2960X Software (...), Version 15.2(7)E3, RELEASE SOFTWARE`
+    _SHOW_VERSION = re.compile(r"Cisco IOS[- ]?X?E? ?Software.*?,\s*Version\s+([\w.()]+)", re.I)
+    #: `Model number: WS-C2960X-48FPD-L`, `Model Number : C9300-48P`
+    _MODEL = re.compile(r"^\s*Model [Nn]umber\s*:?\s*(\S+)", re.M)
+    #: `System serial number: FOC1932X0GT`, `Processor board ID FCW2140L0G9`
+    _SERIAL = re.compile(
+        r"^\s*(?:System serial number|Processor board ID)\s*:?\s+(\S+)", re.I | re.M
+    )
+
+    def _parse_show_version(self, result: ParseResult) -> None:
+        """Version, model and serial from `show version` (FR-VUL-01).
+
+        None of the three is in the running configuration, and all three are what a CPE
+        is built from. They arrive as a supporting artefact rather than inside the config
+        text because `show version` also reports an uptime that changes on every
+        collection — hashing that alongside the configuration would turn every run into
+        drift.
+        """
+        # Two sources, in order of trust. The artefact is how a live collection delivers
+        # it. The configuration text is how an *upload* does: an operator exporting a
+        # device by hand routinely pastes `show version` above the running-config, and
+        # that paste is the only version information an offline deployment (FR-COL-11)
+        # will ever have.
+        output = result.context.artifact("show version") or result.context.text
+        if not output:
+            return
+
+        device = result.ncm.device
+        if match := self._SHOW_VERSION.search(output):
+            device.version = match.group(1)
+            result.record("device.version", line=1)
+
+        if match := self._MODEL.search(output):
+            device.model = match.group(1).rstrip(",")
+            result.record("device.model", line=1)
+
+        if match := self._SERIAL.search(output):
+            # One serial, as a list: a chassis can hold several and the NCM says so.
+            device.serials = [match.group(1).rstrip(",")]
+            result.record("device.serials", line=1)
 
     # ───────────────────────────── management ───────────────────────────
 

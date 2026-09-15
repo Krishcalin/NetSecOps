@@ -114,12 +114,41 @@ class CiscoNxosParser(CiscoStyleParser):
             ncm.device.hostname = self.capture(hostname, r"^(?:hostname|switchname)\s+(\S+)")
             result.record("device.hostname", line=self.line_number(hostname))
 
+        # Unlike IOS, an NX-OS running-config opens with the *image* version, so the
+        # configuration alone is enough to identify the software for CVE matching.
         for line_number, text in enumerate(result.context.lines, start=1):
             if match := re.search(r"version\s+([\d.()A-Za-z]+)", text):
                 if text.strip().startswith("version"):
                     ncm.device.version = match.group(1)
                     result.record("device.version", line=line_number)
                     break
+
+        self._parse_show_version(result)
+
+    #: `    cisco Nexus9000 C93180YC-EX Chassis` — the chassis line names the hardware a
+    #: hardware CPE is built from (FR-VUL-01).
+    _CHASSIS = re.compile(r"^\s*cisco\s+(.+?)\s+[Cc]hassis", re.M)
+    #: `  Processor Board ID FDO21120U5D`
+    _SERIAL = re.compile(r"^\s*Processor Board ID\s+(\S+)", re.I | re.M)
+
+    def _parse_show_version(self, result: ParseResult) -> None:
+        """Chassis model and serial from `show version`.
+
+        The version is already known from the configuration; what only `show version`
+        carries is the hardware, and a hardware CPE is what end-of-life and
+        platform-specific advisories are written against (FR-VUL-01, FR-VUL-05).
+        """
+        output = result.context.artifact("show version")
+        if output is None:
+            return
+
+        if match := self._CHASSIS.search(output):
+            result.ncm.device.model = match.group(1).strip()
+            result.record("device.model", line=1)
+
+        if match := self._SERIAL.search(output):
+            result.ncm.device.serials = [match.group(1)]
+            result.record("device.serials", line=1)
 
     # ───────────────────────────── management ───────────────────────────
 
