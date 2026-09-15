@@ -21,6 +21,13 @@ from netsecops.db.models.collection import (
     FindingStatus,
     Snapshot,
 )
+from netsecops.db.models.discovery import (
+    DiscoveredHost,
+    DiscoveredHostStatus,
+    DiscoveryRun,
+    DiscoveryRunStatus,
+    DiscoveryScope,
+)
 from netsecops.db.models.inventory import (
     Credential,
     CredentialAssignment,
@@ -66,6 +73,13 @@ from netsecops.db.models.user import (
     UserDeviceGroupScope,
     UserRole,
 )
+from netsecops.db.models.vulnerability import (
+    EolRecordRow,
+    FeedSync,
+    VulnAdvisory,
+    VulnCve,
+    VulnMatch,
+)
 
 __all__ = [
     "GENESIS_HASH",
@@ -89,9 +103,16 @@ __all__ = [
     "DeviceJobStatus",
     "DeviceStatus",
     "DeviceTag",
+    "DiscoveredHost",
+    "DiscoveredHostStatus",
+    "DiscoveryRun",
+    "DiscoveryRunStatus",
+    "DiscoveryScope",
+    "EolRecordRow",
     "ErrorClass",
     "ExceptionScope",
     "ExceptionStatus",
+    "FeedSync",
     "Finding",
     "FindingException",
     "FindingKind",
@@ -118,4 +139,7 @@ __all__ = [
     "UserDeviceGroupScope",
     "UserRole",
     "Vendor",
+    "VulnAdvisory",
+    "VulnCve",
+    "VulnMatch",
 ]
