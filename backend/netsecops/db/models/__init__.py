@@ -66,6 +66,13 @@ from netsecops.db.models.user import (
     UserDeviceGroupScope,
     UserRole,
 )
+from netsecops.db.models.vulnerability import (
+    EolRecordRow,
+    FeedSync,
+    VulnAdvisory,
+    VulnCve,
+    VulnMatch,
+)
 
 __all__ = [
     "GENESIS_HASH",
@@ -89,9 +96,11 @@ __all__ = [
     "DeviceJobStatus",
     "DeviceStatus",
     "DeviceTag",
+    "EolRecordRow",
     "ErrorClass",
     "ExceptionScope",
     "ExceptionStatus",
+    "FeedSync",
     "Finding",
     "FindingException",
     "FindingKind",
@@ -118,4 +127,7 @@ __all__ = [
     "UserDeviceGroupScope",
     "UserRole",
     "Vendor",
+    "VulnAdvisory",
+    "VulnCve",
+    "VulnMatch",
 ]
