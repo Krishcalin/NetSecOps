@@ -198,14 +198,11 @@ class PanOsParser(ConfigParser):
         if device.hostname:
             self._record(result, "device.hostname", system)
 
-        # The running version is not in the configuration; it comes from `show system
-        # info`, which the collection profile issues separately. Left None so the
-        # vulnerability matcher reports "unknown version" rather than guessing.
-        for number, line in enumerate(result.context.lines, start=1):
-            if "<sw-version>" in line:
-                device.version = line.split(">")[1].split("<")[0].strip()
-                result.record("device.version", line=number)
-                break
+        # The running version is not in the configuration: it comes from `show system
+        # info`, which the profile issues as a separate request. Read from the supporting
+        # artefact, and left None when that request did not run — the matcher then
+        # reports "unknown version" rather than guessing (FR-VUL-01).
+        self._parse_system_info(result)
 
         ha = config.find(".//devices/entry/deviceconfig/high-availability")
         if ha is not None:
@@ -213,6 +210,46 @@ class PanOsParser(ConfigParser):
             if enabled is not None:
                 device.ha.enabled = enabled
                 self._record(result, "device.ha.enabled", ha)
+
+    #: The `show system info` request, exactly as the collection profile spells it.
+    SYSTEM_INFO = "GET /api/?type=op&cmd=<show><system><info></info></system></show>"
+
+    def _parse_system_info(self, result: ParseResult) -> None:
+        """Software version, model and serial from `show system info` (FR-VUL-01).
+
+        PAN-OS answers with XML, so this parses rather than string-matching: a
+        `<sw-version>` substring also occurs inside `<multi-vsys>` blocks and in the
+        plugin list on some releases, and taking the first textual match picked up a
+        plugin's version on those.
+        """
+        output = result.context.artifact(self.SYSTEM_INFO)
+        if output is None:
+            return
+
+        try:
+            info = fromstring(output)
+        except (ParseError, DefusedXmlException) as exc:
+            log.warning("parser.system_info_invalid", platform=self.platform, error=str(exc))
+            return
+
+        device = result.ncm.device
+        # `result/system/sw-version`, with the API's outer <response> wrapper optional
+        # depending on how the artefact was captured.
+        system = info.find(".//system") if info.tag != "system" else info
+        if system is None:
+            return
+
+        if (version := _text(system, "sw-version")) is not None:
+            device.version = version
+            result.record("device.version", line=1)
+
+        if (model := _text(system, "model")) is not None:
+            device.model = model
+            result.record("device.model", line=1)
+
+        if (serial := _text(system, "serial")) is not None:
+            device.serials = [serial]
+            result.record("device.serials", line=1)
 
     # ── management ──────────────────────────────────────────────────────
 

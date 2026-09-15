@@ -454,8 +454,22 @@ class TestUploadAndCollectionAgree:
         analyst: Principal,
         vault: SecretVault,
     ) -> None:
-        """A configuration assessed offline and the same one collected live must
-        produce the same snapshot, or the two paths would disagree about drift."""
+        """A configuration assessed offline and the same one collected live must agree
+        about the configuration, or the two paths would disagree about drift.
+
+        They no longer agree about *everything*, and that is deliberate. Since Phase 6
+        wired operational artefacts through to the parsers (FR-VUL-01), a live collection
+        also runs `show version` and learns the image version, hardware model and serial
+        — none of which appear in a running configuration, and none of which an uploaded
+        file can ever supply. The collected NCM is therefore richer, and its
+        ``normalized_hash`` legitimately differs.
+
+        What must still hold is the part drift actually depends on. ``detect_drift``
+        gates on ``config_hash``, so equal configuration text means no drift whichever
+        path produced it. The NCM comparison below is kept rather than dropped, narrowed
+        to assert that the divergence is confined to those operational fields: if the two
+        paths ever disagree about the *configuration* itself, this still catches it.
+        """
         snapshots = SnapshotService(session, vault=vault)
 
         collected_device = await _onboard(session, device_server, analyst, vault)
@@ -473,8 +487,33 @@ class TestUploadAndCollectionAgree:
         )
 
         assert collected is not None
-        assert collected.config_hash == result.snapshot.config_hash
-        assert collected.normalized_hash == result.snapshot.normalized_hash
+        assert collected.config_hash == result.snapshot.config_hash, (
+            "the configuration is the same, so drift must see them as identical"
+        )
+
+        # The collected device learned its version from `show version`; the upload could
+        # only read the configuration's own `version` directive. The difference between
+        # the two values is precisely the precision a CVE match needs: `17.09.04a` names
+        # a rebuild, `17.9` names a release train containing dozens of them.
+        assert collected.ncm["device"]["version"] == "17.09.04a"
+        assert result.snapshot.ncm["device"]["version"] == "17.9"
+
+        operational = {"version", "model", "serials"}
+        collected_device = {
+            k: v for k, v in collected.ncm["device"].items() if k not in operational
+        }
+        uploaded_device = {
+            k: v for k, v in result.snapshot.ncm["device"].items() if k not in operational
+        }
+        assert collected_device == uploaded_device, (
+            "outside the operational fields the two paths must read the configuration identically"
+        )
+
+        for section in ("management", "aaa", "snmp", "users", "features", "acls"):
+            assert collected.ncm[section] == result.snapshot.ncm[section], (
+                f"{section} is parsed from the configuration alone and cannot differ "
+                "between an upload and a collection"
+            )
 
     def test_parsing_the_fixture_is_stable_across_runs(self) -> None:
         parser = get_parser("cisco_ios")

@@ -22,7 +22,7 @@ import hashlib
 import json
 import re
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -450,8 +450,15 @@ class SnapshotService:
         platform: str | None = None,
         artifact_id: uuid.UUID | None = None,
         command: str | None = None,
+        supporting: Mapping[str, str] | None = None,
     ) -> Snapshot:
-        """Parse a configuration and store it, de-duplicating identical ones."""
+        """Parse a configuration and store it, de-duplicating identical ones.
+
+        ``supporting`` carries the collection's non-configuration artefacts, keyed by
+        command. Only ``config_text`` is hashed and diffed; the supporting output feeds
+        the NCM fields that do not appear in a running configuration — version, model,
+        serial — without which no CVE can be matched (FR-VUL-01).
+        """
         platform = platform or device.platform
         if not platform:
             raise ValidationProblem(
@@ -469,6 +476,7 @@ class SnapshotService:
                 text=config_text,
                 artifact_id=str(artifact_id) if artifact_id else None,
                 command=command,
+                supporting=dict(supporting or {}),
             )
         )
 

@@ -1,0 +1,37 @@
+Cisco Adaptive Security Appliance Software Version 9.18(2)
+SSP Operating System Version 2.12(0.31)
+Device Manager Version 7.18(1)
+
+Compiled on Tue 14-Jun-22 14:05 PDT by builders
+System image file is "disk0:/asa9-18-2-smp-k8.bin"
+Config file at boot was "startup-config"
+
+edge-fw-01 up 187 days 4 hours
+failover cluster up 187 days 4 hours
+
+Hardware:   ASA5525, 8192 MB RAM, CPU Lynnfield 2394 MHz, 1 CPU (4 cores)
+            ASA: 4096 MB RAM, 1 CPU (1 core)
+Internal ATA Compact Flash, 8192MB
+BIOS Flash MX25L6445E @ 0xffbb0000, 8192KB
+
+Encryption hardware device : Cisco ASA Crypto on-board accelerator (revision 0x1)
+                             Boot microcode        : CNPx-MC-BOOT-2.00
+                             SSL/IKE microcode     : CNPx-MC-SSL-SB-PLUS-0005
+                             IPSec microcode       : CNPx-MC-IPSEC-MAIN-0026
+                             Number of accelerators: 1
+
+ 0: Ext: GigabitEthernet0/0  : address is 0050.5686.1a2b, irq 10
+ 1: Ext: GigabitEthernet0/1  : address is 0050.5686.1a2c, irq 10
+
+Licensed features for this platform:
+Maximum Physical Interfaces       : Unlimited      perpetual
+Maximum VLANs                     : 200            perpetual
+Inside Hosts                      : Unlimited      perpetual
+Failover                          : Active/Active  perpetual
+Encryption-DES                    : Enabled        perpetual
+Encryption-3DES-AES               : Enabled        perpetual
+
+Serial Number: JMX1935L0GT
+Running Permanent Activation Key: 0x12345678 0x9abcdef0 0x12345678 0x9abcdef0 0x12345678
+Configuration register is 0x1
+Configuration last modified by admin at 09:14:22.412 UTC Mon Sep 8 2025

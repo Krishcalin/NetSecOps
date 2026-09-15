@@ -137,13 +137,35 @@ class CheckPointGaiaParser(ConfigParser):
             device.domain_name = tokens[2]
             result.record("device.domain_name", line=number)
 
-        # `show version all` output, when the collection appended it.
-        for number, text in enumerate(context.lines, start=1):
-            match = re.match(r"^Product version Check Point Gaia (\S+)", text.strip())
-            if match:
-                device.version = match.group(1)
-                result.record("device.version", line=number)
-                break
+        self._parse_show_version(result)
+
+    #: `Product version Check Point Gaia R81.20`
+    _PRODUCT = re.compile(r"^Product version Check Point Gaia (\S+)", re.M)
+    #: `OS build 631`, which together with the product version identifies the image.
+    _BUILD = re.compile(r"^OS build\s+(\S+)", re.M | re.I)
+    #: `This is Check Point's software version R81.20 - Build 631` from `fw ver`.
+    _FW_VER = re.compile(r"software version\s+(R[\w.]+)", re.I)
+
+    def _parse_show_version(self, result: ParseResult) -> None:
+        """Gaia version from `show version all`, falling back to `fw ver` (FR-VUL-01).
+
+        Neither is in the Gaia configuration, so without the supporting artefact this
+        device has no version at all and every Check Point advisory is unmatchable
+        against it.
+
+        The two sources are tried in order rather than merged: `show version all` names
+        the Gaia OS, `fw ver` the firewall module, and on a gateway where they disagree
+        the OS version is the one advisories are written against.
+        """
+        output = result.context.artifact("show version all")
+        if output and (match := self._PRODUCT.search(output)):
+            result.ncm.device.version = match.group(1)
+            result.record("device.version", line=1)
+        elif (fallback := result.context.artifact("fw ver")) and (
+            match := self._FW_VER.search(fallback)
+        ):
+            result.ncm.device.version = match.group(1)
+            result.record("device.version", line=1)
 
     # ── interfaces ──────────────────────────────────────────────────────
 

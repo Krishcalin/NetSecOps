@@ -1,0 +1,41 @@
+<response status="success">
+  <result>
+    <system>
+      <hostname>perimeter-fw-01</hostname>
+      <ip-address>10.100.0.40</ip-address>
+      <netmask>255.255.255.0</netmask>
+      <default-gateway>10.100.0.1</default-gateway>
+      <mac-address>00:1b:17:00:2a:4c</mac-address>
+      <time>Mon Sep  8 09:14:22 2025</time>
+      <uptime>121 days, 3:42:19</uptime>
+      <devicename>perimeter-fw-01</devicename>
+      <family>3200</family>
+      <model>PA-3220</model>
+      <serial>013201004215</serial>
+      <sw-version>11.0.3-h1</sw-version>
+      <global-protect-client-package-version>6.0.4</global-protect-client-package-version>
+      <app-version>8801-8492</app-version>
+      <app-release-date>2025/08/28 19:14:02 PDT</app-release-date>
+      <av-version>4742-5260</av-version>
+      <av-release-date>2025/09/07 03:02:11 PDT</av-release-date>
+      <threat-version>8801-8492</threat-version>
+      <threat-release-date>2025/08/28 19:14:02 PDT</threat-release-date>
+      <wf-private-version>0</wf-private-version>
+      <url-db>paloaltonetworks</url-db>
+      <wildfire-version>891234-894512</wildfire-version>
+      <url-filtering-version>20250908.20241</url-filtering-version>
+      <global-protect-datafile-version>unknown</global-protect-datafile-version>
+      <logdb-version>11.0.7</logdb-version>
+      <plugin_versions>
+        <entry name="dlp" version="4.0.1">
+          <pkginfo>dlp-4.0.1</pkginfo>
+        </entry>
+      </plugin_versions>
+      <platform-family>3200</platform-family>
+      <vpn-disable-mode>off</vpn-disable-mode>
+      <multi-vsys>off</multi-vsys>
+      <operational-mode>normal</operational-mode>
+      <device-certificate-status>None</device-certificate-status>
+    </system>
+  </result>
+</response>

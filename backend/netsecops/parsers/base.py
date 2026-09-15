@@ -40,16 +40,46 @@ class ParseContext:
     ``artifact_id`` and ``command`` are carried so provenance can name the exact
     artefact; in unit tests they are None, which is fine — provenance line numbers are
     still recorded and are what the assertions check.
+
+    ``text`` is the *configuration* and nothing else. ``supporting`` holds the other
+    artefacts the collection gathered, keyed by the command that produced them — and the
+    separation is load-bearing in both directions:
+
+    * The configuration alone is hashed, normalised and diffed. ``show version`` reports
+      an uptime that changes every time it is asked, so folding it into ``text`` would
+      make every collection look like a configuration change and bury real drift under
+      noise (FR-DRIFT-01).
+    * A version, model and serial number are not in the running configuration on most
+      platforms, and a CVE cannot be matched without them (FR-VUL-01). Dropping those
+      artefacts before parsing — which is what happened until this was added — leaves
+      the vulnerability matcher with nothing to match on.
     """
 
     text: str
     artifact_id: str | None = None
     command: str | None = None
     lines: list[str] = field(default_factory=list)
+    #: Non-configuration command output from the same collection, keyed by command.
+    #: Empty for an offline upload, which is a configuration and nothing more.
+    supporting: dict[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.lines:
             self.lines = self.text.splitlines()
+
+    def artifact(self, *commands: str) -> str | None:
+        """Output of the first named command the collection actually captured.
+
+        Several commands are accepted because the same fact has a different name per
+        platform and sometimes per release — `show version` and `show version all`, for
+        instance. Returns None when none of them ran, which is a device whose version is
+        unknown rather than one that has no version.
+        """
+        for command in commands:
+            output = self.supporting.get(command)
+            if output and output.strip():
+                return output
+        return None
 
     def excerpt(self, line_start: int, line_end: int | None = None) -> str:
         """Redacted configuration text for a 1-based, inclusive line range.
