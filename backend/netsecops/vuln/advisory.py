@@ -88,6 +88,36 @@ class AffectedProduct:
 
 
 @dataclass(frozen=True, slots=True)
+class FeatureCondition:
+    """A condition an advisory places on top of the version match (FR-VUL-03).
+
+    "Affects 15.2(7)E3" is one claim; "affects 15.2(7)E3 *with the HTTP server enabled*"
+    is a narrower one, and the difference decides whether a switch needs an outage
+    window. FR-VUL-03 requires the narrower reading where a vendor states it.
+
+    ``path`` is a JMESPath expression over the NCM, the same language the check engine
+    uses, so a condition is written the way a check is and resolves against the same
+    parsed model. ``expected`` is what the path must yield for the device to be affected.
+
+    The three-valued discipline is the whole point of modelling this rather than
+    ignoring it: the path may resolve to the expected value (affected), to something
+    else (not affected), or to ``None`` — the parser never established it. That last one
+    is not "not affected". It is the reason :class:`~netsecops.vuln.matcher.Confidence`
+    has a ``LIKELY``.
+
+    CSAF has no standard structure for these; vendors state them in prose. So conditions
+    are curated rather than parsed, and an advisory with none is matched on version
+    alone — which is the correct reading of an advisory that states no condition.
+    """
+
+    path: str
+    expected: bool | str | int
+    #: Shown to the operator on the finding. A condition without an explanation is a
+    #: verdict nobody can check.
+    description: str
+
+
+@dataclass(frozen=True, slots=True)
 class Score:
     """A CVSS score as the advisory published it.
 
@@ -125,6 +155,9 @@ class Advisory:
     #: rule the check library follows for remediation (SRS §8).
     remediations: list[str] = field(default_factory=list)
     references: list[str] = field(default_factory=list)
+    #: Conditions narrowing the advisory beyond its version ranges (FR-VUL-03). Empty
+    #: means the version is the whole claim, which is how most advisories read.
+    conditions: list[FeatureCondition] = field(default_factory=list)
     published: datetime | None = None
     modified: datetime | None = None
     #: Statements the document made that this parser could not read, kept verbatim.
@@ -167,6 +200,7 @@ __all__ = [
     "Advisory",
     "AffectedProduct",
     "ConstraintKind",
+    "FeatureCondition",
     "Score",
     "VersionConstraint",
 ]

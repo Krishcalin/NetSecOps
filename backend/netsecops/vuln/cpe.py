@@ -194,6 +194,62 @@ def hardware_cpe(ncm: NormalisedConfig) -> Cpe | None:
     return Cpe(part=Part.HARDWARE, vendor=vendor, product=model, version="-")
 
 
+def product_key(cpe: str) -> tuple[str, str, str] | None:
+    """The (part, vendor, product) of a CPE string, for identity comparison.
+
+    Deliberately ignores the version component. An advisory publishes
+    `cpe:2.3:o:paloaltonetworks:pan-os:*:...` and states the affected versions separately
+    in its product tree, so comparing versions *through* the CPE would compare a device's
+    real version against a wildcard and match nothing. Version comparison is
+    :mod:`netsecops.vuln.versions`' job and is done against the advisory's stated range.
+
+    Returns None for anything that is not a CPE 2.3 formatted string, rather than
+    raising: advisories carry malformed identifiers, and one bad string must not abort a
+    whole feed.
+    """
+    text = (cpe or "").strip().lower()
+    if not text.startswith("cpe:2.3:"):
+        return None
+
+    # Split on unescaped colons only. A quoted `\:` inside a component is data, and
+    # splitting on it would shift every field after it by one.
+    parts: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for character in text:
+        if escaped:
+            current.append(character)
+            escaped = False
+        elif character == "\\":
+            current.append(character)
+            escaped = True
+        elif character == ":":
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(character)
+    parts.append("".join(current))
+
+    if len(parts) < 5:
+        return None
+    return parts[2], parts[3], parts[4]
+
+
+def same_product(left: str | None, right: str | None) -> bool:
+    """Whether two CPE strings name the same product, ignoring version.
+
+    False when either is missing or unparseable — an unknown identifier is not a match,
+    and treating it as one would attach advisories to devices on the strength of a
+    string nobody could read.
+    """
+    if not left or not right:
+        return False
+    parsed_left, parsed_right = product_key(left), product_key(right)
+    if parsed_left is None or parsed_right is None:
+        return False
+    return parsed_left == parsed_right
+
+
 def unverified_products() -> dict[str, str]:
     """Every CPE product string this module will emit, for checking against a real
     dictionary.
@@ -214,7 +270,9 @@ __all__ = [
     "Part",
     "ProductName",
     "hardware_cpe",
+    "product_key",
     "quote",
+    "same_product",
     "software_cpe",
     "unverified_products",
 ]
