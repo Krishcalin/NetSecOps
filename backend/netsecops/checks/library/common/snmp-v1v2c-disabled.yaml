@@ -29,5 +29,6 @@ references:
   pci_dss: ["2.2.5", "4.1", "8.3.1"]
   iso_27001: ["A.8.24"]
   cwe: ["CWE-319", "CWE-306"]
+  cea: ["Secure Configuration"]
 
 tags: [snmp, cleartext, cis-level-1]

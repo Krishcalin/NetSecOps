@@ -31,6 +31,7 @@ references:
   cis: ["1.4.11"]
   nist_800_53: ["CM-7", "SC-7"]
   cwe: ["CWE-200"]
+  cea: ["Secure Configuration"]
 
 tags: [control-plane, information-disclosure, cisco]
 enabled_by_default: false

@@ -27,5 +27,6 @@ references:
   pci_dss: ["2.2.5", "7.2.1"]
   iso_27001: ["A.8.2"]
   cwe: ["CWE-732"]
+  cea: ["Secure Configuration"]
 
 tags: [snmp, privilege, cis-level-1]

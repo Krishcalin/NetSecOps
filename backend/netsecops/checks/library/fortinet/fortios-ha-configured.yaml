@@ -31,6 +31,7 @@ remediation: >-
 references:
   nist_800_53: ["CP-2", "SC-5"]
   iso_27001: ["A.8.14"]
+  cea: ["Secure Configuration"]
 
 tags: [availability, fortinet]
 enabled_by_default: false

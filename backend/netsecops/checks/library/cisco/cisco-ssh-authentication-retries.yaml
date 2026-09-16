@@ -30,5 +30,6 @@ references:
   nist_800_53: ["AC-7"]
   pci_dss: ["8.3.4"]
   cwe: ["CWE-307"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, brute-force, ssh, cisco, cis-level-1]

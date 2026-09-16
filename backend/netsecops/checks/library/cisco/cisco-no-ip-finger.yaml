@@ -28,5 +28,6 @@ references:
   nist_800_53: ["CM-7", "AC-14"]
   pci_dss: ["2.2.4"]
   cwe: ["CWE-200"]
+  cea: ["Secure Configuration"]
 
 tags: [attack-surface, information-disclosure, cisco, cis-level-1]

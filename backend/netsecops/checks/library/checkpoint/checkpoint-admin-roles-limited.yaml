@@ -33,5 +33,6 @@ references:
   pci_dss: ["7.2.1"]
   iso_27001: ["A.8.2"]
   cwe: ["CWE-269"]
+  cea: ["Access Control"]
 
 tags: [authorisation, least-privilege, checkpoint]

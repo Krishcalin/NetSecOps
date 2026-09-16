@@ -31,5 +31,6 @@ references:
   nist_800_53: ["SC-5", "CM-7"]
   pci_dss: ["1.3.1"]
   cwe: ["CWE-406"]
+  cea: ["Secure Configuration"]
 
 tags: [control-plane, dos, cisco, cis-level-1]

@@ -29,5 +29,6 @@ references:
   nist_800_53: ["AC-8"]
   pci_dss: ["2.2.1"]
   iso_27001: ["A.5.36"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, legal, cis-level-1]

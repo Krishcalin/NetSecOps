@@ -35,5 +35,6 @@ references:
   pci_dss: ["1.3.1"]
   iso_27001: ["A.8.20"]
   cwe: ["CWE-284"]
+  cea: ["Network Security"]
 
 tags: [management-plane, access-control, paloalto]

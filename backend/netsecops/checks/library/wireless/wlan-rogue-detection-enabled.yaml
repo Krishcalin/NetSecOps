@@ -31,5 +31,6 @@ references:
   nist_800_53: ["SI-4", "AC-18"]
   pci_dss: ["11.2.1"]
   iso_27001: ["A.8.16"]
+  cea: ["Wireless Security"]
 
 tags: [wireless, monitoring]

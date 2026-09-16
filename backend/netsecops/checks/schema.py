@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 from enum import StrEnum
-from typing import Any, Literal, Self
+from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -285,12 +285,28 @@ class References(BaseModel):
     cve: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)
 
+    #: Fields that are references but not compliance frameworks, so a pivot never
+    #: offers "CWE" as though it were a standard to be compliant with. `ClassVar` so
+    #: pydantic treats it as a constant rather than a model field.
+    NON_FRAMEWORK_FIELDS: ClassVar[frozenset[str]] = frozenset({"urls", "cve", "cwe"})
+
+    @classmethod
+    def frameworks_declared(cls) -> list[str]:
+        """Every framework this schema offers as a pivot, mapped or not.
+
+        The single source of truth for that list. `frameworks()` answers what *this
+        check* maps to; this answers what the product claims to support, which is what
+        a test can compare against the library to catch a framework advertised with no
+        checks behind it.
+        """
+        return [name for name in cls.model_fields if name not in cls.NON_FRAMEWORK_FIELDS]
+
     def frameworks(self) -> dict[str, list[str]]:
         """Non-empty framework mappings, for pivoting a compliance view."""
         return {
             name: value
             for name, value in self.model_dump().items()
-            if value and name not in {"urls", "cve", "cwe"}
+            if value and name not in self.NON_FRAMEWORK_FIELDS
         }
 
 

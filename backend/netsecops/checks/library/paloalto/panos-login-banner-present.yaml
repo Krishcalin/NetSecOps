@@ -29,5 +29,6 @@ references:
   cis: ["1.4.1"]
   nist_800_53: ["AC-8"]
   iso_27001: ["A.5.10"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, governance, paloalto]

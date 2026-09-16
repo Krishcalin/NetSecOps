@@ -31,5 +31,6 @@ references:
   pci_dss: ["7.2.1"]
   iso_27001: ["A.8.2"]
   cwe: ["CWE-1220"]
+  cea: ["Access Control"]
 
 tags: [aaa, authorisation, least-privilege]

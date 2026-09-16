@@ -30,5 +30,6 @@ references:
   cis: ["1.4.7"]
   nist_800_53: ["CM-7", "SC-7"]
   cwe: ["CWE-200"]
+  cea: ["Secure Configuration"]
 
 tags: [control-plane, cisco, cis-level-1]

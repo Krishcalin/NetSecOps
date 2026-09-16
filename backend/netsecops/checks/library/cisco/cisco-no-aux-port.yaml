@@ -30,5 +30,6 @@ references:
   pci_dss: ["2.2.4"]
   iso_27001: ["A.8.20"]
   cwe: ["CWE-1188"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, out-of-band, cisco, cis-level-1]

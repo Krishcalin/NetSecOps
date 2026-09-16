@@ -33,5 +33,6 @@ references:
   pci_dss: ["8.3.2"]
   iso_27001: ["A.5.17"]
   cwe: ["CWE-916"]
+  cea: ["Access Control"]
 
 tags: [authentication, crypto, paloalto]

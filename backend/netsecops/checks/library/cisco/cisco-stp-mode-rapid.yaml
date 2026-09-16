@@ -30,5 +30,6 @@ references:
   cis: ["3.2.1"]
   nist_800_53: ["SC-5", "CP-2"]
   iso_27001: ["A.8.6"]
+  cea: ["Network Security"]
 
 tags: [layer2, availability, cisco]

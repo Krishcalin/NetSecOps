@@ -28,5 +28,6 @@ references:
   pci_dss: ["2.2.5", "4.1"]
   iso_27001: ["A.8.24"]
   cwe: ["CWE-327"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, crypto, cis-level-1]

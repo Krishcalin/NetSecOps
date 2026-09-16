@@ -31,5 +31,6 @@ references:
   nist_800_53: ["CM-5", "CM-7", "SI-7"]
   pci_dss: ["2.2.4"]
   cwe: ["CWE-494"]
+  cea: ["Secure Configuration"]
 
 tags: [attack-surface, integrity, cisco, cis-level-1]

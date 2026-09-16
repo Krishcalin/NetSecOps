@@ -27,5 +27,7 @@ references:
   nist_800_53: ["AU-3", "AU-8"]
   pci_dss: ["10.3.1", "10.6"]
   iso_27001: ["A.8.15", "A.8.17"]
+  cert_in: ["Log Retention"]
+  cea: ["Logging and Monitoring"]
 
 tags: [logging, forensics, cis-level-1]

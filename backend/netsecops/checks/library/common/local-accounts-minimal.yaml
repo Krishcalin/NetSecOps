@@ -25,5 +25,6 @@ references:
   pci_dss: ["8.2.1", "8.2.4"]
   iso_27001: ["A.5.16", "A.5.18"]
   cwe: ["CWE-1392"]
+  cea: ["Access Control"]
 
 tags: [accounts, aaa, cis-level-2]

@@ -30,5 +30,6 @@ references:
   pci_dss: ["8.4.2"]
   iso_27001: ["A.8.5"]
   cwe: ["CWE-308"]
+  cea: ["Access Control"]
 
 tags: [aaa, authentication, management-plane]

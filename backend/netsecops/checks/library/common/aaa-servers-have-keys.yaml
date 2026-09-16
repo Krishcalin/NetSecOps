@@ -26,5 +26,6 @@ references:
   pci_dss: ["8.3.1"]
   iso_27001: ["A.5.17"]
   cwe: ["CWE-306", "CWE-345"]
+  cea: ["Access Control"]
 
 tags: [aaa, crypto, cis-level-1]

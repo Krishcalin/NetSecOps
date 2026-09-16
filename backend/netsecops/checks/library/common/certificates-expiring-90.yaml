@@ -23,5 +23,6 @@ remediation: >-
 references:
   nist_800_53: ["SC-12", "SC-17"]
   iso_27001: ["A.8.24"]
+  cea: ["Cryptography"]
 
 tags: [certificates, availability, early-warning]

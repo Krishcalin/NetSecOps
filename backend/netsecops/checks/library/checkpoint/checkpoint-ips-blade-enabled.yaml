@@ -33,5 +33,6 @@ references:
   nist_800_53: ["SI-4", "SC-7"]
   pci_dss: ["11.5.1"]
   iso_27001: ["A.8.16"]
+  cea: ["Secure Configuration"]
 
 tags: [threat-prevention, checkpoint]

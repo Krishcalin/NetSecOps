@@ -29,6 +29,8 @@ references:
   pci_dss: ["10.5.1"]
   iso_27001: ["A.8.15"]
   cwe: ["CWE-778"]
+  cert_in: ["Log Retention"]
+  cea: ["Logging and Monitoring"]
 
 tags: [logging, availability, resilience]
 enabled_by_default: false

@@ -34,5 +34,6 @@ references:
   pci_dss: ["2.2.5", "4.2.1"]
   iso_27001: ["A.8.24"]
   cwe: ["CWE-327"]
+  cea: ["Secure Configuration"]
 
 tags: [crypto, management-plane, fortinet]

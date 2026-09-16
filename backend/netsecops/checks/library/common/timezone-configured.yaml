@@ -28,5 +28,7 @@ references:
   nist_800_53: ["AU-8"]
   pci_dss: ["10.6.1"]
   iso_27001: ["A.8.17"]
+  cert_in: ["Clock Synchronisation"]
+  cea: ["Logging and Monitoring"]
 
 tags: [time, logging]
