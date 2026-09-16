@@ -34,7 +34,9 @@ const NAV_ITEMS: NavItem[] = [
   // findings permission — unlike the rulebase viewer directly above it.
   { label: 'AAA Posture', to: '/aaa', permission: 'finding:read' },
   { label: 'Compliance', to: '/compliance', permission: 'report:read' },
-  { label: 'Reports', phase: 'Phase 7' },
+  // Below Compliance because it is the archive of what the pages above said, and reads
+  // oddly as an entry point: someone arriving with a question wants the live page first.
+  { label: 'Reports', to: '/reports', permission: 'report:read' },
   { label: 'Integrations', phase: 'Phase 7' },
   { label: 'Audit Log', to: '/audit', permission: 'audit:read' },
 ];

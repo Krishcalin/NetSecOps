@@ -22,6 +22,7 @@ import { FindingsPage } from './FindingsPage';
 import { VulnerabilitiesPage } from './VulnerabilitiesPage';
 import { DiscoveryPage } from './DiscoveryPage';
 import { CompliancePage } from './CompliancePage';
+import { ReportsPage } from './ReportsPage';
 import { JobsPage } from './JobsPage';
 import { AuditLogPage } from './AuditLogPage';
 import { ProfilePage } from './ProfilePage';
@@ -103,6 +104,9 @@ export function App() {
               <Route path="vulnerabilities" element={<VulnerabilitiesPage />} />
               <Route path="discovery" element={<DiscoveryPage />} />
               <Route path="compliance" element={<CompliancePage />} />
+              {/* The archive, not a view of it: every report here is frozen at the
+                  moment it was generated. */}
+              <Route path="reports" element={<ReportsPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="*" element={<NotFoundPage />} />
