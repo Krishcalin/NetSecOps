@@ -495,10 +495,41 @@ class AssessmentService:
         await self.session.flush()
         return True
 
+    #: Finding kinds that contribute to the risk score alongside the check results.
+    #: `config` is deliberately absent — those findings mirror the check results being
+    #: scored in the same call, and counting both would double every configuration
+    #: failure. `drift`, `hostkey` and `aaa` are absent because they describe a change
+    #: or a relationship rather than a standing weakness of this device, and folding
+    #: them in would make a score that moves every time anything is edited.
+    RISK_FINDING_KINDS: tuple[str, ...] = (
+        FindingKind.FIREWALL.value,
+        FindingKind.VULN.value,
+    )
+
+    async def _risk_findings(self, device: Device) -> Sequence[Finding]:
+        """Open rulebase and vulnerability findings for a device (FR-CHK-09).
+
+        Without these the score answered "how is this device configured" while claiming
+        to answer "how much risk does this device carry" — a firewall with a Critical
+        any/any/any finding and clean config checks scored zero.
+        """
+        rows = await self.session.execute(
+            select(Finding).where(
+                Finding.device_id == device.id,
+                Finding.kind.in_(self.RISK_FINDING_KINDS),
+                Finding.status.in_(FindingStatus.active_values()),
+            )
+        )
+        return list(rows.scalars())
+
     async def _store_risk(
         self, device: Device, results: Sequence[EngineResult], job_id: uuid.UUID | None
     ) -> RiskBreakdown:
-        breakdown = score_device(results, criticality=device.criticality)
+        breakdown = score_device(
+            results,
+            criticality=device.criticality,
+            findings=await self._risk_findings(device),
+        )
 
         self.session.add(
             RiskScore(

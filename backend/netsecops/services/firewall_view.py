@@ -138,6 +138,7 @@ class FirewallViewService:
         self._raw_rules: list[dict[str, Any]] = list(self.firewall.get("security_rules") or [])
         self.rules: list[ResolvedRule] = []
         self.resolver: ObjectResolver | None = None
+        self._zones_inferred = external_zones is None
         self._external = (
             list(external_zones)
             if external_zones is not None
@@ -188,11 +189,25 @@ class FirewallViewService:
         summary.analysis_ms = analysis.duration_ms
         summary.truncated = analysis.truncated
         summary.exposure_analysed = nat.exposure_analysed
+        summary.external_zones = list(self._external)
+        summary.external_zones_inferred = self._zones_inferred and bool(self._external)
         summary.limitations = list(analysis.limitations)
         if not nat.exposure_analysed and self.firewall.get("nat_rules"):
             summary.limitations.append(
                 "No zone was identified as facing an untrusted network, so NAT exposure "
-                "was not analysed. This is not a finding of 'no exposure'."
+                "was not analysed. This is not a finding of 'no exposure'. Zones are "
+                "matched by name; an estate that names its zones after sites or "
+                "numbers will match none of them."
+            )
+        elif summary.external_zones_inferred:
+            # A guessed zone list and a confirmed one produce identical findings, and
+            # the reader cannot tell them apart without being told.
+            summary.limitations.append(
+                "Exposure was analysed against "
+                f"{', '.join(sorted(self._external))}, identified as external by name "
+                "rather than confirmed. A zone facing the internet under a different "
+                "name was treated as internal, and anything it publishes is missing "
+                "from these findings."
             )
 
         issues_by_order = self._issues_by_rule(analysis, policy)

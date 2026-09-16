@@ -86,6 +86,15 @@ class FindingStatus(StrEnum):
     def is_active(self) -> bool:
         return self in {FindingStatus.NEW, FindingStatus.OPEN, FindingStatus.REOPENED}
 
+    @classmethod
+    def active_values(cls) -> list[str]:
+        """The stored values of every active status, for a SQL ``IN`` clause.
+
+        A helper rather than a literal list so that adding a status cannot leave a
+        query silently filtering on a stale set.
+        """
+        return [status.value for status in cls if status.is_active]
+
 
 class Collection(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     """One authenticated read session against a device (SRS §1.4)."""

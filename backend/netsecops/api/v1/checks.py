@@ -96,7 +96,7 @@ def _detail(definition: CheckDefinition, *, is_custom: bool = False) -> CheckDet
     )
 
 
-# ────────────────────────────── the library ─────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ the library â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @router.get(
@@ -222,7 +222,7 @@ async def preview_check(
     )
 
 
-# ─────────────────────────────── policies ───────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ policies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @router.get(
@@ -327,7 +327,7 @@ async def set_default_policy(
     return PolicyRead.model_validate(policy)
 
 
-# ─────────────────────────────── findings ───────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ findings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @router.get(
@@ -364,7 +364,7 @@ async def list_findings(
     if status_filter:
         stmt = stmt.where(Finding.status == status_filter)
     elif active_only:
-        stmt = stmt.where(Finding.status.in_([s.value for s in FindingStatus if s.is_active]))
+        stmt = stmt.where(Finding.status.in_(FindingStatus.active_values()))
     if kind:
         stmt = stmt.where(Finding.kind == kind)
     if check_id:
@@ -489,7 +489,7 @@ async def update_finding(
     return FindingRead.model_validate(finding)
 
 
-# ───────────────────────── results, risk, compliance ────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ results, risk, compliance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @router.get(
@@ -651,7 +651,7 @@ async def compliance_by_framework(
     )
 
 
-# ────────────────────────────── exceptions ──────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ exceptions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @router.get(

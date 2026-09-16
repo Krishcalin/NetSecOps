@@ -120,6 +120,13 @@ class RulebaseSummary(BaseModel):
     #: False when nobody said which zones face the internet, so no exposure conclusion
     #: was drawn. Distinct from "no exposure found" (FR-FW-04).
     exposure_analysed: bool = False
+    #: True when the external zones were guessed from their names rather than supplied.
+    #: A guess that happens to be right and a confirmed fact are the same value in
+    #: ``exposure_analysed``, and an operator reading an exposure finding deserves to
+    #: know which one it rests on.
+    external_zones_inferred: bool = False
+    #: The zones the exposure analysis actually treated as untrusted, inferred or not.
+    external_zones: list[str] = Field(default_factory=list)
     #: Stated on every response rather than documented elsewhere: an unqualified
     #: "no shadowed rules" would be read as a guarantee.
     limitations: list[str] = Field(default_factory=list)

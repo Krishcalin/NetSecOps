@@ -79,6 +79,13 @@ class FirewallAssessment:
     #: False when nobody told us which zones face the internet, so no exposure
     #: conclusions were drawn (FR-FW-04).
     exposure_analysed: bool = False
+    #: True when the external zones were guessed from their names rather than supplied.
+    #: Exposure findings written on an inferred zone list are only as good as the
+    #: guess, and nothing downstream can tell unless this says so.
+    external_zones_inferred: bool = False
+    #: The zones treated as untrusted, so the basis of an exposure finding is recorded
+    #: rather than reconstructed from the naming heuristic months later.
+    external_zones: list[str] = field(default_factory=list)
     duration_ms: int = 0
 
 
@@ -124,6 +131,7 @@ class FirewallAssessmentService:
             return outcome
 
         rules, resolver = resolve_rulebase(firewall)
+        inferred = external_zones is None
         zones = external_zones if external_zones is not None else external_zones_from(firewall)
 
         analysis = analyse(rules)
@@ -134,6 +142,8 @@ class FirewallAssessmentService:
         outcome.analysed = True
         outcome.rules_analysed = analysis.rules_analysed
         outcome.exposure_analysed = nat.exposure_analysed
+        outcome.external_zones = list(zones)
+        outcome.external_zones_inferred = inferred and bool(zones)
         outcome.duration_ms = analysis.duration_ms
 
         seen: set[str] = set()
@@ -159,6 +169,8 @@ class FirewallAssessmentService:
             opened=outcome.findings_opened,
             resolved=outcome.findings_resolved,
             exposure_analysed=outcome.exposure_analysed,
+            external_zones_inferred=outcome.external_zones_inferred,
+            external_zones=outcome.external_zones,
         )
         return outcome
 
