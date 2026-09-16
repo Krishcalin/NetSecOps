@@ -21,6 +21,7 @@ worker with network access to the estate.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from defusedxml.common import DefusedXmlException
@@ -89,6 +90,23 @@ def _entries(element: Element | None, path: str) -> Iterator[tuple[str, Element]
         name = entry.get("name")
         if name:
             yield name, entry
+
+
+def _epoch_to_iso(value: str | None) -> str | None:
+    """A PAN-OS Unix timestamp as ISO-8601, or None when there is no answer.
+
+    Zero is the important case. PAN-OS reports a rule that has never matched with
+    `<last-hit-timestamp>0</last-hit-timestamp>`, and converting that literally yields
+    1970-01-01 — an idle age of twenty thousand days, which `no_recent_hits` would
+    report as a stale rule on evidence that says only "never used". Never-hit is
+    already reported by `hit_count == 0`; the idle clock has to stay unanswered.
+    """
+    if value is None or not value.strip().lstrip("-").isdigit():
+        return None
+    epoch = int(value.strip())
+    if epoch <= 0:
+        return None
+    return datetime.fromtimestamp(epoch, tz=UTC).isoformat()
 
 
 def _yes(element: Element | None, path: str) -> bool | None:
@@ -469,9 +487,62 @@ class PanOsParser(ConfigParser):
 
     # ── the firewall (FR-FW-01) ─────────────────────────────────────────
 
+    #: The op command whose response carries per-rule counters. Must stay byte-identical
+    #: to the entry in `adapters/profiles.py`, which is how the artefact is keyed.
+    RULE_HIT_COUNT = (
+        "GET /api/?type=op&cmd=<show><rule-hit-count><vsys><vsys-name>"
+        "<entry name='vsys1'><rule-base><entry name='security'><rules><all>"
+        "</all></rules></entry></rule-base></entry></vsys-name></vsys>"
+        "</rule-hit-count></show>"
+    )
+
+    def _read_hit_counts(self, result: ParseResult) -> dict[str, dict[str, tuple[int, str | None]]]:
+        """Per-vsys, per-rule ``(hits, last hit as ISO-8601)`` from `show rule-hit-count`.
+
+        Keyed by rule name rather than by position, because PAN-OS rule names are unique
+        within a rulebase. That makes this materially safer than the ASA equivalent,
+        where the show output has to be paired ordinally and verified.
+
+        .. warning::
+
+           The response shape below is written from PAN-OS documentation, not from a
+           captured device response — there is no PAN-OS lab behind this repository. The
+           element names (``rule-hit-count/vsys/entry/rule-base/entry/rules/entry`` with
+           ``hit-count`` and ``last-hit-timestamp`` children) need confirming against a
+           real 10.x/11.x device before the counts are relied on for rule removal. Until
+           then a shape mismatch degrades to "no counts found", which leaves every rule
+           at ``hit_count = None`` and reports Not Evaluated — the same position we were
+           in before, and never a false never-hit verdict.
+        """
+        output = result.context.artifact(self.RULE_HIT_COUNT)
+        if output is None:
+            return {}
+
+        try:
+            root = fromstring(output)
+        except ParseError as exc:
+            log.warning("parser.hit_counts_invalid", platform=self.platform, error=str(exc))
+            return {}
+
+        counts: dict[str, dict[str, tuple[int, str | None]]] = {}
+        for vsys_name, vsys in _entries(root.find(".//rule-hit-count/vsys"), "."):
+            rules = vsys.find("rule-base/entry[@name='security']/rules")
+            if rules is None:
+                continue
+            for rule_name, entry in _entries(rules, "."):
+                hits = _text(entry, "hit-count")
+                if hits is None or not hits.strip().isdigit():
+                    continue
+                counts.setdefault(vsys_name, {})[rule_name] = (
+                    int(hits),
+                    _epoch_to_iso(_text(entry, "last-hit-timestamp")),
+                )
+        return counts
+
     def _parse_firewall(self, config: Element, result: ParseResult) -> None:
         firewall = result.ncm.firewall
         device_entry = config.find(".//devices/entry")
+        hit_counts = self._read_hit_counts(result)
 
         # Shared objects first so a vsys-local definition of the same name overrides
         # them, which is the order PAN-OS resolves in.
@@ -492,12 +563,19 @@ class PanOsParser(ConfigParser):
             for zone_name, _zone in _entries(vsys, "zone"):
                 zones.add(f"{prefix}{zone_name}")
 
+            vsys_counts = hit_counts.get(vsys_name, {})
             rules = vsys.find("rulebase/security/rules")
             for order, (rule_name, entry) in enumerate(
                 _entries(rules, ".") if rules is not None else [],
                 start=len(firewall.security_rules) + 1,
             ):
-                firewall.security_rules.append(self._security_rule(rule_name, entry, order, prefix))
+                rule = self._security_rule(rule_name, entry, order, prefix)
+                # A rule the counters did not mention keeps hit_count None. Defaulting
+                # it to 0 would read as "never matched any traffic" and is what the
+                # cleanup advice acts on.
+                if (observed := vsys_counts.get(rule_name)) is not None:
+                    rule.hit_count, rule.last_hit = observed
+                firewall.security_rules.append(rule)
                 self._record(
                     result,
                     f"firewall.security_rules.{len(firewall.security_rules) - 1}",

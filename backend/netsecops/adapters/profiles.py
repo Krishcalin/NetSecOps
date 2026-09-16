@@ -227,9 +227,17 @@ PANOS_PROFILE: Final = CollectionProfile(
             "GET /api/?type=op&cmd=<show><running><security-policy></security-policy></running></show>",
             "The effective rulebase as the dataplane holds it",
         ),
+        # `show counter global` stood here for a while, described as the source of rule
+        # hit counts. It is not: it returns global dataplane counters (pkt_rcv,
+        # flow_policy_deny and friends) and carries nothing per-rule, so nothing ever
+        # read it and every PAN-OS rule reported an unknown hit count. Per-rule counts
+        # come from `show rule-hit-count`, which is what is asked for now.
         CollectionCommand(
-            "GET /api/?type=op&cmd=<show><counter><global></global></counter></show>",
-            "Rule hit counts, which the configuration does not carry",
+            "GET /api/?type=op&cmd=<show><rule-hit-count><vsys><vsys-name>"
+            "<entry name='vsys1'><rule-base><entry name='security'><rules><all>"
+            "</all></rules></entry></rule-base></entry></vsys-name></vsys>"
+            "</rule-hit-count></show>",
+            "Per-rule hit counts and last-hit times, which the configuration does not carry",
         ),
     ),
 )

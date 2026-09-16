@@ -1,0 +1,15 @@
+access-list cached ACL log flows: total 0, denied 0 (deny-flow-max 4096)
+            alert-interval 300
+access-list OUTSIDE-IN; 3 elements; name hash: 0x7b4d1f2a
+access-list OUTSIDE-IN line 1 remark Permit inbound HTTPS to the DMZ web server
+access-list OUTSIDE-IN line 2 extended permit tcp any host 10.20.0.10 eq https log (hitcnt=1423) 0x2e9a11bd
+access-list OUTSIDE-IN line 3 extended deny ip any any log (hitcnt=88211) 0x5c1f7a03
+access-list INSIDE-OUT; 4 elements; name hash: 0x1a2b3c4d
+access-list INSIDE-OUT line 1 extended permit ip 10.10.0.0 255.255.255.0 any (hitcnt=90412) 0x9f3c2d18
+access-list INSIDE-OUT line 2 extended permit tcp object-group GRP-ADMIN-HOSTS any object-group GRP-WEB-PORTS 0x44aa1029
+access-list INSIDE-OUT line 2 extended permit tcp host 10.10.0.5 any eq www (hitcnt=7) 0x1122aabb
+access-list INSIDE-OUT line 2 extended permit tcp host 10.10.0.5 any eq https (hitcnt=5) 0x3344ccdd
+access-list INSIDE-OUT line 3 extended deny ip any any log (hitcnt=4001) 0xaabb1122
+access-list DMZ-IN; 2 elements; name hash: 0x6d7e8f90
+access-list DMZ-IN line 1 extended permit tcp host 10.20.0.10 any eq https (hitcnt=0) 0xdeadbeef
+access-list DMZ-IN line 2 extended deny ip any any log (hitcnt=17) 0xfeedface

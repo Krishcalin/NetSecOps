@@ -16,6 +16,7 @@ downstream shadowing conclusion wrong, so position is captured explicitly.
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from ciscoconfparse2 import CiscoConfParse
 
@@ -463,6 +464,124 @@ class CiscoAsaParser(CiscoStyleParser):
 
         for obj in parse.find_objects(r"^access-group\s"):
             result.consume(self.line_number(obj))
+
+        self._apply_hit_counts(result)
+
+    # ────────────────────────── ACL hit counts ──────────────────────────
+
+    #: `access-list NAME line 7 extended permit tcp ...` — the ACE header the show
+    #: output puts in front of every entry. `elements`/`name hash` summary lines and
+    #: the `cached ACL log flows` preamble do not match, which is how they are skipped.
+    _SHOW_ACE = re.compile(r"^access-list\s+(\S+)\s+line\s+(\d+)\s+(.*)$")
+    #: `(hitcnt=1423)`. Absent on the object-group parent line, which carries no count
+    #: of its own — the expanded children below it do.
+    _HITCNT = re.compile(r"\(hitcnt=(\d+)\)")
+
+    def _apply_hit_counts(self, result: ParseResult) -> None:
+        """Attach `show access-list` hit counts to the parsed rulebase (FR-FW-03).
+
+        The counts are not in the running configuration, so without this every ASA
+        rule reports an unknown hit count and the unused-rule checks never fire.
+
+        Two properties of the show output make naive matching wrong, and both are the
+        reason this is ordinal-with-verification rather than a text comparison:
+
+        * **Remarks occupy line numbers.** `access-list X remark ...` is line 1 and the
+          first real ACE is line 2, so the Nth ACE is not line N. Remarks are dropped
+          from both sides before pairing.
+        * **Object-group ACEs expand.** One configured ACE becomes a parent line with no
+          count plus one child line per expanded combination, all sharing its line
+          number. The configured rule was matched whenever *any* child was, so counts
+          are summed per line number. Taking the parent alone would report a busy rule
+          as never hit, which is the one error that gets a live rule deleted.
+
+        Text matching is not an option either: the show output resolves ports to names,
+        printing `eq https` where the configuration says `eq 443`.
+
+        So pairing is ordinal, and then *verified* — action and protocol must agree on
+        every pair. If any disagrees the whole ACL is abandoned with its counts left
+        None, because a drift of one somewhere in the list misattributes every count
+        after it, and a wrong count is worse here than no count: `hit_count` of 0 means
+        *never hit* and is what the cleanup checks act on, while None means unknown and
+        is reported as Not Evaluated.
+        """
+        output = result.context.artifact("show access-list")
+        if output is None:
+            return
+
+        counts = self._read_hit_counts(output)
+        if not counts:
+            return
+
+        rules_by_acl: dict[str, list[SecurityRule]] = {}
+        for rule in result.ncm.firewall.security_rules:
+            if rule.name:
+                rules_by_acl.setdefault(rule.name, []).append(rule)
+
+        for acl, observed in counts.items():
+            rules = rules_by_acl.get(acl)
+            if rules is None or len(rules) != len(observed):
+                # The device is enforcing a different number of entries than we parsed
+                # out of the configuration. Which of the two is authoritative is not
+                # knowable from here, so nothing is attributed.
+                continue
+
+            paired = list(zip(rules, observed, strict=True))
+            if any(
+                rule.action != ("allow" if action == "permit" else "deny")
+                or (protocol is not None and protocol not in rule.services[0])
+                for rule, (action, protocol, _) in paired
+            ):
+                log.warning("parser.hit_counts_misaligned", platform=self.platform, acl=acl)
+                continue
+
+            for rule, (_, _, hits) in paired:
+                rule.hit_count = hits
+
+    def _read_hit_counts(self, output: str) -> dict[str, list[tuple[str, str | None, int | None]]]:
+        """Per-ACL ACE list of ``(action, protocol, hits)``, in device order.
+
+        ``hits`` is None when no line for that entry carried a count at all — an
+        object-group parent whose children were somehow absent, for instance. Summing
+        those to 0 would invent a never-hit verdict out of missing data.
+        """
+        # (acl, line number) -> [action, protocol, running total or None]
+        merged: dict[tuple[str, int], list[Any]] = {}
+        order: list[tuple[str, int]] = []
+
+        for line in output.splitlines():
+            match = self._SHOW_ACE.match(line.strip())
+            if not match:
+                continue
+
+            acl, number, remainder = match.group(1), int(match.group(2)), match.group(3)
+            tokens = remainder.split()
+            if not tokens or tokens[0] == "remark":
+                continue
+
+            # `extended permit tcp ...` and the rarer `permit tcp ...` both occur.
+            if tokens[0] in {"extended", "standard"}:
+                tokens = tokens[1:]
+            if not tokens or tokens[0] not in {"permit", "deny"}:
+                continue
+
+            action = tokens[0]
+            protocol = tokens[1] if len(tokens) > 1 else None
+            hits = int(m.group(1)) if (m := self._HITCNT.search(remainder)) else None
+
+            key = (acl, number)
+            if key not in merged:
+                merged[key] = [action, protocol, hits]
+                order.append(key)
+            elif hits is not None:
+                current = merged[key][2]
+                merged[key][2] = hits if current is None else current + hits
+
+        counts: dict[str, list[tuple[str, str | None, int | None]]] = {}
+        for acl, number in order:
+            action, protocol, hits = merged[(acl, number)]
+            counts.setdefault(acl, []).append((action, protocol, hits))
+        return counts
 
     @staticmethod
     def _split_source_destination(tokens: list[str]) -> tuple[str, str, str]:
