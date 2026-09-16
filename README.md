@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phases-5%20of%207%20complete-orange?style=flat-square" alt="5 of 7 phases complete"/>
+  <img src="https://img.shields.io/badge/phases-0--5%20complete%2C%206--7%20partial-orange?style=flat-square" alt="Phases 0-5 complete, 6-7 partial"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -55,11 +55,10 @@ Development follows the phase plan in [SRS §12](docs/SRS.md). Phases 0–5 were
 strictly in order, each one's acceptance criteria passing before the next began.
 
 Phases 6 and 7 are open at the same time, which is a deliberate departure from that
-rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Phase 6's
-acceptance criterion is **not** met: the foundations are in place but nothing yet
-produces a vulnerability finding. Phase 7 begins with discovery, which depends on none
-of it — but reporting's vulnerability templates and the TEST-08 acceptance both do, and
-cannot close until Phase 6 does.
+rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Neither has
+met its acceptance criterion, and the sections below say exactly which part is missing
+in each — a phase that is 80% done is far easier to misread as finished than one that
+has not started.
 
 | Phase | Scope | Status |
 |:-----:|-------|--------|
@@ -69,16 +68,45 @@ cannot close until Phase 6 does.
 | **3** | Check engine + baseline library, findings, compliance mapping | **Complete** |
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
-| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** |
-| 7 | Discovery, reporting, integrations, hardening | **In progress** |
+| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — no KEV/EPSS feed, no scheduled sync |
+| 7 | Discovery, reporting, integrations, hardening | **In progress** — discovery cannot probe, integrations not started |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
 
-### Phase 6 so far — and what is still missing
+### Phase 6 — what it does, and what is still owed
 
-Vulnerability assessment is **not usable yet**. No feed is ingested on a schedule,
-nothing is matched against a device, and no vulnerability finding is produced. What
-exists is the part the rest of it has to stand on:
+Vulnerability assessment **produces findings now**. A device is assessed against
+ingested advisories and end-of-life data, and the result is a finding on that device
+with its own lifecycle, visible in the console at `/vulnerabilities`.
+
+The parts that shape the answer:
+
+- **Four outcomes, not two.** The matcher returns *confirmed*, *likely*, *not affected*
+  or **not evaluated**, and the last is the default. A finding opens on confirmed or
+  likely and is resolved only by a *positive* not-affected; not-evaluated leaves it
+  open. Clearing a device requires evidence, never the absence of it.
+- **Only a fully-understood advisory can clear a device.** An advisory whose version
+  ranges were partly unparseable can rule a device *in* and never *out*, which is why
+  CSAF ingestion keeps what it cannot read instead of dropping or guessing it.
+- **Offline bundle import, hash-verified.** `POST /vulnerabilities/feeds/import` takes
+  NVD 2.0 JSON, CSAF 2.0 and endoflife.date bundles, checks SHA-256 before anything is
+  written, and records every attempt including the failures.
+
+Still owed, and each one changes what an answer means:
+
+- **KEV and EPSS are columns, not data.** There is no CISA or FIRST ingestion, so every
+  KEV flag is null. Null is rendered as *unknown*, never as "not on KEV" — but the
+  `kev_only` filter can only ever match nothing today, and that is a gap, not a result.
+- **No scheduled sync.** Import is offline and by hand. A stale feed produces a
+  confident-looking clean answer, so this matters more than its size suggests.
+- **CPE product names are unverified.** `unverified_products()` exists precisely to
+  check them against a real NVD CPE dictionary, there is none in the repository, and it
+  has never been run — see the CPE note below for why a wrong name is dangerous rather
+  than merely wrong.
+- **No upgrade-path view (FR-VUL-10).** Fixed versions are carried on each match, but
+  nothing yet answers "what would upgrading to 17.9.4 actually eliminate".
+
+#### The foundations underneath
 
 - **Versions that are not a total order.** `packaging.Version` and every semver library
   assume any two versions can be ranked. Cisco IOS breaks that: `15.2(7)E3` and
@@ -104,11 +132,34 @@ exists is the part the rest of it has to stand on:
   flags every device running the product. An advisory that is only partly understood can
   rule a device *in*, never *out*.
 
-Still to come: NVD JSON and EoL ingestion, scheduled feed sync and offline bundle import
-(FR-VUL-07/08), the feature-aware matcher and its confidence levels (FR-VUL-03),
-vulnerability findings and states (FR-VUL-04/09), and the upgrade-path view (FR-VUL-10).
+### Phase 7 — what it does, and what is still owed
 
-### Phase 7 so far
+**Reporting is built, and reports are dated artefacts rather than saved queries.** A
+report's content is assembled once, hashed, and never recomputed: re-reading March's
+report in September returns March's numbers, including findings that have since been
+fixed. That is what lets it answer "what did you know on 31 March", which no live view
+can. Three of the nine catalogued templates assemble — executive summary, exceptions
+register and trend — and the other six are refused rather than returned empty, because
+an empty compliance report reads exactly like a compliant estate.
+
+**Discovery can describe and review, but cannot yet probe.** Scopes, the FR-DISC-02
+probe allow-list, fingerprinting with confidence scoring and the pending-review queue
+are all built and tested. Nothing sends a probe: there is no executor, and the worker
+refuses the job type in as many words. The review queue is therefore empty in a real
+deployment, and that is the state of the subsystem rather than a fault.
+
+The reason is FR-DISC-05. Rate limiting is not built, and an unpaced run across a
+discovery scope is the port sweep [SRS §1.2](docs/SRS.md) forbids — so the executor
+waits on the limiter rather than shipping ahead of it. The console says so where an
+operator would look for the button.
+
+Still owed: rate limiting and the run executor (FR-DISC-05), the six remaining report
+templates, XLSX and PDF output plus scheduled delivery (FR-RPT-03/04), and the whole of
+integrations (FR-INT-01/02/03) — syslog to a SIEM, webhooks and ServiceNow/Jira
+ticketing are not started. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part
+of that group already in place.
+
+#### What is built
 
 - **A discovery probe allow-list.** SRS §1.2 rules out port sweeps, exploitation and
   brute-forcing; FR-DISC-02 names the five things discovery may do instead. That set is
@@ -124,10 +175,21 @@ vulnerability findings and states (FR-VUL-04/09), and the upgrade-path view (FR-
   from the address space rather than filtered at probe time — so an excluded host is
   never enumerated at all — and the refusal names the likely cause, because an operator
   who reads only "over the limit" raises the limit.
-
-Still to come: fingerprinting with confidence scoring (FR-DISC-03), the pending-review
-queue (FR-DISC-04), rate limiting (FR-DISC-05), managers as a discovery source
-(FR-DISC-06), then reporting, integrations and hardening.
+- **Fingerprinting that scores what it could not tell apart.** Signals are weighted by
+  how much they actually prove — an SNMP sysObjectID far above an HTTP header — and
+  confidence is capped below certainty, because no banner is proof. Conflicting signals
+  subtract. The review queue then opens with the *lowest* confidence first, which looks
+  backwards until you remember what the queue is for: a low score means the
+  fingerprinter could not tell, and those are the entries that need a person.
+- **A review queue that onboards nothing by itself.** An approval carries the operator's
+  corrections, a rejection carries a note, and neither deletes anything.
+- **Managers as an inventory source (FR-DISC-06).** Panorama, FortiManager and Check
+  Point management enumerate their children. Preview and import are separate calls,
+  children land in pending review rather than the inventory, and nothing is ever
+  auto-deleted — a child that disappears from a manager may be a decommission or may be
+  an API error, and the two must not be treated alike.
+- **Reports as dated artefacts.** Described above; the model and the freezing property
+  live in `db/models/reporting.py` and `services/reporting.py`.
 
 ### What Phase 5 delivers
 
@@ -345,7 +407,7 @@ netsecops/
 │  │  ├─ core/         # config, logging, crypto, security, RBAC, errors
 │  │  ├─ db/           # declarative base, session, models, Alembic migrations
 │  │  ├─ checks/       # the check engine, its YAML library and policy packs
-│  │  ├─ discovery/    # the probe allow-list and scopes (Phase 7)
+│  │  ├─ discovery/    # probe allow-list, scopes, fingerprinting (Phase 7)
 │  │  ├─ firewall/     # rulebase model, relationship analysis, NAT, hygiene
 │  │  ├─ ncm/          # the Normalised Config Model (NCM v1)
 │  │  ├─ parsers/      # vendor config parsers, one package per vendor
