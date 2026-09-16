@@ -75,8 +75,14 @@ class ReportStatus(StrEnum):
 
 
 class ReportFormat(StrEnum):
+    """FR-RPT-03. Every format renders the *same* frozen content, so all four of one
+    report carry one `content_hash` — they are one report rendered differently, not
+    four assessments."""
+
     JSON = "json"
     CSV = "csv"
+    XLSX = "xlsx"
+    PDF = "pdf"
 
 
 class Report(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):

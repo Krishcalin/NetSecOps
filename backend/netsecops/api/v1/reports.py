@@ -9,10 +9,19 @@ Generating is a write and sits behind `report:generate`; reading and downloading
 behind `report:read`, which every read role holds. An auditor who cannot pull the
 evidence independently has to take it from the team being audited.
 
-Not here yet, and deliberately: XLSX and PDF (FR-RPT-03), scheduling and e-mail delivery
-(FR-RPT-04), and retention enforcement. Each needs a decision this slice does not make —
-the first two add a dependency to a project that has kept its list short, and retention
-that deletes evidence by surprise is worse than a disk bill.
+All nine catalogued templates assemble. Four formats: JSON, CSV, XLSX and PDF
+(FR-RPT-03).
+
+**Retention is reported, never enforced.** `expires_at` marks a report as past its
+retention date and `retention_expired` surfaces that on every row, but nothing deletes
+an artefact. An auditor who asks for March's evidence must not be told a background job
+removed it — the decision to destroy evidence belongs to a person who can be asked why.
+
+Not here, and deliberately: scheduling and e-mail delivery (FR-RPT-04). That is not a
+reporting gap but an infrastructure one — there is no scheduler in the product (the
+`Schedule` model exists and nothing reads it) and no outbound mail at all until
+FR-INT-01. Building half of it here would put a cron loop and an SMTP client in the
+reporting module, which is where neither belongs.
 """
 
 from __future__ import annotations
@@ -42,16 +51,32 @@ from netsecops.services.reporting import TEMPLATE_CATALOGUE, ReportingService
 log = get_logger(__name__)
 router = APIRouter(tags=["reports"])
 
-#: Templates `_assemble` can actually build. The rest are catalogued and refused, which
-#: is the honest state — an unimplemented compliance report that returned an empty
-#: document would read as a clean compliance result.
-IMPLEMENTED: frozenset[str] = frozenset(
-    {
-        ReportTemplate.EXECUTIVE_SUMMARY.value,
-        ReportTemplate.EXCEPTIONS_REGISTER.value,
-        ReportTemplate.TREND.value,
-    }
-)
+#: Templates `_assemble` can build. All nine now do, but the gate stays: adding a
+#: template to the catalogue without assembling it must refuse loudly rather than
+#: return an empty document, because an empty compliance report reads as a clean one.
+IMPLEMENTED: frozenset[str] = frozenset(t.value for t in ReportTemplate)
+
+#: Templates that need something beyond a template name, and what they need. Checked
+#: before generation so the operator gets the requirement rather than a failed report
+#: they have to open to understand.
+REQUIRED_PARAMETERS: dict[str, tuple[str, str]] = {
+    ReportTemplate.DEVICE_DETAIL.value: (
+        "scope_device_id",
+        "a device detail report is about one device",
+    ),
+    ReportTemplate.FIREWALL_RULEBASE.value: (
+        "scope_device_id",
+        "a rulebase belongs to one device",
+    ),
+    ReportTemplate.GROUP_COMPLIANCE.value: (
+        "scope_group_id",
+        "a group compliance report is about one group",
+    ),
+    ReportTemplate.TREND.value: (
+        "compare_to_id",
+        "a trend report compares against an earlier report",
+    ),
+}
 
 
 def reporting(session: SessionDep) -> ReportingService:
@@ -131,12 +156,21 @@ async def create_report(
             "`GET /reports/templates` marks which can be generated."
         )
 
+    # Checked here as well as in the service. The service must refuse regardless, since
+    # it is callable from the worker; refusing at the edge is what turns "your report
+    # failed, open it to find out why" into a 422 that names the missing field.
+    required = REQUIRED_PARAMETERS.get(template.value)
+    if required and getattr(payload, required[0]) is None:
+        field, because = required
+        raise ValidationProblem(f"`{field}` is required: {because}.")
+
     report = await reports.generate(
         template,
         actor=principal,
         scope_device_id=payload.scope_device_id,
         scope_group_id=payload.scope_group_id,
         compare_to_id=payload.compare_to_id,
+        framework=payload.framework,
         title=payload.title,
     )
 

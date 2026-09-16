@@ -62,8 +62,32 @@ const TEMPLATES = [
     title: 'Group compliance',
     audience: 'Auditor',
     description: 'Pass, fail and not-evaluated counts per framework control.',
-    implemented: false,
+    implemented: true,
   },
+  {
+    id: 'device_detail',
+    title: 'Device detail',
+    audience: 'Engineer',
+    description: 'Every finding on one device, with the evidence behind it.',
+    implemented: true,
+  },
+];
+
+const DEVICES = {
+  data: [
+    { id: 'd-1', hostname: 'sw-bad', mgmt_ip: '10.0.1.1' },
+    { id: 'd-2', hostname: null, mgmt_ip: '10.0.1.2' },
+  ],
+  meta: { total: 2 },
+};
+
+const GROUPS = [{ id: 'g-1', name: 'branch-sites' }];
+
+/** Counts differ on purpose: 13 mapped checks and 103 support very different claims. */
+const FRAMEWORKS = [
+  { key: 'cis', checks: 67 },
+  { key: 'cert_in', checks: 13 },
+  { key: 'nist_800_53', checks: 103 },
 ];
 
 const READY_REPORT = {
@@ -77,6 +101,7 @@ const READY_REPORT = {
   content_hash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90',
   generated_at: '2026-03-31T18:00:00Z',
   expires_at: null,
+  retention_expired: false,
   error_message: null,
   created_at: '2026-03-31T18:00:00Z',
 };
@@ -131,6 +156,9 @@ describe('ReportsPage', () => {
       const url = String(input);
       if (url.includes('/auth/me')) return Promise.resolve(jsonResponse(ME));
       if (url.includes('/reports/templates')) return Promise.resolve(jsonResponse(TEMPLATES));
+      if (url.includes('/compliance/frameworks')) return Promise.resolve(jsonResponse(FRAMEWORKS));
+      if (url.includes('/device-groups')) return Promise.resolve(jsonResponse(GROUPS));
+      if (url.includes('/devices')) return Promise.resolve(jsonResponse(DEVICES));
       if (url.includes('/reports/r-ready/download')) {
         return Promise.resolve(
           new Response('# March position\nhostname,mgmt_ip\nsw-bad,10.0.1.1\n', {
@@ -214,24 +242,146 @@ describe('ReportsPage', () => {
     });
   });
 
-  describe('unimplemented templates', () => {
-    it('lists them rather than hiding the shape of the feature', async () => {
+  describe('formats', () => {
+    it('offers all four for a report whose content is a table', async () => {
       renderPage();
+      const row = (await screen.findByText('March position')).closest('tr')!;
 
-      expect(
-        await screen.findByText(/catalogued but cannot be assembled yet/i),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByText(/empty compliance report reads like a compliant estate/i),
-      ).toBeInTheDocument();
+      for (const format of ['PDF', 'XLSX', 'CSV', 'JSON']) {
+        expect(within(row).getByRole('button', { name: format })).toBeInTheDocument();
+      }
     });
 
-    it('does not let one be selected', async () => {
+    it('offers only PDF and JSON when the content is not a table', async () => {
+      // A trend report is two sets of totals and the deltas between them. A blank
+      // spreadsheet of that reads as "no findings", so it is not offered at all.
+      reports = [{ ...READY_REPORT, id: 'r-trend', template: 'trend', title: 'Q1 trend' }];
+      renderPage();
+      const row = (await screen.findByText('Q1 trend')).closest('tr')!;
+
+      expect(within(row).getByRole('button', { name: 'PDF' })).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: 'JSON' })).toBeInTheDocument();
+      expect(within(row).queryByRole('button', { name: 'CSV' })).toBeNull();
+      expect(within(row).queryByRole('button', { name: 'XLSX' })).toBeNull();
+    });
+  });
+
+  describe('retention', () => {
+    it('flags an expired report and still lists it', async () => {
+      // Nothing deletes a report. An auditor cannot be told a cron removed March.
+      reports = [{ ...READY_REPORT, retention_expired: true, expires_at: '2026-04-01T00:00:00Z' }];
+      renderPage();
+
+      const row = (await screen.findByText('March position')).closest('tr')!;
+      expect(within(row).getByText('retention expired')).toBeInTheDocument();
+      expect(within(row).getByRole('button', { name: 'PDF' })).toBeInTheDocument();
+    });
+
+    it('does not flag a report with no expiry', async () => {
+      renderPage();
+      const row = (await screen.findByText('March position')).closest('tr')!;
+
+      expect(within(row).queryByText('retention expired')).toBeNull();
+    });
+  });
+
+  describe('templates that need a scope ask for it before generating', () => {
+    it('will not generate a device report until a device is chosen', async () => {
+      const user = userEvent.setup();
       renderPage();
       await screen.findByLabelText('Report template');
 
-      const option = screen.getByRole('option', { name: /Group compliance/ });
-      expect(option).toBeDisabled();
+      await user.selectOptions(screen.getByLabelText('Report template'), 'device_detail');
+
+      expect(screen.getByRole('button', { name: /generate/i })).toBeDisabled();
+      expect(screen.getByText(/will not fall back to the estate/i)).toBeInTheDocument();
+    });
+
+    it('offers a device by hostname, falling back to its address', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByLabelText('Report template');
+
+      await user.selectOptions(screen.getByLabelText('Report template'), 'device_detail');
+      const picker = await screen.findByLabelText('Device');
+
+      expect(within(picker).getByRole('option', { name: 'sw-bad' })).toBeInTheDocument();
+      // A device with no hostname must still be selectable, not blank.
+      expect(within(picker).getByRole('option', { name: '10.0.1.2' })).toBeInTheDocument();
+    });
+
+    it('enables generation once a device is picked', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByLabelText('Report template');
+
+      await user.selectOptions(screen.getByLabelText('Report template'), 'device_detail');
+      await user.selectOptions(await screen.findByLabelText('Device'), 'd-1');
+
+      expect(screen.getByRole('button', { name: /generate/i })).toBeEnabled();
+    });
+
+    it('clears a scope when the template changes', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByLabelText('Report template');
+
+      await user.selectOptions(screen.getByLabelText('Report template'), 'device_detail');
+      await user.selectOptions(await screen.findByLabelText('Device'), 'd-1');
+      await user.selectOptions(screen.getByLabelText('Report template'), 'group_compliance');
+
+      // A device id carried into a group report is a scope the server would reject and
+      // the operator never chose.
+      expect(screen.queryByLabelText('Device')).toBeNull();
+      expect(screen.getByRole('button', { name: /generate/i })).toBeDisabled();
+    });
+  });
+
+  describe('a compliance report needs a group and a framework', () => {
+    it('asks for both, and stays blocked with only one', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByLabelText('Report template');
+
+      await user.selectOptions(screen.getByLabelText('Report template'), 'group_compliance');
+      await user.selectOptions(await screen.findByLabelText('Device group'), 'g-1');
+
+      expect(screen.getByRole('button', { name: /generate/i })).toBeDisabled();
+
+      await user.selectOptions(await screen.findByLabelText('Framework'), 'cis');
+      expect(screen.getByRole('button', { name: /generate/i })).toBeEnabled();
+    });
+
+    it('shows how many checks reach each framework', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByLabelText('Report template');
+
+      await user.selectOptions(screen.getByLabelText('Report template'), 'group_compliance');
+      const picker = await screen.findByLabelText('Framework');
+
+      // 13 checks and 103 support very different claims about the same framework, so
+      // the picker must not present them as equivalent.
+      expect(
+        within(picker).getByRole('option', { name: /cert_in \(13 checks\)/ }),
+      ).toBeInTheDocument();
+      expect(
+        within(picker).getByRole('option', { name: /nist_800_53 \(103 checks\)/ }),
+      ).toBeInTheDocument();
+    });
+
+    it('sources the framework list from the API rather than a hard-coded one', async () => {
+      const user = userEvent.setup();
+      renderPage();
+      await screen.findByLabelText('Report template');
+
+      await user.selectOptions(screen.getByLabelText('Report template'), 'group_compliance');
+      await screen.findByLabelText('Framework');
+
+      // The console hard-coded four and hid cert_in and cea for a whole phase.
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes('/compliance/frameworks')),
+      ).toBe(true);
     });
   });
 

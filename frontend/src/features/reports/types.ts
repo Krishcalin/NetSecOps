@@ -28,6 +28,10 @@ export interface Report {
   content_hash: string | null;
   generated_at: string | null;
   expires_at: string | null;
+  /** Past its retention date — and still here. Nothing deletes a report: an auditor
+   *  cannot be told a background job removed March's evidence, so retention is
+   *  reported and acted on by a person. */
+  retention_expired: boolean;
   error_message: string | null;
   created_at: string;
 }
@@ -44,9 +48,32 @@ export interface PaginatedReports {
   meta: { total: number; limit: number; offset: number };
 }
 
-/** Templates needing a report to compare against. Generating one without it fails, and
- *  the form asks for it up front rather than letting the failure teach the lesson. */
-export const NEEDS_COMPARISON = new Set(['trend']);
+export type ReportFormat = 'json' | 'csv' | 'xlsx' | 'pdf';
+
+/** Every format renders the same frozen content, so all four of one report carry one
+ *  content hash — they are one report rendered differently, not four assessments. */
+export const FORMATS: ReportFormat[] = ['pdf', 'xlsx', 'csv', 'json'];
+
+/** Templates whose content is not a single table. CSV and XLSX are refused for these
+ *  rather than emitting a blank grid, which reads as "no findings". */
+export const NO_TABLE = new Set(['trend']);
+
+export function formatsFor(report: Report): ReportFormat[] {
+  return NO_TABLE.has(report.template) ? ['pdf', 'json'] : FORMATS;
+}
+
+/** What each template needs beyond its name. Asked for up front rather than letting a
+ *  failed report teach the lesson. */
+export const REQUIRED_PARAMETER: Record<string, 'device' | 'group' | 'comparison'> = {
+  device_detail: 'device',
+  firewall_rulebase: 'device',
+  group_compliance: 'group',
+  trend: 'comparison',
+};
+
+/** Templates that additionally need a framework named. A compliance report without one
+ *  is just a list of checks. */
+export const NEEDS_FRAMEWORK = new Set(['group_compliance']);
 
 export function isDownloadable(report: Report): boolean {
   return report.status === 'ready';

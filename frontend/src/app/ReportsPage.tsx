@@ -31,9 +31,37 @@ import type {
   ReportDetail,
   ReportTemplate,
 } from '../features/reports/types';
-import { NEEDS_COMPARISON, asOf, isDownloadable } from '../features/reports/types';
+import type { ReportFormat } from '../features/reports/types';
+import {
+  NEEDS_FRAMEWORK,
+  REQUIRED_PARAMETER,
+  asOf,
+  formatsFor,
+  isDownloadable,
+} from '../features/reports/types';
 
 const PAGE_SIZE = 25;
+
+interface Paginated<T> {
+  data: T[];
+  meta: { total: number };
+}
+
+interface DeviceOption {
+  id: string;
+  hostname: string | null;
+  mgmt_ip: string;
+}
+
+interface GroupOption {
+  id: string;
+  name: string;
+}
+
+interface FrameworkOption {
+  key: string;
+  checks: number;
+}
 
 function StatusPill({ report }: { report: Report }) {
   if (report.status === 'ready') {
@@ -79,12 +107,42 @@ function GeneratePanel({ templates, reports }: { templates: ReportTemplate[]; re
   const [templateId, setTemplateId] = useState(available[0]?.id ?? '');
   const [title, setTitle] = useState('');
   const [compareTo, setCompareTo] = useState('');
+  const [deviceId, setDeviceId] = useState('');
+  const [groupId, setGroupId] = useState('');
+  const [framework, setFramework] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const selected = templates.find((t) => t.id === templateId);
-  const needsComparison = NEEDS_COMPARISON.has(templateId);
+  const requires = REQUIRED_PARAMETER[templateId];
+  const needsFramework = NEEDS_FRAMEWORK.has(templateId);
   const comparable = reports.filter(isDownloadable);
-  const blocked = needsComparison && !compareTo;
+
+  // Only fetched when a template actually asks for them, so opening the page does not
+  // pull the whole inventory to populate a picker nobody is going to see.
+  const devices = useQuery({
+    queryKey: ['report-devices'],
+    queryFn: () => api.get<Paginated<DeviceOption>>('/devices?limit=500'),
+    enabled: requires === 'device',
+    staleTime: 60_000,
+  });
+  const groups = useQuery({
+    queryKey: ['report-groups'],
+    queryFn: () => api.get<GroupOption[]>('/device-groups'),
+    enabled: requires === 'group',
+    staleTime: 60_000,
+  });
+  const frameworks = useQuery({
+    queryKey: ['frameworks'],
+    queryFn: () => api.get<FrameworkOption[]>('/compliance/frameworks'),
+    enabled: needsFramework,
+    staleTime: Infinity,
+  });
+
+  const missing =
+    (requires === 'device' && !deviceId) ||
+    (requires === 'group' && !groupId) ||
+    (requires === 'comparison' && !compareTo) ||
+    (needsFramework && !framework);
 
   const generate = useMutation({
     mutationFn: () =>
@@ -92,6 +150,9 @@ function GeneratePanel({ templates, reports }: { templates: ReportTemplate[]; re
         template: templateId,
         title: title || null,
         compare_to_id: compareTo || null,
+        scope_device_id: deviceId || null,
+        scope_group_id: groupId || null,
+        framework: framework || null,
       }),
     onSuccess: () => {
       setError(null);
@@ -102,6 +163,18 @@ function GeneratePanel({ templates, reports }: { templates: ReportTemplate[]; re
       setError(err instanceof ApiError ? err.problem.detail : 'The report could not be generated.'),
   });
 
+  function pickTemplate(id: string) {
+    setTemplateId(id);
+    // Cleared on switch: carrying a device id into a group report would send a scope
+    // the new template cannot use, and the server would reject something the operator
+    // never chose.
+    setCompareTo('');
+    setDeviceId('');
+    setGroupId('');
+    setFramework('');
+    setError(null);
+  }
+
   return (
     <section className="card">
       <div className="card__header">
@@ -109,7 +182,7 @@ function GeneratePanel({ templates, reports }: { templates: ReportTemplate[]; re
       </div>
 
       <div className="toolbar">
-        <TemplatePicker templates={templates} value={templateId} onChange={setTemplateId} />
+        <TemplatePicker templates={templates} value={templateId} onChange={pickTemplate} />
 
         <input
           className="field__input field__input--small"
@@ -120,7 +193,57 @@ function GeneratePanel({ templates, reports }: { templates: ReportTemplate[]; re
           maxLength={300}
         />
 
-        {needsComparison && (
+        {requires === 'device' && (
+          <select
+            className="field__input field__input--small"
+            value={deviceId}
+            onChange={(event) => setDeviceId(event.target.value)}
+            aria-label="Device"
+          >
+            <option value="">Choose a device…</option>
+            {(devices.data?.data ?? []).map((device) => (
+              <option key={device.id} value={device.id}>
+                {device.hostname ?? device.mgmt_ip}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {requires === 'group' && (
+          <select
+            className="field__input field__input--small"
+            value={groupId}
+            onChange={(event) => setGroupId(event.target.value)}
+            aria-label="Device group"
+          >
+            <option value="">Choose a group…</option>
+            {(groups.data ?? []).map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
+          </select>
+        )}
+
+        {needsFramework && (
+          <select
+            className="field__input field__input--small"
+            value={framework}
+            onChange={(event) => setFramework(event.target.value)}
+            aria-label="Framework"
+          >
+            <option value="">Choose a framework…</option>
+            {(frameworks.data ?? []).map((entry) => (
+              <option key={entry.key} value={entry.key}>
+                {/* The mapped-check count is shown, not hidden: 13 checks and 103
+                    support very different claims about the same framework. */}
+                {entry.key} ({entry.checks} checks)
+              </option>
+            ))}
+          </select>
+        )}
+
+        {requires === 'comparison' && (
           <select
             className="field__input field__input--small"
             value={compareTo}
@@ -139,7 +262,7 @@ function GeneratePanel({ templates, reports }: { templates: ReportTemplate[]; re
         <button
           className="button button--primary button--small"
           onClick={() => generate.mutate()}
-          disabled={!templateId || blocked || generate.isPending}
+          disabled={!templateId || missing || generate.isPending}
         >
           {generate.isPending ? 'Generating…' : 'Generate'}
         </button>
@@ -151,7 +274,14 @@ function GeneratePanel({ templates, reports }: { templates: ReportTemplate[]; re
         </p>
       )}
 
-      {needsComparison && comparable.length === 0 && (
+      {requires === 'device' && (
+        <p className="finding__note">
+          This report is about one device, and will not fall back to the estate. A device-detail
+          report over everything would answer a different question under the same title.
+        </p>
+      )}
+
+      {requires === 'comparison' && comparable.length === 0 && (
         <div className="alert alert--warning" role="note">
           A trend report compares this moment against an earlier one, and reads the earlier
           report&rsquo;s stored content rather than recomputing it. There is no finished report to
@@ -253,7 +383,7 @@ export function ReportsPage() {
     [templates.data],
   );
 
-  async function download(report: Report, format: 'json' | 'csv') {
+  async function download(report: Report, format: ReportFormat) {
     setDownloading(`${report.id}:${format}`);
     setDownloadError(null);
     try {
@@ -290,6 +420,9 @@ export function ReportsPage() {
 
       {templates.data && <GeneratePanel templates={templates.data} reports={rows} />}
 
+      {/* Empty today — every catalogued template assembles. Kept because the gate is
+          what stops a future template being offered before it can produce anything,
+          and an empty compliance report reads like a compliant estate. */}
       {unavailable.length > 0 && (
         <div className="alert alert--info" role="note">
           {unavailable.length} further template{unavailable.length === 1 ? '' : 's'} (
@@ -348,28 +481,33 @@ export function ReportsPage() {
                   <td className="muted">{report.template.replace(/_/g, ' ')}</td>
                   <td>
                     <StatusPill report={report} />
+                    {report.retention_expired && (
+                      <span
+                        className="pill pill--medium"
+                        title="Past its retention date. Nothing deletes a report — an auditor cannot be told a background job removed the evidence."
+                      >
+                        retention expired
+                      </span>
+                    )}
                   </td>
                   <td className="mono muted">
                     {report.content_hash ? report.content_hash.slice(0, 12) : '—'}
                   </td>
                   <td>
                     {isDownloadable(report) ? (
-                      <>
+                      // Only the formats this template can honestly produce. A trend
+                      // report has no single table, and a blank spreadsheet would read
+                      // as "no findings".
+                      formatsFor(report).map((format) => (
                         <button
+                          key={format}
                           className="button button--ghost button--small"
-                          onClick={() => void download(report, 'json')}
-                          disabled={downloading === `${report.id}:json`}
+                          onClick={() => void download(report, format)}
+                          disabled={downloading === `${report.id}:${format}`}
                         >
-                          JSON
-                        </button>{' '}
-                        <button
-                          className="button button--ghost button--small"
-                          onClick={() => void download(report, 'csv')}
-                          disabled={downloading === `${report.id}:csv`}
-                        >
-                          CSV
+                          {format.toUpperCase()}
                         </button>
-                      </>
+                      ))
                     ) : (
                       // Never offered for an incomplete report: a partial artefact outside
                       // the product would read as a finished assessment.

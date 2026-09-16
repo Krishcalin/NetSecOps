@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class TemplateRead(BaseModel):
@@ -43,6 +43,20 @@ class ReportRead(BaseModel):
     error_message: str | None = None
     created_at: datetime
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def retention_expired(self) -> bool:
+        """Past its retention date — and still here, deliberately.
+
+        Nothing deletes a report. An auditor who asks for March's evidence cannot be
+        told that a background job removed it, so retention is *reported* and acted on
+        by a person. This flag is what makes that decision visible rather than silent;
+        a report with no `expires_at` is never expired.
+        """
+        if self.expires_at is None:
+            return False
+        return self.expires_at < datetime.now(UTC)
+
 
 class ReportDetail(ReportRead):
     """A report with its frozen content.
@@ -58,11 +72,16 @@ class ReportDetail(ReportRead):
 class ReportCreate(BaseModel):
     template: str
     title: str | None = Field(default=None, max_length=300)
-    #: At most one scope. Both omitted means the whole estate.
+    #: At most one scope. Both omitted means the whole estate — but the single-device
+    #: templates refuse that rather than silently widening: a "device detail" report
+    #: over the estate answers a different question under the same title.
     scope_device_id: uuid.UUID | None = None
     scope_group_id: uuid.UUID | None = None
     #: Required by the trend template, ignored by the others.
     compare_to_id: uuid.UUID | None = None
+    #: Required by the group-compliance template, ignored by the others. A compliance
+    #: report with no framework is just a list of checks.
+    framework: str | None = Field(default=None, max_length=60)
 
 
 class PaginatedReports(BaseModel):

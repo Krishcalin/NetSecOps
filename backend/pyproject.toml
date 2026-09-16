@@ -56,6 +56,12 @@ dependencies = [
     # Device access (Phase 1). asyncssh provides both the client and the in-process
     # test server, so TEST-02's "no live devices in CI" needs nothing extra.
     "asyncssh>=2.18",
+    # Phase 7 — report output (FR-RPT-03). Both are pure-Python wheels with no native
+    # libraries, which is why these two and not the usual alternatives: WeasyPrint would
+    # drag GTK, cairo and pango into the image for one PDF a week. fpdf2 is used with
+    # core fonts only, so no font file ships and no glyph licence question arises.
+    "openpyxl>=3.1",
+    "fpdf2>=2.8",
 ]
 
 [project.optional-dependencies]

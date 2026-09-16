@@ -47,6 +47,9 @@ DISTRIBUTION_NAMES = {
     "multipart": "python-multipart",
     "dateutil": "python-dateutil",
     "PIL": "pillow",
+    # fpdf2 is the maintained fork; it still installs under the original `fpdf` name,
+    # so the two differ and this test is the only thing that would have noticed.
+    "fpdf": "fpdf2",
 }
 
 #: Imported directly but supplied by a declared dependency, with the reason.

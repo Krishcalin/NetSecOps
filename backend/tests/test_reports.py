@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -393,7 +394,7 @@ class TestRendering:
         assert "no rows" in text
         assert "hostname,mgmt_ip" in text, "the columns must survive an empty result"
 
-    async def test_a_template_with_no_csv_projection_is_refused(
+    async def test_a_template_with_no_table_projection_is_refused(
         self, session: AsyncSession, principal: Principal, estate
     ) -> None:
         """Rather than emit a blank spreadsheet, which reads as "no findings"."""
@@ -406,8 +407,22 @@ class TestRendering:
             ReportTemplate.TREND, actor=principal, compare_to_id=first.id
         )
 
-        with pytest.raises(ValidationProblem, match="no CSV projection"):
-            render(trend, ReportFormat.CSV)
+        for fmt in (ReportFormat.CSV, ReportFormat.XLSX):
+            with pytest.raises(ValidationProblem, match="no table projection"):
+                render(trend, fmt)
+
+    async def test_a_template_with_no_table_still_renders_as_pdf(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """PDF can carry a nested document honestly, so it is not refused."""
+        service = ReportingService(session)
+        first = await service.generate(ReportTemplate.EXECUTIVE_SUMMARY, actor=principal)
+        await session.commit()
+        trend = await ReportingService(session).generate(
+            ReportTemplate.TREND, actor=principal, compare_to_id=first.id
+        )
+
+        assert render(trend, ReportFormat.PDF).startswith(b"%PDF")
 
     async def test_the_filename_carries_the_date(
         self, session: AsyncSession, principal: Principal, estate
@@ -428,16 +443,17 @@ class TestTheApi:
         rows = (await client.get(TEMPLATES)).json()
 
         assert len(rows) == 9
-        implemented = {r["id"] for r in rows if r["implemented"]}
-        assert implemented == {"executive_summary", "exceptions_register", "trend"}
+        assert all(r["implemented"] for r in rows), "every catalogued template assembles"
 
-    async def test_an_unimplemented_template_is_refused_not_returned_empty(
+    async def test_a_template_needing_a_scope_says_so_before_generating(
         self, client: AsyncClient, estate
     ) -> None:
-        response = await client.post(REPORTS, json={"template": "group_compliance"})
+        """A 422 naming the field, not a 201 holding a failed report to open and read."""
+        response = await client.post(REPORTS, json={"template": "device_detail"})
 
         assert response.status_code == 422
-        assert "not implemented" in response.text
+        assert "scope_device_id" in response.text
+        assert "one device" in response.text
 
     async def test_an_unknown_template_lists_the_known_ones(
         self, client: AsyncClient, estate
@@ -473,12 +489,28 @@ class TestTheApi:
     async def test_an_unknown_format_is_refused(self, client: AsyncClient, estate) -> None:
         created = (await client.post(REPORTS, json={"template": "executive_summary"})).json()
 
-        response = await client.get(
-            f"{REPORTS}/{created['id']}/download", params={"format": "xlsx"}
-        )
+        response = await client.get(f"{REPORTS}/{created['id']}/download", params={"format": "doc"})
 
         assert response.status_code == 422
         assert "json" in response.text
+        assert "pdf" in response.text
+
+    async def test_all_four_formats_download(self, client: AsyncClient, estate) -> None:
+        created = (await client.post(REPORTS, json={"template": "executive_summary"})).json()
+
+        expected = {
+            "json": "application/json",
+            "csv": "text/csv",
+            "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "pdf": "application/pdf",
+        }
+        for fmt, content_type in expected.items():
+            response = await client.get(
+                f"{REPORTS}/{created['id']}/download", params={"format": fmt}
+            )
+            assert response.status_code == 200, f"{fmt}: {response.text[:200]}"
+            assert response.headers["content-type"].startswith(content_type)
+            assert f".{fmt}" in response.headers["content-disposition"]
 
     async def test_reports_are_listed_newest_first(self, client: AsyncClient, estate) -> None:
         await client.post(REPORTS, json={"template": "executive_summary", "title": "First"})
@@ -501,3 +533,386 @@ class TestTheApi:
         actions = {row.action for row in (await session.execute(select(AuditLog))).scalars().all()}
         assert AuditAction.REPORT_GENERATED.value in actions
         assert AuditAction.REPORT_DOWNLOADED.value in actions
+
+
+class TestScopedTemplates:
+    """The templates that are about one thing, and refuse to be about everything."""
+
+    @pytest.mark.parametrize(
+        ("template", "field"),
+        [
+            (ReportTemplate.DEVICE_DETAIL, "scope_device_id"),
+            (ReportTemplate.FIREWALL_RULEBASE, "scope_device_id"),
+            (ReportTemplate.GROUP_COMPLIANCE, "scope_group_id"),
+        ],
+    )
+    async def test_a_missing_scope_fails_rather_than_widening_to_the_estate(
+        self,
+        session: AsyncSession,
+        principal: Principal,
+        estate,
+        template: ReportTemplate,
+        field: str,
+    ) -> None:
+        """Silently widening would file a document that answers a different question."""
+        report = await ReportingService(session).generate(template, actor=principal)
+
+        assert report.status == ReportStatus.FAILED.value
+        assert field in (report.error_message or "")
+
+    async def test_a_device_outside_the_scope_is_not_reportable(
+        self, session: AsyncSession, analyst_user: User, estate, group_factory
+    ) -> None:
+        """A frozen artefact is worse than a live leak: it keeps working afterwards."""
+        from netsecops.core.errors import NotFoundError
+
+        group = await group_factory(name="somewhere-else")
+        restricted = Principal(
+            id=analyst_user.id,
+            username=analyst_user.username,
+            roles=analyst_user.role_set,
+            scope=Scope(device_group_ids=frozenset({group.id})),
+        )
+
+        with pytest.raises(NotFoundError):
+            await ReportingService(session)._require_device(estate["bad"].id, restricted.scope)
+
+
+class TestDeviceDetail:
+    async def test_it_carries_the_findings_and_the_assessment_date(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        report = await ReportingService(session).generate(
+            ReportTemplate.DEVICE_DETAIL, actor=principal, scope_device_id=estate["bad"].id
+        )
+
+        assert report.status == ReportStatus.READY.value
+        content = report.content
+        assert content["device"]["hostname"] == "sw-bad"
+        assert content["totals"]["findings"] == 2
+        assert {f["check_id"] for f in content["findings"]} == {
+            "telnet-disabled",
+            "ssh-version-2",
+        }
+
+    async def test_a_device_never_assessed_says_so_rather_than_looking_clean(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """No snapshot is not a clean bill of health."""
+        device = await add_device(session, principal, ip="10.0.9.9", hostname="sw-untouched")
+        await session.commit()
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.DEVICE_DETAIL, actor=principal, scope_device_id=device.id
+        )
+
+        assessment = report.content["assessment"]
+        assert assessment["never_assessed"] is True
+        assert assessment["assessed_at"] is None
+        assert report.content["totals"]["findings"] == 0
+
+
+class TestGroupCompliance:
+    async def test_it_needs_a_framework(
+        self, session: AsyncSession, principal: Principal, estate, group_factory
+    ) -> None:
+        group = await group_factory(name="compliance-group")
+        await session.commit()
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.GROUP_COMPLIANCE, actor=principal, scope_group_id=group.id
+        )
+
+        assert report.status == ReportStatus.FAILED.value
+        assert "framework" in (report.error_message or "")
+
+    async def test_an_empty_group_is_refused_rather_than_reported_compliant(
+        self, session: AsyncSession, principal: Principal, estate, group_factory
+    ) -> None:
+        group = await group_factory(name="empty-group")
+        await session.commit()
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.GROUP_COMPLIANCE,
+            actor=principal,
+            scope_group_id=group.id,
+            framework="cis",
+        )
+
+        assert report.status == ReportStatus.FAILED.value
+        assert "no devices" in (report.error_message or "")
+
+    async def test_not_evaluated_is_never_counted_as_a_pass(
+        self, session: AsyncSession, principal: Principal, estate, group_factory
+    ) -> None:
+        """The arithmetic that makes compliance reports overstate posture."""
+        from netsecops.checks.loader import get_registry
+        from netsecops.db.models.inventory import DeviceGroupMember
+
+        framework = sorted(get_registry().frameworks())[0]
+        group = await group_factory(name="scored-group")
+        session.add(DeviceGroupMember(org_id=1, group_id=group.id, device_id=estate["bad"].id))
+        await session.commit()
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.GROUP_COMPLIANCE,
+            actor=principal,
+            scope_group_id=group.id,
+            framework=framework,
+        )
+
+        totals = report.content["totals"]
+        # No check results exist, so nothing was decided. The percentage must be null
+        # rather than 100 — an empty denominator is "no evidence", not "fully compliant".
+        assert totals["denominator"] == 0
+        assert totals["compliance_percentage"] is None
+        assert totals["controls_never_assessed"] == totals["controls"]
+
+    async def test_the_percentage_excludes_not_evaluated_from_its_denominator(
+        self, session: AsyncSession, principal: Principal, estate, group_factory
+    ) -> None:
+        """One pass, one fail and two not-evaluated is 50%, not 25% and not 75%.
+
+        This is the arithmetic the template exists to get right. Counting
+        not-evaluated as a pass inflates to 75%; counting it as a fail deflates to 25%.
+        Both are defensible-sounding and both are wrong: the honest statement is "of
+        what we could decide, half passed, and two controls we could not decide".
+        """
+        from netsecops.checks.loader import get_registry
+        from netsecops.db.models.inventory import DeviceGroupMember
+        from netsecops.db.models.policy import CheckResult
+
+        registry = get_registry()
+        framework = next(
+            f for f in sorted(registry.frameworks()) if len(registry.by_framework(f)) >= 4
+        )
+        mapped = registry.by_framework(framework)[:4]
+
+        group = await group_factory(name="denominator-group")
+        session.add(DeviceGroupMember(org_id=1, group_id=group.id, device_id=estate["bad"].id))
+
+        outcomes = ["pass", "fail", "not_evaluated", "not_evaluated"]
+        for definition, outcome in zip(mapped, outcomes, strict=True):
+            session.add(
+                CheckResult(
+                    org_id=1,
+                    device_id=estate["bad"].id,
+                    check_id=definition.id,
+                    outcome=outcome,
+                    severity="medium",
+                    message=f"{definition.id} -> {outcome}",
+                    reason=None if outcome != "not_evaluated" else "NCM path not populated",
+                )
+            )
+        await session.commit()
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.GROUP_COMPLIANCE,
+            actor=principal,
+            scope_group_id=group.id,
+            framework=framework,
+        )
+
+        totals = report.content["totals"]
+        assert totals["passed"] == 1
+        assert totals["failed"] == 1
+        assert totals["not_evaluated"] == 2
+        assert totals["denominator"] == 2, "not_evaluated must stay out of the denominator"
+        assert totals["compliance_percentage"] == 50
+
+
+class TestVulnerabilityReport:
+    async def test_it_carries_the_unassessed_count_into_the_totals(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """ "12 CVEs" over an estate nobody scanned is not a posture statement."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.VULNERABILITY, actor=principal
+        )
+
+        assert report.status == ReportStatus.READY.value
+        assert "devices_unassessed" in report.content["totals"]
+
+    async def test_it_says_the_kev_flags_are_unknown_not_false(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        report = await ReportingService(session).generate(
+            ReportTemplate.VULNERABILITY, actor=principal
+        )
+
+        caveats = report.content["caveats"]
+        assert caveats["kev_feed_ingested"] is False
+        assert "unknown rather than false" in caveats["kev_note"]
+
+
+class TestAaaReview:
+    async def test_the_limitations_are_part_of_the_report(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """With no AAA server collected every device trivially appears on no client
+        list, and the report has to say that rather than imply mass non-registration."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.AAA_REVIEW, actor=principal
+        )
+
+        assert report.status == ReportStatus.READY.value
+        caveats = report.content["caveats"]
+        assert caveats["servers_examined"] == 0
+        assert caveats["registration_analysed"] is False
+
+    async def test_coverage_is_null_when_nothing_could_be_assessed(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        report = await ReportingService(session).generate(
+            ReportTemplate.AAA_REVIEW, actor=principal
+        )
+
+        assert report.content["totals"]["coverage_percentage"] is None
+
+
+class TestDriftReport:
+    async def test_a_device_with_no_baseline_is_not_reported_in_sync(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """Nothing to compare against and nothing changed mean opposite things."""
+        report = await ReportingService(session).generate(ReportTemplate.DRIFT, actor=principal)
+
+        totals = report.content["totals"]
+        assert totals["drifted"] == 0
+        assert totals["never_assessed"] == 2, "neither device has a snapshot"
+        assert totals["in_sync"] == 0
+
+    async def test_the_states_are_distinct_in_the_rows(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        report = await ReportingService(session).generate(ReportTemplate.DRIFT, actor=principal)
+
+        assert {d["state"] for d in report.content["devices"]} == {"never_assessed"}
+
+
+class TestFirewallRulebaseReport:
+    async def test_a_device_with_no_rulebase_is_refused(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """Reporting zero shadowed rules for a switch would read as a clean rulebase."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.FIREWALL_RULEBASE, actor=principal, scope_device_id=estate["bad"].id
+        )
+
+        assert report.status == ReportStatus.FAILED.value
+        assert "no stored configuration" in (report.error_message or "")
+
+    async def test_a_snapshot_without_rules_is_refused_not_reported_as_zero(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """A switch has no rulebase. "0 shadowed rules" would read as a clean one."""
+        from netsecops.db.models.collection import Snapshot
+
+        session.add(
+            Snapshot(
+                org_id=1,
+                device_id=estate["bad"].id,
+                config_hash="a" * 64,
+                normalized_hash="b" * 64,
+                config_redacted="hostname sw-bad\n",
+                # A parsed switch: real NCM, no firewall section.
+                ncm={"management": {"services": {}}},
+                parser_platform="cisco_ios",
+            )
+        )
+        await session.commit()
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.FIREWALL_RULEBASE, actor=principal, scope_device_id=estate["bad"].id
+        )
+
+        assert report.status == ReportStatus.FAILED.value
+        assert "no firewall rulebase" in (report.error_message or "")
+
+    async def test_a_real_rulebase_is_analysed_and_its_caveats_frozen_with_it(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """The success path. Whether external zones were supplied or guessed changes
+        what a NAT exposure finding means, so it is stored beside the count rather than
+        left in the console where a mailed file loses it."""
+        from netsecops.db.models.collection import Snapshot
+
+        def rule(order: int, name: str, **extra: Any) -> dict[str, Any]:
+            return {
+                "order": order,
+                "name": name,
+                "enabled": True,
+                "src": ["any"],
+                "dst": ["any"],
+                "services": ["any"],
+                "action": "allow",
+                "src_zones": ["untrust"],
+                "dst_zones": ["dmz"],
+                **extra,
+            }
+
+        session.add(
+            Snapshot(
+                org_id=1,
+                device_id=estate["bad"].id,
+                config_hash="c" * 64,
+                normalized_hash="d" * 64,
+                config_redacted="",
+                ncm={
+                    "device": {"hostname": "fw-01", "vendor": "paloalto", "platform": "panos"},
+                    "firewall": {
+                        "security_rules": [
+                            # Rule 2 is shadowed by rule 1: same zones, narrower source.
+                            rule(1, "Permit everything"),
+                            rule(2, "Partner access", src=["198.51.100.0/24"]),
+                        ],
+                        "zones": ["untrust", "dmz"],
+                    },
+                },
+                parser_platform="panos",
+            )
+        )
+        await session.commit()
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.FIREWALL_RULEBASE, actor=principal, scope_device_id=estate["bad"].id
+        )
+
+        assert report.status == ReportStatus.READY.value, report.error_message
+        content = report.content
+        assert content["totals"]["rules_total"] == 2
+        assert content["caveats"]["external_zones_inferred"] is True
+        assert "zones" in content["caveats"]
+        # The shadowed rule is the point of the report.
+        assert content["totals"]["rules_with_issues"] >= 1
+
+
+class TestRetention:
+    async def test_an_expired_report_is_flagged_and_still_there(
+        self, session: AsyncSession, principal: Principal, estate, client: AsyncClient
+    ) -> None:
+        """Nothing deletes evidence. An auditor cannot be told a cron removed it."""
+        from netsecops.schemas.reporting import ReportRead
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.EXECUTIVE_SUMMARY, actor=principal
+        )
+        report.expires_at = datetime.now(UTC) - timedelta(days=1)
+        await session.commit()
+
+        rows = (await client.get(REPORTS)).json()["data"]
+        assert len(rows) == 1, "an expired report is still readable"
+        assert rows[0]["retention_expired"] is True
+        assert ReportRead.model_validate(report).retention_expired is True
+
+    async def test_a_report_with_no_expiry_is_never_expired(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        from netsecops.schemas.reporting import ReportRead
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.EXECUTIVE_SUMMARY, actor=principal
+        )
+
+        assert report.expires_at is None
+        assert ReportRead.model_validate(report).retention_expired is False

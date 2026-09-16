@@ -32,6 +32,7 @@ from netsecops.schemas.checks import (
     FindingRead,
     FindingUpdate,
     FrameworkControl,
+    FrameworkSummary,
     PaginatedFindings,
     PolicyAssign,
     PolicyCheckRead,
@@ -566,6 +567,28 @@ async def device_risk(
         components=components,
         assessed_at=latest.created_at,
     )
+
+
+# Declared before `/compliance/{framework}`: FastAPI matches in registration order, and
+# the other way round this path would be read as a framework named "frameworks".
+@router.get(
+    "/compliance/frameworks",
+    response_model=list[FrameworkSummary],
+    dependencies=[Depends(require(Permission.REPORT_READ))],
+    summary="The frameworks checks are mapped to (FR-CHK-05)",
+)
+async def list_frameworks() -> list[FrameworkSummary]:
+    """Served from the registry so no caller hard-codes the list.
+
+    The console did hard-code it, and drifted: CERT-In and CEA were mapped and stayed
+    invisible because nobody updated the second copy. A mapping the product has and
+    does not offer is indistinguishable, to a user, from one it does not have.
+    """
+    registry = get_registry()
+    return [
+        FrameworkSummary(key=name, checks=len(registry.by_framework(name)))
+        for name in sorted(registry.frameworks())
+    ]
 
 
 @router.get(

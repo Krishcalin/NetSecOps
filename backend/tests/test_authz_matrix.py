@@ -264,6 +264,7 @@ MATRIX: list[Case] = [
     Case("PATCH", "/api/v1/findings/{finding_id}", _FINDING_TRIAGERS, body={"status": "open"}),
     Case("GET", "/api/v1/devices/{device_id}/checks", _CHECK_READERS),
     Case("GET", "/api/v1/devices/{device_id}/risk", _DEVICE_READERS),
+    Case("GET", "/api/v1/compliance/frameworks", _DEVICE_READERS),
     Case("GET", "/api/v1/compliance/{framework}", _DEVICE_READERS),
     # ── Exceptions (FR-CHK-07) ──────────────────────────────────────────────
     Case("GET", "/api/v1/exceptions", _CHECK_READERS),
