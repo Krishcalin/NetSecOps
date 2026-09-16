@@ -94,6 +94,13 @@ _CHECK_READERS = frozenset(
 _CHECK_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 _POLICY_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 _FINDING_TRIAGERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+#: Vulnerability reads follow the finding reads: everyone who can see a finding can see
+#: the CVE behind it, including the Network Engineer who has to act on it.
+_VULN_READERS = frozenset(
+    {Role.SUPER_ADMIN, Role.SECURITY_ANALYST, Role.NETWORK_ENGINEER, Role.AUDITOR}
+)
+#: Loading a feed bundle changes what the product asserts about every device at once.
+_VULN_IMPORTERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 #: Accepting risk is explicitly the Analyst's, per the role description in SRS §2.3.
 _EXCEPTION_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 
@@ -309,6 +316,25 @@ MATRIX: list[Case] = [
     # ones that have gone away. That is a finding write, and it is why it is a separate
     # endpoint from the dashboard read rather than a side effect of it.
     Case("POST", "/api/v1/aaa/assess", _FINDING_TRIAGERS),
+    # ── Vulnerabilities (Phase 6) ───────────────────────────────────────────────
+    # Everyone who may read a finding may read the CVE behind it. The Auditor
+    # particularly: "which known-exploited vulnerabilities are live in this estate, and
+    # since when" is an audit question, and an auditor who cannot ask it independently
+    # has to take the answer from the team being audited.
+    Case("GET", "/api/v1/vulnerabilities", _VULN_READERS),
+    Case("GET", "/api/v1/vulnerabilities/summary", _VULN_READERS),
+    Case("GET", "/api/v1/vulnerabilities/feeds", _VULN_READERS),
+    Case("GET", "/api/v1/vulnerabilities/{cve_id}", _VULN_READERS),
+    # Importing a bundle rewrites what the product asserts about every device in the
+    # estate — a doctored advisory set can silence a real exposure everywhere at once.
+    # It sits with the Analyst and the platform owner, not with the Network Engineer
+    # who operates the devices being judged by it.
+    Case(
+        "POST",
+        "/api/v1/vulnerabilities/feeds/import",
+        _VULN_IMPORTERS,
+        files=True,
+    ),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS
@@ -333,6 +359,10 @@ def _resolve(path: str, target: User) -> str:
         # string would 404 before authorization was consulted on some paths.
         .replace("{check_id}", "telnet-disabled")
         .replace("{framework}", "cis")
+        # A CVE that no feed in a fresh database has heard of. The handler 404s, which
+        # still proves the caller passed authorization — and 404 rather than 403 is
+        # itself the assertion for the roles that are allowed through.
+        .replace("{cve_id}", "CVE-2024-20353")
     )
 
 

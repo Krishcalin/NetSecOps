@@ -16,6 +16,7 @@ from netsecops.api.v1 import (
     managers,
     snapshots,
     users,
+    vulnerabilities,
 )
 
 api_v1_router = APIRouter(prefix="/api/v1")
@@ -51,8 +52,17 @@ api_v1_router.include_router(firewall.router)
 # there is no literal/UUID collision to worry about and the order is free.
 api_v1_router.include_router(aaa.router)
 
+# Phase 6 — vulnerability findings, CVE detail and feed status. `/vulnerabilities/
+# summary` and `/vulnerabilities/feeds` are literal siblings of `/vulnerabilities/
+# {cve_id}`, and routes match in registration order — so both literals are declared
+# before the parameterised route inside the module, and
+# `test_literal_vulnerability_routes_are_not_shadowed` fails the build if that is
+# reordered. Same trap as `/devices/pending-review` above; a CVE id is a plain string
+# rather than a UUID, so the mistake would resolve to a 404 rather than a 422 and be
+# correspondingly harder to notice.
+api_v1_router.include_router(vulnerabilities.router)
+
 # Routers added in later phases:
-#   Phase 6 — vulnerabilities
 #   Phase 7 — discovery, reports, integrations, settings
 
 __all__ = ["api_v1_router"]
