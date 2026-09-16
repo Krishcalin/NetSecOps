@@ -15,6 +15,7 @@ from netsecops.api.v1 import (
     firewall,
     jobs,
     managers,
+    reports,
     snapshots,
     users,
     vulnerabilities,
@@ -69,7 +70,12 @@ api_v1_router.include_router(vulnerabilities.router)
 # sweep SRS §1.2 forbids. `discovery.py` says so where someone would look for it.
 api_v1_router.include_router(discovery.router)
 
+# Phase 7 — reports. /reports/templates is a literal sibling of /reports/{report_id},
+# which takes a UUID, so a mis-ordered declaration would 422 rather than 404 — louder
+# than the CVE case above, but the literal still goes first inside the module.
+api_v1_router.include_router(reports.router)
+
 # Routers added in later phases:
-#   Phase 7 — reports, integrations, settings
+#   Phase 7 — integrations, settings
 
 __all__ = ["api_v1_router"]

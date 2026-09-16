@@ -63,6 +63,12 @@ from netsecops.db.models.policy import (
     PolicyCheck,
     RiskScore,
 )
+from netsecops.db.models.reporting import (
+    Report,
+    ReportFormat,
+    ReportStatus,
+    ReportTemplate,
+)
 from netsecops.db.models.user import (
     ApiToken,
     LoginAttempt,
@@ -129,6 +135,10 @@ __all__ = [
     "PolicyAssignment",
     "PolicyCheck",
     "RefreshToken",
+    "Report",
+    "ReportFormat",
+    "ReportStatus",
+    "ReportTemplate",
     "RiskScore",
     "Schedule",
     "Setting",

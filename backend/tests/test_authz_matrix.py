@@ -101,6 +101,14 @@ _VULN_READERS = frozenset(
 )
 #: Loading a feed bundle changes what the product asserts about every device at once.
 _VULN_IMPORTERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+#: Reading a report is reading evidence. The Auditor especially — an auditor who cannot
+#: pull the record independently has to accept it from the team being audited.
+_REPORT_READERS = frozenset(
+    {Role.SUPER_ADMIN, Role.SECURITY_ANALYST, Role.NETWORK_ENGINEER, Role.AUDITOR}
+)
+#: Generating writes a durable artefact that will be mailed and filed under the product's
+#: name, so it sits with the roles that own what the product asserts.
+_REPORT_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 #: Accepting risk is explicitly the Analyst's, per the role description in SRS §2.3.
 _EXCEPTION_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 
@@ -366,6 +374,17 @@ MATRIX: list[Case] = [
         _DEVICE_WRITERS,
         body={"note": "Matrix test rejection, a printer rather than a switch."},
     ),
+    # ── Reports (Phase 7) ───────────────────────────────────────────────────────
+    Case("GET", "/api/v1/reports/templates", _REPORT_READERS),
+    Case("GET", "/api/v1/reports", _REPORT_READERS),
+    Case("GET", "/api/v1/reports/{report_id}", _REPORT_READERS),
+    Case("GET", "/api/v1/reports/{report_id}/download", _REPORT_READERS),
+    Case(
+        "POST",
+        "/api/v1/reports",
+        _REPORT_AUTHORS,
+        body={"template": "executive_summary"},
+    ),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS
@@ -396,6 +415,7 @@ def _resolve(path: str, target: User) -> str:
         .replace("{cve_id}", "CVE-2024-20353")
         .replace("{scope_id}", str(uuid.uuid4()))
         .replace("{host_id}", str(uuid.uuid4()))
+        .replace("{report_id}", str(uuid.uuid4()))
     )
 
 
