@@ -447,6 +447,10 @@ class CiscoAsaParser(CiscoStyleParser):
                 SecurityRule(
                     order=order,
                     name=name,
+                    # Each ACL is its own enforcement context: it is bound to particular
+                    # interfaces, and an entry in one is never evaluated against a packet
+                    # that an entry in another sees.
+                    rulebase=name,
                     action="allow" if action == "permit" else "deny",
                     src=[source] if source else [],
                     dst=[destination] if destination else [],

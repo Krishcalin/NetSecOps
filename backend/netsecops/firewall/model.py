@@ -201,6 +201,10 @@ class ResolvedRule:
     last_hit: str | None
     #: Object names the rulebase referenced but did not define.
     unresolved: tuple[str, ...] = ()
+    #: The named ACL or policy this rule is evaluated in; None on platforms with a
+    #: single ordered policy. Rules in different contexts are never compared, because
+    #: they are never applied to the same packet.
+    rulebase: str | None = None
 
     @property
     def permits(self) -> bool:
@@ -517,6 +521,7 @@ def resolve_rulebase(firewall: Mapping[str, Any]) -> tuple[list[ResolvedRule], O
                 hit_count=raw.get("hit_count"),
                 last_hit=raw.get("last_hit"),
                 unresolved=tuple(missing_src + missing_dst + missing_svc),
+                rulebase=raw.get("rulebase"),
             )
         )
 
