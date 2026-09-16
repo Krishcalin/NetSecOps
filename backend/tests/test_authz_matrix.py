@@ -335,6 +335,37 @@ MATRIX: list[Case] = [
         _VULN_IMPORTERS,
         files=True,
     ),
+    # ── Discovery (Phase 7) ─────────────────────────────────────────────────────
+    # Reading the queue is a device read by another name — "what is on my network that
+    # I did not put there" — so the Network Engineer and the Auditor both get it.
+    Case("GET", "/api/v1/discovery/scopes", _DEVICE_READERS),
+    Case("GET", "/api/v1/discovery/runs", _DEVICE_READERS),
+    Case("GET", "/api/v1/discovery/pending", _DEVICE_READERS),
+    Case("GET", "/api/v1/discovery/pending/{host_id}", _DEVICE_READERS),
+    # Defining a scope decides what the product will send packets to. It is the closest
+    # thing in a read-only product to an outbound action, and it sits with the roles
+    # that may create devices rather than with everyone who may look at them.
+    Case(
+        "POST",
+        "/api/v1/discovery/scopes",
+        _DEVICE_WRITERS,
+        body={"name": "matrix-scope", "targets": ["198.51.100.0/30"]},
+    ),
+    Case("DELETE", "/api/v1/discovery/scopes/{scope_id}", _DEVICE_WRITERS),
+    # Approving is how a discovered address becomes a device the product will collect
+    # from, under a platform that selects its command allow-list. Same writers.
+    Case(
+        "POST",
+        "/api/v1/discovery/pending/{host_id}/approve",
+        _DEVICE_WRITERS,
+        body={"platform": "cisco_ios", "device_class": "switch"},
+    ),
+    Case(
+        "POST",
+        "/api/v1/discovery/pending/{host_id}/reject",
+        _DEVICE_WRITERS,
+        body={"note": "Matrix test rejection, a printer rather than a switch."},
+    ),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS
@@ -363,6 +394,8 @@ def _resolve(path: str, target: User) -> str:
         # still proves the caller passed authorization — and 404 rather than 403 is
         # itself the assertion for the roles that are allowed through.
         .replace("{cve_id}", "CVE-2024-20353")
+        .replace("{scope_id}", str(uuid.uuid4()))
+        .replace("{host_id}", str(uuid.uuid4()))
     )
 
 

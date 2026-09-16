@@ -11,6 +11,7 @@ from netsecops.api.v1 import (
     checks,
     credentials,
     devices,
+    discovery,
     firewall,
     jobs,
     managers,
@@ -62,7 +63,13 @@ api_v1_router.include_router(aaa.router)
 # correspondingly harder to notice.
 api_v1_router.include_router(vulnerabilities.router)
 
+# Phase 7 — discovery scopes and the review queue. Every path here is literal, so there
+# is no shadowing order to preserve. Note there is no route that *starts* a run: the
+# pacing loop FR-DISC-05 calls for does not exist yet, and an unpaced run is the port
+# sweep SRS §1.2 forbids. `discovery.py` says so where someone would look for it.
+api_v1_router.include_router(discovery.router)
+
 # Routers added in later phases:
-#   Phase 7 — discovery, reports, integrations, settings
+#   Phase 7 — reports, integrations, settings
 
 __all__ = ["api_v1_router"]
