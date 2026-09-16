@@ -152,9 +152,7 @@ class VulnViewService:
             enriched = [row for row in enriched if row.kev]
         return enriched, total
 
-    async def _enrich(
-        self, rows: Sequence[tuple[Finding, Device]]
-    ) -> list[VulnerabilityRead]:
+    async def _enrich(self, rows: Sequence[tuple[Finding, Device]]) -> list[VulnerabilityRead]:
         """Attach advisory text and CVE scoring to a page of findings.
 
         Two batched lookups rather than two per row: a device with three hundred open
@@ -289,18 +287,15 @@ class VulnViewService:
             return None
 
         matches = (
-            (
-                await self.session.execute(
-                    select(VulnMatch, Device)
-                    .join(Device, Device.id == VulnMatch.device_id)
-                    .where(
-                        VulnMatch.org_id == self.org_id,
-                        VulnMatch.cve_ids.any(cve_id),
-                    )
+            await self.session.execute(
+                select(VulnMatch, Device)
+                .join(Device, Device.id == VulnMatch.device_id)
+                .where(
+                    VulnMatch.org_id == self.org_id,
+                    VulnMatch.cve_ids.any(cve_id),
                 )
             )
-            .all()
-        )
+        ).all()
 
         if not scope.unrestricted:
             from netsecops.services.inventory import InventoryService
@@ -361,9 +356,13 @@ class VulnViewService:
     # ── summary ──────────────────────────────────────────────────────────
 
     async def summary(self, *, scope: Scope) -> VulnerabilitySummary:
-        stmt = select(Finding, Device).join(Device, Device.id == Finding.device_id).where(
-            Finding.kind == FindingKind.VULN.value,
-            Finding.status.in_(FindingStatus.active_values()),
+        stmt = (
+            select(Finding, Device)
+            .join(Device, Device.id == Finding.device_id)
+            .where(
+                Finding.kind == FindingKind.VULN.value,
+                Finding.status.in_(FindingStatus.active_values()),
+            )
         )
         stmt = await self._visible(stmt, scope)
         rows = (await self.session.execute(stmt)).all()
@@ -380,9 +379,7 @@ class VulnViewService:
             device_id
             for (device_id,) in (
                 await self.session.execute(
-                    select(VulnMatch.device_id)
-                    .where(VulnMatch.org_id == self.org_id)
-                    .distinct()
+                    select(VulnMatch.device_id).where(VulnMatch.org_id == self.org_id).distinct()
                 )
             ).all()
         }

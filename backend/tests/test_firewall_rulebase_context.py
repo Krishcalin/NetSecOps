@@ -47,7 +47,9 @@ class TestSeparateAclsAreNotCompared:
         result = analysed(
             [
                 rule(1, rulebase="OUTSIDE-IN", action="allow", src="any", dst="any"),
-                rule(2, rulebase="INSIDE-OUT", action="deny", src="10.10.0.5/32", dst="10.20.0.0/24"),
+                rule(
+                    2, rulebase="INSIDE-OUT", action="deny", src="10.10.0.5/32", dst="10.20.0.0/24"
+                ),
             ]
         )
 
@@ -59,7 +61,9 @@ class TestSeparateAclsAreNotCompared:
         result = analysed(
             [
                 rule(1, rulebase="OUTSIDE-IN", action="allow", src="any", dst="any"),
-                rule(2, rulebase="OUTSIDE-IN", action="deny", src="10.10.0.5/32", dst="10.20.0.0/24"),
+                rule(
+                    2, rulebase="OUTSIDE-IN", action="deny", src="10.10.0.5/32", dst="10.20.0.0/24"
+                ),
             ]
         )
 
@@ -111,7 +115,9 @@ class TestSinglePolicyPlatformsAreUnaffected:
         result = analysed(
             [
                 rule(1, rulebase=None, action="allow", src="any", dst="any"),
-                rule(2, rulebase="OUTSIDE-IN", action="deny", src="10.10.0.5/32", dst="10.20.0.0/24"),
+                rule(
+                    2, rulebase="OUTSIDE-IN", action="deny", src="10.10.0.5/32", dst="10.20.0.0/24"
+                ),
             ]
         )
 
@@ -125,12 +131,8 @@ class TestTheAsaParserSetsTheContext:
         from netsecops.parsers.base import ParseContext
         from netsecops.parsers.registry import get_parser
 
-        config = (
-            Path(__file__).parent / "fixtures" / "cisco" / "asa" / "9.18" / "edge_firewall.cfg"
-        )
-        ncm = get_parser("cisco_asa").parse(
-            ParseContext(text=config.read_text(encoding="utf-8"))
-        )
+        config = Path(__file__).parent / "fixtures" / "cisco" / "asa" / "9.18" / "edge_firewall.cfg"
+        ncm = get_parser("cisco_asa").parse(ParseContext(text=config.read_text(encoding="utf-8")))
 
         contexts = {rule.rulebase for rule in ncm.firewall.security_rules}
         assert contexts == {"OUTSIDE-IN", "INSIDE-OUT", "DMZ-IN"}
@@ -145,18 +147,10 @@ class TestTheAsaParserSetsTheContext:
         from netsecops.parsers.base import ParseContext
         from netsecops.parsers.registry import get_parser
 
-        config = (
-            Path(__file__).parent / "fixtures" / "cisco" / "asa" / "9.18" / "edge_firewall.cfg"
-        )
-        ncm = get_parser("cisco_asa").parse(
-            ParseContext(text=config.read_text(encoding="utf-8"))
-        )
+        config = Path(__file__).parent / "fixtures" / "cisco" / "asa" / "9.18" / "edge_firewall.cfg"
+        ncm = get_parser("cisco_asa").parse(ParseContext(text=config.read_text(encoding="utf-8")))
         rules, _ = resolve_rulebase(ncm.firewall.model_dump())
         result = analyse(rules)
 
-        cross = [
-            rel
-            for rel in result.relationships
-            if rel.earlier.rulebase != rel.later.rulebase
-        ]
+        cross = [rel for rel in result.relationships if rel.earlier.rulebase != rel.later.rulebase]
         assert cross == []

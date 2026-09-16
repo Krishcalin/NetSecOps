@@ -126,7 +126,7 @@ class TestScopes:
         assert "10.0.0.0" in response.text or "addresses" in response.text.lower()
 
     async def test_a_long_port_list_is_refused(self, client: AsyncClient, signed_in) -> None:
-        """"Configurable list" otherwise permits a sweep assembled entirely from
+        """ "Configurable list" otherwise permits a sweep assembled entirely from
         individually permitted probes."""
         response = await client.post(
             SCOPES,
@@ -190,9 +190,7 @@ class TestScopes:
         assert deleted.status_code == 204
         assert (await client.get(SCOPES)).json() == []
 
-    async def test_deleting_an_unknown_scope_is_a_404(
-        self, client: AsyncClient, signed_in
-    ) -> None:
+    async def test_deleting_an_unknown_scope_is_a_404(self, client: AsyncClient, signed_in) -> None:
         response = await client.delete(f"{SCOPES}/00000000-0000-0000-0000-000000000000")
 
         assert response.status_code == 404
@@ -309,7 +307,7 @@ class TestTheReviewQueue:
     async def test_rejecting_without_a_reason_is_refused(
         self, client: AsyncClient, session: AsyncSession, signed_in
     ) -> None:
-        """"Rejected" with no reason tells the next person nothing, and the question
+        """ "Rejected" with no reason tells the next person nothing, and the question
         they will have — a printer, or a switch nobody got round to — decides whether
         they reopen it."""
         host = await add_host(session, address="198.51.100.40", confidence=15)

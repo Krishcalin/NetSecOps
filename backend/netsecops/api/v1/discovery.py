@@ -29,7 +29,7 @@ from netsecops.api.deps import PrincipalDep, SessionDep, require
 from netsecops.core.errors import NotFoundError
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
-from netsecops.db.models.discovery import DiscoveredHost, DiscoveryRun, DiscoveryScope
+from netsecops.db.models.discovery import DiscoveryRun, DiscoveryScope
 from netsecops.db.models.inventory import DeviceClass
 from netsecops.discovery.scopes import build_scope
 from netsecops.schemas.discovery import (
@@ -73,7 +73,7 @@ def _scope_read(row: DiscoveryScope) -> DiscoveryScopeRead:
             auto_onboard=row.auto_onboard,
         )
         read.address_count = resolved.size
-    except Exception:  # noqa: BLE001 - a stored scope that no longer validates
+    except Exception:
         # Ceilings and parsing rules can tighten between releases. A scope stored under
         # the old rules must still be readable, or it cannot be found and corrected.
         read.address_count = None

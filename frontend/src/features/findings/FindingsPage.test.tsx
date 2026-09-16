@@ -126,7 +126,9 @@ describe('FindingsPage', () => {
     // The list answers "what should I do next", so resolved findings are out of the
     // way until asked for.
     expect(screen.getByLabelText(/open findings only/i)).toBeChecked();
-    const called = fetchMock.mock.calls.map((c) => String(c[0])).find((u) => u.includes('/findings?'));
+    const called = fetchMock.mock.calls
+      .map((c) => String(c[0]))
+      .find((u) => u.includes('/findings?'));
     expect(called).toContain('active_only=true');
   });
 
@@ -202,9 +204,7 @@ describe('FindingsPage', () => {
     await screen.findByText('Telnet is disabled');
     await user.click(screen.getByRole('button', { name: 'Details' }));
 
-    expect(
-      await screen.findByText(/reasons over the parsed configuration/i),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(/reasons over the parsed configuration/i)).toBeInTheDocument();
   });
 
   it('says so plainly when there are no findings', async () => {

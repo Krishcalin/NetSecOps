@@ -254,7 +254,9 @@ class TestPanOsHitCounts:
         appear wrong — so a response the parser does not recognise leaves every rule
         exactly where it was before the command was added.
         """
-        ncm = parse_panos("<response status='success'><result><something-else/></result></response>")
+        ncm = parse_panos(
+            "<response status='success'><result><something-else/></result></response>"
+        )
 
         assert all(rule.hit_count is None for rule in ncm.firewall.security_rules)
 

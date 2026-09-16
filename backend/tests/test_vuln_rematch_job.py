@@ -75,7 +75,9 @@ async def make_snapshot(session: AsyncSession, device: Device, version: str) -> 
     return row
 
 
-async def make_job(session: AsyncSession, device: Device, job_type: JobType) -> tuple[Job, JobDevice]:
+async def make_job(
+    session: AsyncSession, device: Device, job_type: JobType
+) -> tuple[Job, JobDevice]:
     job = Job(
         org_id=device.org_id,
         job_type=job_type.value,
@@ -137,7 +139,7 @@ class TestRematchDoesNotTouchTheDevice:
     async def test_a_device_with_no_snapshot_fails_rather_than_reporting_clean(
         self, session: AsyncSession, principal: Principal
     ) -> None:
-        """"Nothing matched" and "nothing to match against" are the same empty result.
+        """ "Nothing matched" and "nothing to match against" are the same empty result.
 
         Only one of them means the device is fine, so the job says which.
         """

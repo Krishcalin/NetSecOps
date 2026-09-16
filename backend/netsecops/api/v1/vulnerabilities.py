@@ -103,9 +103,7 @@ async def list_vulnerabilities(
     dependencies=[Depends(require(Permission.VULN_READ))],
     summary="Estate vulnerability counts, including what was never assessed",
 )
-async def vulnerability_summary(
-    views: ViewDep, principal: PrincipalDep
-) -> VulnerabilitySummary:
+async def vulnerability_summary(views: ViewDep, principal: PrincipalDep) -> VulnerabilitySummary:
     return await views.summary(scope=principal.scope)
 
 

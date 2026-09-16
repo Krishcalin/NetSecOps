@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any
 
 import pytest
 from httpx import AsyncClient
@@ -191,10 +190,16 @@ async def estate(session: AsyncSession, principal: Principal, analyst_user: User
     await add_cve(session, cve_id="CVE-2024-11111", score=5.3, kev=False)
 
     await add_finding(
-        session, confirmed_device, kev_advisory, confidence="confirmed", severity="critical",
+        session,
+        confirmed_device,
+        kev_advisory,
+        confidence="confirmed",
+        severity="critical",
         fixed=["15.2(7)E6"],
     )
-    await add_finding(session, likely_device, quiet_advisory, confidence="likely", severity="medium")
+    await add_finding(
+        session, likely_device, quiet_advisory, confidence="likely", severity="medium"
+    )
 
     await add_match(session, confirmed_device, kev_advisory, confidence="confirmed")
     await add_match(session, likely_device, quiet_advisory, confidence="likely")
@@ -238,9 +243,7 @@ class TestListing:
         rows = response.json()["data"]
         assert [row["severity"] for row in rows] == ["critical", "medium"]
 
-    async def test_a_row_carries_what_fr_vul_04_requires(
-        self, client: AsyncClient, estate
-    ) -> None:
+    async def test_a_row_carries_what_fr_vul_04_requires(self, client: AsyncClient, estate) -> None:
         """CVE, advisory, CVSS, EPSS, KEV, dates, fixed versions, links — in one row."""
         rows = (await client.get(LIST)).json()["data"]
         row = next(r for r in rows if r["severity"] == "critical")
@@ -369,7 +372,7 @@ class TestCveDetail:
     async def test_an_unknown_cve_is_a_404_not_an_empty_all_clear(
         self, client: AsyncClient, estate
     ) -> None:
-        """"Nothing affected" and "never heard of it" must not render the same."""
+        """ "Nothing affected" and "never heard of it" must not render the same."""
         response = await client.get(f"{LIST}/CVE-1999-00001")
 
         assert response.status_code == 404
@@ -389,7 +392,12 @@ class TestSummary:
         assert body["kev_count"] == 1
 
     async def test_a_device_with_no_match_rows_counts_as_unassessed(
-        self, client: AsyncClient, session: AsyncSession, principal, analyst_user, authenticate,
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        principal,
+        analyst_user,
+        authenticate,
         estate,
     ) -> None:
         await add_device(
@@ -444,10 +452,8 @@ class TestFeeds:
         history = (await client.get(FEEDS)).json()
         assert [row["feed"] for row in history] == ["nvd-offline"]
 
-    async def test_a_failed_import_is_still_recorded(
-        self, client: AsyncClient, estate
-    ) -> None:
-        """"When did this last work" is unanswerable if only successes are kept."""
+    async def test_a_failed_import_is_still_recorded(self, client: AsyncClient, estate) -> None:
+        """ "When did this last work" is unanswerable if only successes are kept."""
         response = await client.post(
             IMPORT,
             params={"feed": "broken"},
@@ -458,9 +464,7 @@ class TestFeeds:
         history = (await client.get(FEEDS)).json()
         assert any(row["feed"] == "broken" and row["status"] == "failed" for row in history)
 
-    async def test_a_digest_mismatch_imports_nothing(
-        self, client: AsyncClient, estate
-    ) -> None:
+    async def test_a_digest_mismatch_imports_nothing(self, client: AsyncClient, estate) -> None:
         bundle = json.dumps({"vulnerabilities": []}).encode()
 
         response = await client.post(
@@ -491,9 +495,7 @@ class TestScoping:
     out of a long page of invisible ones and reports a total the caller cannot see.
     """
 
-    async def test_a_scope_with_no_groups_sees_nothing(
-        self, session: AsyncSession, estate
-    ) -> None:
+    async def test_a_scope_with_no_groups_sees_nothing(self, session: AsyncSession, estate) -> None:
         from netsecops.services.vuln_view import VulnViewService
 
         rows, total = await VulnViewService(session).list_vulnerabilities(
@@ -526,9 +528,7 @@ class TestScoping:
 
         assert total == 0
 
-    async def test_the_summary_is_scoped_as_well(
-        self, session: AsyncSession, estate
-    ) -> None:
+    async def test_the_summary_is_scoped_as_well(self, session: AsyncSession, estate) -> None:
         from netsecops.services.vuln_view import VulnViewService
 
         summary = await VulnViewService(session).summary(

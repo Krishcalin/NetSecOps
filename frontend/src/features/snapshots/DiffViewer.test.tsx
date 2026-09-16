@@ -97,14 +97,13 @@ describe('DiffViewer', () => {
 
       expect(added).toHaveLength(1);
       expect(removed).toHaveLength(0);
-      expect(within(added[0] as HTMLElement).getByText('logging host 10.0.0.1')).toBeInTheDocument();
+      expect(
+        within(added[0] as HTMLElement).getByText('logging host 10.0.0.1'),
+      ).toBeInTheDocument();
     });
 
     it('keeps the line numbers of each side independent after an insertion', async () => {
-      const container = await renderSplit(
-        ['a', 'b'],
-        ['a', 'inserted', 'b'],
-      );
+      const container = await renderSplit(['a', 'b'], ['a', 'inserted', 'b']);
 
       const rows = container.querySelectorAll('.diff__row');
       const last = rows[rows.length - 1] as HTMLElement;

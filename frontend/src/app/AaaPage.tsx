@@ -58,9 +58,9 @@ function Coverage({ posture }: { posture: AaaPosture }) {
 
       {percentage === null && posture.devices_total > 0 && (
         <p className="alert alert--warning" role="status">
-          No device has an AAA configuration NetSecOps could read, so coverage has no
-          honest denominator. This is not 0% &mdash; it is the absence of the data needed
-          to answer. Run a collection first.
+          No device has an AAA configuration NetSecOps could read, so coverage has no honest
+          denominator. This is not 0% &mdash; it is the absence of the data needed to answer. Run a
+          collection first.
         </p>
       )}
 
@@ -98,9 +98,9 @@ function Protocols({ posture }: { posture: AaaPosture }) {
         <>
           {weak.length > 0 && (
             <p className="alert alert--error" role="alert">
-              {weak.length} weak protocol{weak.length === 1 ? ' is' : 's are'} still
-              accepted: <strong>{weak.map((p) => p.name).join(', ')}</strong>. One policy
-              still accepting these is a way in regardless of what the others require.
+              {weak.length} weak protocol{weak.length === 1 ? ' is' : 's are'} still accepted:{' '}
+              <strong>{weak.map((p) => p.name).join(', ')}</strong>. One policy still accepting
+              these is a way in regardless of what the others require.
             </p>
           )}
           <div className="table-wrap">
@@ -208,9 +208,9 @@ function CorrelationPanel({ correlation }: { correlation: Correlation }) {
 
       {!correlation.registration_analysed && (
         <p className="alert alert--warning" role="status">
-          No AAA server has been collected from, so NetSecOps cannot tell which devices
-          are registered as clients. Nothing below is a statement that they are not
-          &mdash; it is the absence of the data needed to ask.
+          No AAA server has been collected from, so NetSecOps cannot tell which devices are
+          registered as clients. Nothing below is a statement that they are not &mdash; it is the
+          absence of the data needed to ask.
         </p>
       )}
 
@@ -273,8 +273,8 @@ function CorrelationPanel({ correlation }: { correlation: Correlation }) {
           <ul className="rulebase__limits-inline">
             {unknown.map((server) => (
               <li key={server.address}>
-                <strong className="mono">{server.address}</strong> ({server.kind}) &mdash;
-                used by {server.used_by.join(', ')}
+                <strong className="mono">{server.address}</strong> ({server.kind}) &mdash; used by{' '}
+                {server.used_by.join(', ')}
               </li>
             ))}
           </ul>
@@ -297,9 +297,9 @@ function CorrelationPanel({ correlation }: { correlation: Correlation }) {
 
       {correlation.secrets_not_exposable > 0 && (
         <p className="muted">
-          {correlation.secrets_not_exposable} client(s) have a shared secret their server
-          does not expose, so reuse is <strong>unknown</strong> for those rather than
-          absent. Cisco ISE and FortiAuthenticator both return a masked value.
+          {correlation.secrets_not_exposable} client(s) have a shared secret their server does not
+          expose, so reuse is <strong>unknown</strong> for those rather than absent. Cisco ISE and
+          FortiAuthenticator both return a masked value.
         </p>
       )}
     </section>
@@ -342,8 +342,8 @@ export function AaaPage() {
       <header className="page__header">
         <h1>AAA posture</h1>
         <p className="page__subtitle">
-          Who authenticates where, what the servers will accept, and which certificates
-          stop working soon.
+          Who authenticates where, what the servers will accept, and which certificates stop working
+          soon.
         </p>
       </header>
 
