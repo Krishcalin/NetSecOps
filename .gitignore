@@ -79,12 +79,22 @@ secrets/
 master.key
 
 # --- Application runtime output ---
-reports/
-artifacts/
-uploads/
-backups/
+# Anchored with a leading slash, deliberately. A bare `reports/` matches a directory of
+# that name at ANY depth, so it silently swallowed `frontend/src/features/reports/` —
+# source that built fine locally and would have been absent from a fresh clone. The same
+# trap is one `features/artifacts/` away, so all of these are pinned to where the app
+# actually writes rather than left to match by name.
+/reports/
+/artifacts/
+/uploads/
+/backups/
+/logs/
+/backend/reports/
+/backend/artifacts/
+/backend/uploads/
+/backend/backups/
+/backend/logs/
 *.log
-logs/
 
 # --- Database ---
 *.sqlite3
