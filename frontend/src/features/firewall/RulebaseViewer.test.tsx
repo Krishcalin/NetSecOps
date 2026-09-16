@@ -150,7 +150,9 @@ describe('RulebaseViewer', () => {
   });
 
   it('shows a disabled rule rather than hiding it, but marks it', () => {
-    render(<RulebaseViewer rulebase={makeRulebase([makeRule(1, 'Old rule', { enabled: false })])} />);
+    render(
+      <RulebaseViewer rulebase={makeRulebase([makeRule(1, 'Old rule', { enabled: false })])} />,
+    );
 
     expect(screen.getByText('Old rule')).toBeInTheDocument();
     expect(screen.getByText('disabled')).toBeInTheDocument();

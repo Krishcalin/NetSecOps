@@ -13,12 +13,7 @@ import { NavLink } from 'react-router-dom';
 
 import { api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
-import type {
-  Finding,
-  FindingDetail,
-  FindingStatus,
-  Severity,
-} from '../features/findings/types';
+import type { Finding, FindingDetail, FindingStatus, Severity } from '../features/findings/types';
 import { SETTABLE_STATUSES, STATUS_LABELS } from '../features/findings/types';
 import type { Paginated } from '../features/inventory/types';
 
@@ -46,8 +41,8 @@ function EvidenceBlock({ finding }: { finding: FindingDetail }) {
   if (lines.length === 0) {
     return (
       <p className="empty">
-        This check reasons over the parsed configuration rather than a single line, so
-        there is no excerpt to show.{' '}
+        This check reasons over the parsed configuration rather than a single line, so there is no
+        excerpt to show.{' '}
         {finding.evidence?.observed != null && (
           <>
             It observed: <code>{JSON.stringify(finding.evidence.observed)}</code>.
@@ -94,8 +89,7 @@ function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () =
   });
 
   const setStatus = useMutation({
-    mutationFn: (status: FindingStatus) =>
-      api.patch<Finding>(`/findings/${findingId}`, { status }),
+    mutationFn: (status: FindingStatus) => api.patch<Finding>(`/findings/${findingId}`, { status }),
     onSuccess: () => {
       setError(null);
       void queryClient.invalidateQueries({ queryKey: ['findings'] });
@@ -185,8 +179,8 @@ function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () =
             </button>
           ))}
           <p className="finding__note">
-            A finding is marked resolved by its check passing on a later assessment, not
-            by hand — so that the status is a measurement rather than a claim.
+            A finding is marked resolved by its check passing on a later assessment, not by hand —
+            so that the status is a measurement rather than a claim.
           </p>
         </div>
       )}
@@ -220,8 +214,8 @@ export function FindingsPage() {
       <header className="page__header">
         <h1>Findings</h1>
         <p className="page__subtitle">
-          What the checks concluded, worst first. Every finding shows the configuration
-          line behind it.
+          What the checks concluded, worst first. Every finding shows the configuration line behind
+          it.
         </p>
       </header>
 
@@ -260,8 +254,8 @@ export function FindingsPage() {
         <p className="page-loading">Loading…</p>
       ) : total === 0 ? (
         <p className="empty">
-          No findings. Either nothing has been assessed yet, or every check passed —
-          the device pages show which.
+          No findings. Either nothing has been assessed yet, or every check passed — the device
+          pages show which.
         </p>
       ) : (
         <div className="table-wrap">
@@ -296,9 +290,7 @@ export function FindingsPage() {
                   <td>
                     <button
                       className="button button--ghost button--small"
-                      onClick={() =>
-                        setSelected(selected === finding.id ? null : finding.id)
-                      }
+                      onClick={() => setSelected(selected === finding.id ? null : finding.id)}
                     >
                       {selected === finding.id ? 'Hide' : 'Details'}
                     </button>

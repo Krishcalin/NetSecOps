@@ -1,0 +1,72 @@
+<response status="success">
+  <result>
+    <rule-hit-count>
+      <vsys>
+        <entry name="vsys1">
+          <rule-base>
+            <entry name="security">
+              <rules>
+                <entry name="Mgmt to DMZ">
+                  <latest>yes</latest>
+                  <hit-count>88214</hit-count>
+                  <last-hit-timestamp>1757980800</last-hit-timestamp>
+                  <first-hit-timestamp>1680000000</first-hit-timestamp>
+                  <rule-creation-timestamp>1670000000</rule-creation-timestamp>
+                  <rule-modification-timestamp>1670000000</rule-modification-timestamp>
+                </entry>
+                <entry name="Block inbound RDP">
+                  <latest>yes</latest>
+                  <hit-count>4021</hit-count>
+                  <last-hit-timestamp>1757894400</last-hit-timestamp>
+                  <first-hit-timestamp>1685000000</first-hit-timestamp>
+                  <rule-creation-timestamp>1670000000</rule-creation-timestamp>
+                  <rule-modification-timestamp>1670000000</rule-modification-timestamp>
+                </entry>
+                <entry name="Partner RDP to web">
+                  <latest>yes</latest>
+                  <hit-count>17</hit-count>
+                  <last-hit-timestamp>1694880000</last-hit-timestamp>
+                  <first-hit-timestamp>1690000000</first-hit-timestamp>
+                  <rule-creation-timestamp>1685000000</rule-creation-timestamp>
+                  <rule-modification-timestamp>1685000000</rule-modification-timestamp>
+                </entry>
+                <entry name="Inbound web">
+                  <latest>yes</latest>
+                  <hit-count>1904772</hit-count>
+                  <last-hit-timestamp>1757980800</last-hit-timestamp>
+                  <first-hit-timestamp>1660000000</first-hit-timestamp>
+                  <rule-creation-timestamp>1650000000</rule-creation-timestamp>
+                  <rule-modification-timestamp>1650000000</rule-modification-timestamp>
+                </entry>
+                <entry name="Outbound any">
+                  <latest>yes</latest>
+                  <hit-count>20551903</hit-count>
+                  <last-hit-timestamp>1757980800</last-hit-timestamp>
+                  <first-hit-timestamp>1650000000</first-hit-timestamp>
+                  <rule-creation-timestamp>1650000000</rule-creation-timestamp>
+                  <rule-modification-timestamp>1650000000</rule-modification-timestamp>
+                </entry>
+                <entry name="Old migration rule">
+                  <latest>yes</latest>
+                  <hit-count>0</hit-count>
+                  <last-hit-timestamp>0</last-hit-timestamp>
+                  <first-hit-timestamp>0</first-hit-timestamp>
+                  <rule-creation-timestamp>1640000000</rule-creation-timestamp>
+                  <rule-modification-timestamp>1640000000</rule-modification-timestamp>
+                </entry>
+                <entry name="Cleanup deny">
+                  <latest>yes</latest>
+                  <hit-count>331402</hit-count>
+                  <last-hit-timestamp>1757980800</last-hit-timestamp>
+                  <first-hit-timestamp>1650000000</first-hit-timestamp>
+                  <rule-creation-timestamp>1650000000</rule-creation-timestamp>
+                  <rule-modification-timestamp>1650000000</rule-modification-timestamp>
+                </entry>
+              </rules>
+            </entry>
+          </rule-base>
+        </entry>
+      </vsys>
+    </rule-hit-count>
+  </result>
+</response>

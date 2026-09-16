@@ -30,5 +30,6 @@ references:
   pci_dss: ["8.2.8"]
   iso_27001: ["A.8.5"]
   cwe: ["CWE-613"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, session, cis-level-1]

@@ -64,8 +64,8 @@ function Summary({ rulebase }: { rulebase: Rulebase }) {
       <header className="card__header">
         <h2 className="card__title">Rulebase analysis</h2>
         <span className="muted">
-          {summary.rules_analysed} of {summary.rules_total} rules analysed in{' '}
-          {summary.analysis_ms} ms
+          {summary.rules_analysed} of {summary.rules_total} rules analysed in {summary.analysis_ms}{' '}
+          ms
         </span>
       </header>
 
@@ -97,8 +97,8 @@ function Summary({ rulebase }: { rulebase: Rulebase }) {
 
       {summary.truncated && (
         <p className="alert alert--warning" role="status">
-          The pairwise analysis hit its cap, so not every example is listed. The counts
-          above are still exact.
+          The pairwise analysis hit its cap, so not every example is listed. The counts above are
+          still exact.
         </p>
       )}
     </section>
@@ -209,8 +209,8 @@ function RuleQuery({ deviceId }: { deviceId: string }) {
           {result.also_matched.length > 0 && (
             <p className="muted">
               {result.also_matched.length} later rule(s) would also have matched:{' '}
-              {result.also_matched.map((r) => `#${r.order} ${r.name}`).join(', ')}. They never
-              fire, because the rule above wins.
+              {result.also_matched.map((r) => `#${r.order} ${r.name}`).join(', ')}. They never fire,
+              because the rule above wins.
             </p>
           )}
 
@@ -241,15 +241,13 @@ export function FirewallPage() {
   // that can only ever answer "no rulebase" is not a useful choice.
   const devices = useQuery({
     queryKey: ['devices', 'firewalls'],
-    queryFn: () =>
-      api.get<Paginated<DeviceDetail>>('/devices?limit=200&device_class=firewall'),
+    queryFn: () => api.get<Paginated<DeviceDetail>>('/devices?limit=200&device_class=firewall'),
     enabled: !routeDeviceId,
   });
 
   const rulebase = useQuery({
     queryKey: ['rulebase', deviceId, filters],
-    queryFn: () =>
-      api.get<Rulebase>(`/devices/${deviceId}/firewall/rulebase${toQuery(filters)}`),
+    queryFn: () => api.get<Rulebase>(`/devices/${deviceId}/firewall/rulebase${toQuery(filters)}`),
     enabled: Boolean(deviceId),
   });
 
@@ -400,9 +398,7 @@ export function FirewallPage() {
                 <input
                   type="checkbox"
                   checked={filters.with_issues_only}
-                  onChange={(e) =>
-                    setFilters({ ...filters, with_issues_only: e.target.checked })
-                  }
+                  onChange={(e) => setFilters({ ...filters, with_issues_only: e.target.checked })}
                 />
                 Only rules with problems
               </label>
@@ -411,9 +407,7 @@ export function FirewallPage() {
                 <input
                   type="checkbox"
                   checked={filters.include_disabled}
-                  onChange={(e) =>
-                    setFilters({ ...filters, include_disabled: e.target.checked })
-                  }
+                  onChange={(e) => setFilters({ ...filters, include_disabled: e.target.checked })}
                 />
                 Include disabled
               </label>
@@ -449,8 +443,8 @@ export function FirewallPage() {
                 <h2 className="card__title">NAT</h2>
                 {!rulebase.data.summary.exposure_analysed && (
                   <span className="muted">
-                    No zone was identified as facing an untrusted network, so exposure was
-                    not analysed.
+                    No zone was identified as facing an untrusted network, so exposure was not
+                    analysed.
                   </span>
                 )}
               </header>

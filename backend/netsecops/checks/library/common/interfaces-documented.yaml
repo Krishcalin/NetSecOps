@@ -26,6 +26,7 @@ remediation: >-
 references:
   nist_800_53: ["CM-8"]
   iso_27001: ["A.5.9"]
+  cea: ["Network Security"]
 
 tags: [documentation, hygiene]
 enabled_by_default: false

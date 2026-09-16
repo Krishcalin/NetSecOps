@@ -90,10 +90,17 @@ class DeviceAssessment:
     """What one device's vulnerability assessment produced."""
 
     device_id: uuid.UUID
+    #: The snapshot the verdicts were reached against. None means there was nothing to
+    #: match — which produces the same empty result as "nothing matched" and must not be
+    #: reported as one.
+    snapshot_id: uuid.UUID | None = None
     matches: list[Match] = field(default_factory=list)
     findings_opened: int = 0
     findings_resolved: int = 0
     lifecycle: LifecycleStatus | None = None
+    #: How many advisories were weighed. Zero means the catalogue is empty, not that the
+    #: device is clean — the distinction a job log has to preserve.
+    advisories_considered: int = 0
     #: Devices the assessment could not rule on, and why. Surfaced rather than counted
     #: as clean â€” this is the coverage gap the estate does not know it has.
     not_evaluated: list[str] = field(default_factory=list)
@@ -126,8 +133,10 @@ class VulnAssessmentService:
             )
             return outcome
 
+        outcome.snapshot_id = snapshot.id
         ncm = NormalisedConfig.model_validate(snapshot.ncm or {})
         advisories = await self._advisories()
+        outcome.advisories_considered = len(advisories)
 
         for row in advisories:
             advisory = _rebuild(row)

@@ -28,6 +28,7 @@ references:
   nist_800_53: ["SC-17"]
   iso_27001: ["A.8.24"]
   cwe: ["CWE-295"]
+  cea: ["Cryptography"]
 
 tags: [certificates, trust]
 enabled_by_default: false

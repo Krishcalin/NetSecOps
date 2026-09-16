@@ -30,5 +30,6 @@ references:
   pci_dss: ["2.2.5", "4.1"]
   iso_27001: ["A.8.20"]
   cwe: ["CWE-319"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, cleartext, cisco, cis-level-1]

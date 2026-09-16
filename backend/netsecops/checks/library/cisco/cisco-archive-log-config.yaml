@@ -34,5 +34,7 @@ references:
   pci_dss: ["10.2.1", "10.2.2"]
   iso_27001: ["A.8.15", "A.8.32"]
   cwe: ["CWE-778"]
+  cert_in: ["Log Retention"]
+  cea: ["Logging and Monitoring"]
 
 tags: [logging, change-control, cisco, cis-level-1]

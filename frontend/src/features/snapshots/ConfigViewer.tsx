@@ -144,7 +144,10 @@ export function ConfigViewer({ config, jumpToLine, highlightLines, caption }: Pr
           )}
         </div>
 
-        <span className="cfg__note" title="Secrets are replaced before the configuration leaves the server">
+        <span
+          className="cfg__note"
+          title="Secrets are replaced before the configuration leaves the server"
+        >
           Redacted
         </span>
       </div>

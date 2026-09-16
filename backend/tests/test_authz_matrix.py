@@ -94,6 +94,13 @@ _CHECK_READERS = frozenset(
 _CHECK_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 _POLICY_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 _FINDING_TRIAGERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+#: Vulnerability reads follow the finding reads: everyone who can see a finding can see
+#: the CVE behind it, including the Network Engineer who has to act on it.
+_VULN_READERS = frozenset(
+    {Role.SUPER_ADMIN, Role.SECURITY_ANALYST, Role.NETWORK_ENGINEER, Role.AUDITOR}
+)
+#: Loading a feed bundle changes what the product asserts about every device at once.
+_VULN_IMPORTERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 #: Accepting risk is explicitly the Analyst's, per the role description in SRS §2.3.
 _EXCEPTION_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 
@@ -309,6 +316,56 @@ MATRIX: list[Case] = [
     # ones that have gone away. That is a finding write, and it is why it is a separate
     # endpoint from the dashboard read rather than a side effect of it.
     Case("POST", "/api/v1/aaa/assess", _FINDING_TRIAGERS),
+    # ── Vulnerabilities (Phase 6) ───────────────────────────────────────────────
+    # Everyone who may read a finding may read the CVE behind it. The Auditor
+    # particularly: "which known-exploited vulnerabilities are live in this estate, and
+    # since when" is an audit question, and an auditor who cannot ask it independently
+    # has to take the answer from the team being audited.
+    Case("GET", "/api/v1/vulnerabilities", _VULN_READERS),
+    Case("GET", "/api/v1/vulnerabilities/summary", _VULN_READERS),
+    Case("GET", "/api/v1/vulnerabilities/feeds", _VULN_READERS),
+    Case("GET", "/api/v1/vulnerabilities/{cve_id}", _VULN_READERS),
+    # Importing a bundle rewrites what the product asserts about every device in the
+    # estate — a doctored advisory set can silence a real exposure everywhere at once.
+    # It sits with the Analyst and the platform owner, not with the Network Engineer
+    # who operates the devices being judged by it.
+    Case(
+        "POST",
+        "/api/v1/vulnerabilities/feeds/import",
+        _VULN_IMPORTERS,
+        files=True,
+    ),
+    # ── Discovery (Phase 7) ─────────────────────────────────────────────────────
+    # Reading the queue is a device read by another name — "what is on my network that
+    # I did not put there" — so the Network Engineer and the Auditor both get it.
+    Case("GET", "/api/v1/discovery/scopes", _DEVICE_READERS),
+    Case("GET", "/api/v1/discovery/runs", _DEVICE_READERS),
+    Case("GET", "/api/v1/discovery/pending", _DEVICE_READERS),
+    Case("GET", "/api/v1/discovery/pending/{host_id}", _DEVICE_READERS),
+    # Defining a scope decides what the product will send packets to. It is the closest
+    # thing in a read-only product to an outbound action, and it sits with the roles
+    # that may create devices rather than with everyone who may look at them.
+    Case(
+        "POST",
+        "/api/v1/discovery/scopes",
+        _DEVICE_WRITERS,
+        body={"name": "matrix-scope", "targets": ["198.51.100.0/30"]},
+    ),
+    Case("DELETE", "/api/v1/discovery/scopes/{scope_id}", _DEVICE_WRITERS),
+    # Approving is how a discovered address becomes a device the product will collect
+    # from, under a platform that selects its command allow-list. Same writers.
+    Case(
+        "POST",
+        "/api/v1/discovery/pending/{host_id}/approve",
+        _DEVICE_WRITERS,
+        body={"platform": "cisco_ios", "device_class": "switch"},
+    ),
+    Case(
+        "POST",
+        "/api/v1/discovery/pending/{host_id}/reject",
+        _DEVICE_WRITERS,
+        body={"note": "Matrix test rejection, a printer rather than a switch."},
+    ),
 ]
 
 MATRIX_KEYS = {c.key for c in MATRIX} | PUBLIC_PATHS | SELF_SERVICE_PATHS
@@ -333,6 +390,12 @@ def _resolve(path: str, target: User) -> str:
         # string would 404 before authorization was consulted on some paths.
         .replace("{check_id}", "telnet-disabled")
         .replace("{framework}", "cis")
+        # A CVE that no feed in a fresh database has heard of. The handler 404s, which
+        # still proves the caller passed authorization — and 404 rather than 403 is
+        # itself the assertion for the roles that are allowed through.
+        .replace("{cve_id}", "CVE-2024-20353")
+        .replace("{scope_id}", str(uuid.uuid4()))
+        .replace("{host_id}", str(uuid.uuid4()))
     )
 
 

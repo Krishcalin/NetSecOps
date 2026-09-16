@@ -32,5 +32,6 @@ references:
   pci_dss: ["1.3.1", "9.1.2"]
   iso_27001: ["A.8.22", "A.7.2"]
   cwe: ["CWE-284"]
+  cea: ["Network Security"]
 
 tags: [layer2, edge-security, cisco, cis-level-2]

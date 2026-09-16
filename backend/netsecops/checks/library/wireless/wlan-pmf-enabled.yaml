@@ -33,5 +33,6 @@ references:
   nist_800_53: ["SC-5", "AC-18"]
   iso_27001: ["A.8.20"]
   cwe: ["CWE-306"]
+  cea: ["Wireless Security"]
 
 tags: [wireless]

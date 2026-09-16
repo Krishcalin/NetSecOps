@@ -26,5 +26,6 @@ references:
   pci_dss: ["4.2.1"]
   iso_27001: ["A.8.24"]
   cwe: ["CWE-327", "CWE-757"]
+  cea: ["Cryptography"]
 
 tags: [management-plane, crypto, tls]

@@ -2,21 +2,10 @@
 
 export type Severity = 'critical' | 'high' | 'medium' | 'low' | 'info';
 
-export type Outcome =
-  | 'pass'
-  | 'fail'
-  | 'warning'
-  | 'not_applicable'
-  | 'not_evaluated'
-  | 'error';
+export type Outcome = 'pass' | 'fail' | 'warning' | 'not_applicable' | 'not_evaluated' | 'error';
 
 export type FindingStatus =
-  | 'new'
-  | 'open'
-  | 'reopened'
-  | 'resolved'
-  | 'risk_accepted'
-  | 'false_positive';
+  'new' | 'open' | 'reopened' | 'resolved' | 'risk_accepted' | 'false_positive';
 
 export interface EvidenceLine {
   path: string;
@@ -140,8 +129,4 @@ export const OUTCOME_LABELS: Record<Outcome, string> = {
 
 /** Statuses an operator may set. `resolved` is deliberately absent: a finding is
  *  resolved by its check passing on a later assessment, never by hand. */
-export const SETTABLE_STATUSES: FindingStatus[] = [
-  'open',
-  'risk_accepted',
-  'false_positive',
-];
+export const SETTABLE_STATUSES: FindingStatus[] = ['open', 'risk_accepted', 'false_positive'];

@@ -1,0 +1,33 @@
+# Line endings, normalised in the repository (SRS §2.2 — the toolchain is fixed, and
+# so is the form the sources are stored in).
+#
+# Without this file a Windows checkout with `core.autocrlf=true` rewrites every source
+# to CRLF, and both formatters then fail their own CI step: Prettier defaults to
+# `endOfLine: "lf"` and Ruff's formatter agrees. `npm run format:check` reports every
+# file in the tree as unformatted, which is indistinguishable from a real regression and
+# trains everyone to ignore the step.
+#
+# `text=auto eol=lf` stores LF and checks LF out on every platform. Editors on Windows
+# have handled LF for a decade; CI, Docker and the appliance image all expect it.
+
+* text=auto eol=lf
+
+# Binary, and never to be line-ending-converted or diffed as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+
+# Fixtures are device output, byte for byte. A CRLF rewrite of a Cisco configuration
+# would change what the parser sees and what its provenance line numbers point at, so
+# these are pinned explicitly rather than left to the `text=auto` heuristic.
+backend/tests/fixtures/** -text
+
+# Generated lockfiles: keep them out of diffs and merge conflicts where possible.
+package-lock.json -diff

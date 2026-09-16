@@ -32,5 +32,6 @@ references:
   nist_800_53: ["AC-2", "IA-2", "AU-2"]
   pci_dss: ["8.2.1"]
   iso_27001: ["A.5.16"]
+  cea: ["Access Control"]
 
 tags: [aaa, cisco, cis-level-1]

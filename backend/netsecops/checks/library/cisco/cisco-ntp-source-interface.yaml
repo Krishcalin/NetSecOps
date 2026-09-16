@@ -30,5 +30,7 @@ references:
   cis: ["2.3.3"]
   nist_800_53: ["AU-8", "SC-45"]
   iso_27001: ["A.8.17"]
+  cert_in: ["Clock Synchronisation"]
+  cea: ["Logging and Monitoring"]
 
 tags: [time, cisco, cis-level-2]

@@ -25,5 +25,6 @@ references:
   nist_800_53: ["AC-11", "AC-12"]
   pci_dss: ["8.2.8"]
   iso_27001: ["A.8.5"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, session, cis-level-1]

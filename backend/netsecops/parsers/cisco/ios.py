@@ -37,6 +37,7 @@ from netsecops.ncm.models import (
     NormalisedConfig,
     NtpServer,
     RoutingProtocol,
+    SecurityRule,
     SnmpCommunity,
     SnmpTrapTarget,
     SnmpV3User,
@@ -52,6 +53,7 @@ from netsecops.parsers.base import (
     mask_secret,
     timeout_to_seconds,
 )
+from netsecops.parsers.cisco.acl import UNREADABLE, parse_ace
 
 log = get_logger(__name__)
 
@@ -819,6 +821,15 @@ class CiscoIosParser(CiscoStyleParser):
     # ──────────────────────────────── ACLs ──────────────────────────────
 
     def _parse_acls(self, parse: CiscoConfParse, result: ParseResult) -> None:
+        """ACLs, as both an NCM ACL and a normalised rulebase (FR-PARSE-02, FR-FW-01).
+
+        On a router or switch the access list *is* the security policy, so the entries
+        become `security_rules` and reach the relationship analysis, the per-rule hygiene
+        checks and the NAT join — none of which could see this platform before.
+
+        Each ACL is its own `rulebase`: it is bound to particular interfaces, and an
+        entry in one is never evaluated against a packet an entry in another sees.
+        """
         for obj in parse.find_objects(r"^ip\s+access-list\s"):
             start, end = self.family_range(obj)
             match = re.match(r"^ip\s+access-list\s+(\S+)\s+(\S+)", obj.text)
@@ -827,10 +838,7 @@ class CiscoIosParser(CiscoStyleParser):
 
             acl = Acl(name=match.group(2), type=match.group(1))
             for child in obj.children:
-                text = child.text.strip()
-                action = text.split()[0] if text.split() else ""
-                if action in {"permit", "deny"}:
-                    acl.entries.append(AclEntry(action=action, log="log" in text, raw=text))
+                self._add_ace(acl, child.text.strip(), result)
 
             result.ncm.acls.append(acl)
             result.record(f"acls.{len(result.ncm.acls) - 1}", line=start, line_end=end)
@@ -839,18 +847,73 @@ class CiscoIosParser(CiscoStyleParser):
         # Numbered ACLs are flat rather than hierarchical.
         numbered: dict[str, Acl] = {}
         for obj in parse.find_objects(r"^access-list\s+\d+"):
-            match = re.match(r"^access-list\s+(\d+)\s+(permit|deny)\s*(.*)", obj.text)
+            match = re.match(r"^access-list\s+(\d+)\s+(.*)", obj.text)
             if not match:
                 result.consume(self.line_number(obj))
                 continue
 
-            number, action, rest = match.groups()
+            number, rest = match.groups()
             acl = numbered.setdefault(number, Acl(name=number, type="numbered"))
-            acl.entries.append(AclEntry(action=action, raw=obj.text.strip(), log="log" in rest))
+            self._add_ace(acl, rest.strip(), result, raw=obj.text.strip())
             result.consume(self.line_number(obj))
 
         for acl in numbered.values():
             result.ncm.acls.append(acl)
+
+        self._bind_acls(parse, result)
+
+    def _add_ace(self, acl: Acl, text: str, result: ParseResult, *, raw: str | None = None) -> None:
+        """Record one entry on the ACL and, if it is a rule, on the rulebase."""
+        ace = parse_ace(text)
+        if ace is None:
+            # A remark, or a line this does not recognise. Not a rule, and not silently
+            # turned into one — `finalise_unparsed` will report it if nothing claimed it.
+            return
+
+        firewall = result.ncm.firewall
+        acl.entries.append(
+            AclEntry(
+                sequence=ace.sequence if ace.sequence is not None else len(acl.entries) + 1,
+                action=ace.action,
+                protocol=ace.protocol,
+                source=ace.source,
+                destination=ace.destination,
+                ports=", ".join(ace.services) or None,
+                log=ace.log,
+                raw=raw or text,
+            )
+        )
+
+        firewall.security_rules.append(
+            SecurityRule(
+                order=len(firewall.security_rules) + 1,
+                name=acl.name,
+                rulebase=acl.name,
+                action="allow" if ace.action == "permit" else "deny",
+                # An entry whose address or port operator could not be expressed keeps
+                # the sentinel, which resolves to nothing, lands in the rule's
+                # `unresolved` list and takes it out of overlap analysis. Better a rule
+                # reported as not understood than one analysed as a different rule.
+                src=[ace.source],
+                dst=[ace.destination],
+                services=list(ace.services) if not ace.partial else [UNREADABLE],
+                log_end=ace.log,
+            )
+        )
+
+    def _bind_acls(self, parse: CiscoConfParse, result: ParseResult) -> None:
+        """Record which interface each ACL is applied to, and in which direction."""
+        applied: dict[str, list[str]] = {}
+        for obj in parse.find_objects(r"^interface\s"):
+            interface = self.capture(obj, r"^interface\s+(\S+)") or ""
+            for child in obj.children:
+                match = re.match(r"^\s*ip\s+access-group\s+(\S+)\s+(in|out)", child.text)
+                if match:
+                    applied.setdefault(match.group(1), []).append(f"{interface} {match.group(2)}")
+
+        for acl in result.ncm.acls:
+            if bindings := applied.get(acl.name):
+                acl.applied_to = bindings
 
     # ───────────────────────────── features ─────────────────────────────
 

@@ -100,9 +100,7 @@ describe('CertificateTimeline', () => {
   it('says an empty timeline is not the same as nothing expiring', () => {
     render(<CertificateTimeline timeline={timeline({ entries: [], total: 0 })} />);
 
-    expect(
-      screen.getByText(/not the same as nothing expiring/i),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/not the same as nothing expiring/i)).toBeInTheDocument();
   });
 
   it('distinguishes expired from expiring', () => {
@@ -131,9 +129,7 @@ describe('CertificateTimeline', () => {
 
   it('marks a self-signed certificate', () => {
     render(
-      <CertificateTimeline
-        timeline={timeline({ entries: [entry({ self_signed: true })] })}
-      />,
+      <CertificateTimeline timeline={timeline({ entries: [entry({ self_signed: true })] })} />,
     );
 
     expect(screen.getByText('self-signed')).toBeInTheDocument();

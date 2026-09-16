@@ -32,5 +32,6 @@ references:
   pci_dss: ["8.3.4"]
   iso_27001: ["A.8.5"]
   cwe: ["CWE-307"]
+  cea: ["Access Control"]
 
 tags: [management-plane, brute-force, cisco, cis-level-1]

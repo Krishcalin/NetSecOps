@@ -31,9 +31,8 @@ function DriftBanner({ drift }: { drift: Drift }) {
   if (!drift.baseline_snapshot_id) {
     return (
       <div className="alert" role="status">
-        <strong>No baseline pinned.</strong> Pin a snapshot below to define what this
-        device&rsquo;s configuration should look like. Later collections that differ raise a
-        drift finding.
+        <strong>No baseline pinned.</strong> Pin a snapshot below to define what this device&rsquo;s
+        configuration should look like. Later collections that differ raise a drift finding.
       </div>
     );
   }
@@ -195,8 +194,8 @@ export function DeviceConfigPage() {
           <p className="page-loading">Loading…</p>
         ) : rows.length === 0 ? (
           <p className="empty">
-            No configuration has been collected from this device yet. Run a collection, or
-            upload a configuration file to assess it offline.
+            No configuration has been collected from this device yet. Run a collection, or upload a
+            configuration file to assess it offline.
           </p>
         ) : (
           <div className="table-wrap">
@@ -220,9 +219,7 @@ export function DeviceConfigPage() {
                     <td>{row.seen_count}×</td>
                     <td>
                       <span
-                        className={
-                          (row.parse_coverage ?? 0) >= 90 ? 'pill pill--success' : 'pill'
-                        }
+                        className={(row.parse_coverage ?? 0) >= 90 ? 'pill pill--success' : 'pill'}
                         title={`${row.unparsed_count} line(s) the parser did not recognise`}
                       >
                         {coverageLabel(row)}

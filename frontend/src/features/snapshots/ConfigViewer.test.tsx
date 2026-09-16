@@ -75,9 +75,7 @@ describe('ConfigViewer', () => {
   });
 
   it('marks lines a diff reported as changed', () => {
-    const { container } = render(
-      <ConfigViewer config={CONFIG} highlightLines={new Set([2, 5])} />,
-    );
+    const { container } = render(<ConfigViewer config={CONFIG} highlightLines={new Set([2, 5])} />);
 
     expect(container.querySelector('[data-line="2"]')).toHaveClass('cfg__line--changed');
     expect(container.querySelector('[data-line="4"]')).not.toHaveClass('cfg__line--changed');

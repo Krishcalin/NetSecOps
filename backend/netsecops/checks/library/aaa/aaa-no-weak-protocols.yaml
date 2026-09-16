@@ -38,5 +38,6 @@ references:
   pci_dss: ["4.2.1", "8.3.1"]
   iso_27001: ["A.8.24"]
   cwe: ["CWE-327", "CWE-319"]
+  cea: ["Cryptography"]
 
 tags: [aaa, crypto, authentication]

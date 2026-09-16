@@ -48,9 +48,7 @@ export function CompliancePage() {
     <div className="page">
       <header className="page__header">
         <h1>Compliance</h1>
-        <p className="page__subtitle">
-          Check results grouped by the control each one maps to.
-        </p>
+        <p className="page__subtitle">Check results grouped by the control each one maps to.</p>
       </header>
 
       <div className="toolbar">
@@ -87,8 +85,8 @@ export function CompliancePage() {
                 {data.compliance_percent === null ? '—' : `${data.compliance_percent}%`}
               </p>
               <p className="stat__note">
-                Of the checks that produced a verdict. Not Applicable and Not Evaluated
-                are excluded from both halves.
+                Of the checks that produced a verdict. Not Applicable and Not Evaluated are excluded
+                from both halves.
               </p>
             </div>
             <div className="card">

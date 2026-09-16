@@ -33,5 +33,6 @@ references:
   pci_dss: ["7.2.1"]
   iso_27001: ["A.8.2"]
   cwe: ["CWE-250"]
+  cea: ["Remote Access"]
 
 tags: [authorisation, least-privilege, checkpoint]

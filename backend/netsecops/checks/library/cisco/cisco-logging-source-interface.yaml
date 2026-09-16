@@ -31,5 +31,7 @@ references:
   cis: ["2.2.2"]
   nist_800_53: ["AU-3", "AU-4"]
   iso_27001: ["A.8.15"]
+  cert_in: ["Log Retention"]
+  cea: ["Logging and Monitoring"]
 
 tags: [logging, cisco, cis-level-2]

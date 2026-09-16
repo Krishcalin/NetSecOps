@@ -29,5 +29,6 @@ remediation: >-
 references:
   nist_800_53: ["IA-2", "CP-2"]
   iso_27001: ["A.8.14"]
+  cea: ["Secure Configuration"]
 
 tags: [aaa, availability]

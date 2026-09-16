@@ -183,6 +183,27 @@ async def _run_one_device(
             # five hundred devices again (FR-JOB-01).
             return await _assess_stored_snapshot(session, job, device, vault)
 
+        if job_type is JobType.VULN_REMATCH:
+            # Same reasoning, different trigger: a feed import changes what is known
+            # about software that has not moved, so the estate is re-matched against the
+            # stored snapshots rather than re-collected.
+            return await _rematch_vulnerabilities(session, device)
+
+        if job_type is JobType.DISCOVERY:
+            # The enum entry has existed since the discovery migration; the executor it
+            # names has not been built (FR-DISC-05). Falling through from here would
+            # resolve credentials and open a session against a device — the opposite of
+            # what a discovery job is for — so it is refused explicitly and loudly.
+            return DeviceOutcome(
+                device_id=device.id,
+                succeeded=False,
+                error_class=ErrorClass.INTERNAL_ERROR,
+                error_message=(
+                    "Discovery runs are not implemented yet (FR-DISC-05 covers the rate "
+                    "limiting they depend on). No probe was sent."
+                ),
+            )
+
         candidates = await credentials.resolve_for_device(device)
         if not candidates:
             return DeviceOutcome(
@@ -717,6 +738,46 @@ async def _assess_stored_snapshot(
 
     outcome = await AssessmentService(session).assess(device, snapshot, job_id=job.id)
     return _assessed_outcome(device, snapshot.id, outcome)
+
+
+async def _rematch_vulnerabilities(session: AsyncSession, device: Device) -> DeviceOutcome:
+    """Re-run the vulnerability matcher against the device's latest snapshot.
+
+    No device is contacted, deliberately. What changes between runs is the advisory
+    catalogue, not the configuration: a feed import on Tuesday can make Monday's
+    unchanged software exploitable, and finding that out should not require a
+    collection window against five hundred devices.
+
+    A device with no snapshot is reported as failed rather than skipped. "Nothing
+    matched" and "there was nothing to match against" are the same empty result on a
+    dashboard, and only one of them means the device is fine.
+    """
+    from netsecops.services.vuln_assessment import VulnAssessmentService
+
+    assessment = await VulnAssessmentService(session).assess_device(device)
+
+    if assessment.snapshot_id is None:
+        return DeviceOutcome(
+            device_id=device.id,
+            succeeded=False,
+            error_class=ErrorClass.INTERNAL_ERROR,
+            error_message=(
+                "This device has no configuration snapshot to match against. Run a "
+                "collection first, or upload a configuration."
+            ),
+        )
+
+    return DeviceOutcome(
+        device_id=device.id,
+        succeeded=True,
+        snapshot_id=assessment.snapshot_id,
+        output=(
+            f"{assessment.confirmed} confirmed, {assessment.likely} likely, "
+            f"{assessment.advisories_considered} advisories considered"
+        ),
+        findings_opened=assessment.findings_opened,
+        findings_resolved=assessment.findings_resolved,
+    )
 
 
 def _assessed_outcome(device: Device, snapshot_id: uuid.UUID, assessment: Any) -> DeviceOutcome:

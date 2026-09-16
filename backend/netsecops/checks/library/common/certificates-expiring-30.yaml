@@ -25,5 +25,6 @@ references:
   pci_dss: ["4.2.1"]
   iso_27001: ["A.8.24"]
   cwe: ["CWE-324"]
+  cea: ["Cryptography"]
 
 tags: [certificates, availability]

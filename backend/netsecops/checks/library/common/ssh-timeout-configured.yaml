@@ -26,5 +26,6 @@ references:
   nist_800_53: ["SC-5", "AC-12"]
   iso_27001: ["A.8.6"]
   cwe: ["CWE-400"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, availability, ssh]

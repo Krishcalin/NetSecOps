@@ -373,6 +373,16 @@ def analyse(
             earlier = active[earlier_index]
             result.pairs_considered += 1
 
+            # ── filter 0: the enforcement context, one string compare ────
+            # Two entries in different ACLs are bound to different interfaces and are
+            # never applied to the same packet, so no relationship between them exists
+            # to find. Without this an ASA reported entries of OUTSIDE-IN as shadowing
+            # entries of INSIDE-OUT — a conflict that cannot occur, on a device where
+            # the suggested remedy is to delete a live rule. Platforms with a single
+            # ordered policy leave this None on every rule and are unaffected.
+            if earlier.rulebase != later.rulebase:
+                continue
+
             # ── filter 1: zones, an integer set test on tiny sets ────────
             if not earlier.zones_intersect(later):
                 continue

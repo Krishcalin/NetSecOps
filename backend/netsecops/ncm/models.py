@@ -607,6 +607,13 @@ class NetworkObject(NcmBase):
 class SecurityRule(NcmBase):
     order: int = 0
     name: str | None = None
+    #: The enforcement context this rule is evaluated in, when the platform has more
+    #: than one. On PAN-OS, FortiOS and Check Point every security rule sits in a single
+    #: ordered policy and this stays None. On ASA, IOS and NX-OS the policy is a set of
+    #: named ACLs bound to different interfaces, and two entries in different ACLs never
+    #: see the same packet — so comparing them for shadowing produces a finding about a
+    #: conflict that cannot occur. Rules are only compared with others sharing a value.
+    rulebase: str | None = None
     enabled: bool = True
     src_zones: list[str] = Field(default_factory=list)
     src: list[str] = Field(default_factory=list)

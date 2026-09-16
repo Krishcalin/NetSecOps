@@ -72,6 +72,11 @@ class ImportResult:
     cves: int = 0
     eol_records: int = 0
     rejected: int = 0
+    #: Which format the bundle was read as. Reported because `detect_kind` orders its
+    #: tests deliberately — a CSAF document also carries a `vulnerabilities` key — and
+    #: the failure mode of getting it wrong is a clean, empty import that looks fine.
+    #: An operator who uploaded a Cisco advisory wants to see "csaf" come back.
+    kind: BundleKind | None = None
 
     @property
     def status(self) -> SyncStatus:
@@ -185,7 +190,7 @@ class FeedImportService:
             raise ValidationProblem(f"This bundle is not readable JSON: {exc}") from exc
 
         kind = detect_kind(payload)
-        result = ImportResult(sync=sync)
+        result = ImportResult(sync=sync, kind=kind)
 
         match kind:
             case BundleKind.CSAF:

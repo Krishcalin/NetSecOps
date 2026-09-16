@@ -29,5 +29,7 @@ references:
   pci_dss: ["10.6.2"]
   iso_27001: ["A.8.17"]
   cwe: ["CWE-345"]
+  cert_in: ["Clock Synchronisation"]
+  cea: ["Logging and Monitoring"]
 
 tags: [time, crypto, cis-level-2]

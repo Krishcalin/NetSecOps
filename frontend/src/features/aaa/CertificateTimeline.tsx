@@ -70,16 +70,15 @@ export function CertificateTimeline({ timeline }: { timeline: Timeline }) {
       {timeline.servers_without_certificates.length > 0 && (
         <p className="alert alert--warning" role="status">
           No certificate was collected from{' '}
-          <strong>{timeline.servers_without_certificates.join(', ')}</strong>. This
-          timeline is blind to those servers, so a certificate expiring on one of them
-          would not appear here.
+          <strong>{timeline.servers_without_certificates.join(', ')}</strong>. This timeline is
+          blind to those servers, so a certificate expiring on one of them would not appear here.
         </p>
       )}
 
       {timeline.entries.length === 0 ? (
         <p className="empty">
-          No certificate has been collected from any device yet. That is not the same as
-          nothing expiring &mdash; run a collection against your AAA servers.
+          No certificate has been collected from any device yet. That is not the same as nothing
+          expiring &mdash; run a collection against your AAA servers.
         </p>
       ) : (
         <div className="table-wrap">

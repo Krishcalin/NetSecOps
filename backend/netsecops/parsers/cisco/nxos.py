@@ -32,6 +32,7 @@ from netsecops.ncm.models import (
     NormalisedConfig,
     NtpServer,
     RoutingProtocol,
+    SecurityRule,
     SnmpCommunity,
     SnmpV3User,
     SyslogServer,
@@ -45,6 +46,7 @@ from netsecops.parsers.base import (
     mask_secret,
     timeout_to_seconds,
 )
+from netsecops.parsers.cisco.acl import UNREADABLE, parse_ace
 
 log = get_logger(__name__)
 
@@ -466,6 +468,17 @@ class CiscoNxosParser(CiscoStyleParser):
                 result.consume(self.line_number(obj))
 
     def _parse_acls(self, parse: CiscoConfParse, result: ParseResult) -> None:
+        """ACLs, as both an NCM ACL and a normalised rulebase (FR-PARSE-02, FR-FW-01).
+
+        NX-OS writes prefixes (`10.1.1.0/24`) where IOS writes wildcard masks, so most
+        entries need no conversion — but the same parser handles both, because the rest
+        of the grammar is shared and a Nexus will still accept the wildcard form.
+
+        Each ACL is its own `rulebase`: entries in different ACLs are bound to different
+        interfaces and never see the same packet.
+        """
+        firewall = result.ncm.firewall
+
         for obj in parse.find_objects(r"^ip\s+access-list\s"):
             start, end = self.family_range(obj)
             name = self.capture(obj, r"^ip\s+access-list\s+(\S+)")
@@ -475,20 +488,57 @@ class CiscoNxosParser(CiscoStyleParser):
             acl = Acl(name=name, type="extended")
             for child in obj.children:
                 text = child.text.strip()
-                # NX-OS ACEs are sequence-numbered: `10 permit tcp any any eq 22`.
-                if match := re.match(r"(\d+)\s+(permit|deny)\s", text):
-                    acl.entries.append(
-                        AclEntry(
-                            sequence=int(match.group(1)),
-                            action=match.group(2),
-                            log="log" in text,
-                            raw=text,
-                        )
+                ace = parse_ace(text)
+                if ace is None:
+                    continue
+
+                acl.entries.append(
+                    AclEntry(
+                        sequence=ace.sequence if ace.sequence is not None else len(acl.entries) + 1,
+                        action=ace.action,
+                        protocol=ace.protocol,
+                        source=ace.source,
+                        destination=ace.destination,
+                        ports=", ".join(ace.services) or None,
+                        log=ace.log,
+                        raw=text,
                     )
+                )
+
+                firewall.security_rules.append(
+                    SecurityRule(
+                        order=len(firewall.security_rules) + 1,
+                        name=name,
+                        rulebase=name,
+                        action="allow" if ace.action == "permit" else "deny",
+                        src=[ace.source],
+                        dst=[ace.destination],
+                        services=list(ace.services) if not ace.partial else [UNREADABLE],
+                        log_end=ace.log,
+                    )
+                )
 
             result.ncm.acls.append(acl)
             result.record(f"acls.{len(result.ncm.acls) - 1}", line=start, line_end=end)
             result.consume(start, end)
+
+        self._bind_acls(parse, result)
+
+    def _bind_acls(self, parse: CiscoConfParse, result: ParseResult) -> None:
+        """Record which interface each ACL is applied to, and in which direction."""
+        applied: dict[str, list[str]] = {}
+        for obj in parse.find_objects(r"^interface\s"):
+            interface = self.capture(obj, r"^interface\s+(\S+)") or ""
+            for child in obj.children:
+                match = re.match(
+                    r"^\s*ip\s+(?:port\s+)?access-group\s+(\S+)\s+(in|out)", child.text
+                )
+                if match:
+                    applied.setdefault(match.group(1), []).append(f"{interface} {match.group(2)}")
+
+        for acl in result.ncm.acls:
+            if bindings := applied.get(acl.name):
+                acl.applied_to = bindings
 
 
 __all__ = ["CiscoNxosParser"]

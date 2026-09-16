@@ -33,5 +33,6 @@ references:
   cve: ["CVE-2018-0171"]
   cwe: ["CWE-306"]
   urls: ["https://tools.cisco.com/security/center/content/CiscoSecurityAdvisory/cisco-sa-20180328-smi2"]
+  cea: ["Secure Configuration"]
 
 tags: [attack-surface, cisco, actively-exploited]
