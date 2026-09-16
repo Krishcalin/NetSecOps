@@ -22,7 +22,11 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Inventory', to: '/inventory', permission: 'device:read' },
   { label: 'Assessments', to: '/jobs', permission: 'job:read' },
   { label: 'Findings', to: '/findings', permission: 'finding:read' },
-  { label: 'Vulnerabilities', phase: 'Phase 6' },
+  { label: 'Vulnerabilities', to: '/vulnerabilities', permission: 'vuln:read' },
+  // Sits with Inventory conceptually — it answers "what is on my network that I did not
+  // put there" — but after Findings in the list, because until a scope is defined it has
+  // nothing to show and should not be the second thing anyone sees.
+  { label: 'Discovery', to: '/discovery', permission: 'discovery:read' },
   // A rulebase is configuration, so this sits behind the same permission as the config
   // viewer rather than behind a findings permission.
   { label: 'Firewall Analysis', to: '/firewall', permission: 'snapshot:read' },

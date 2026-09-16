@@ -19,6 +19,8 @@ import { DeviceConfigPage } from './DeviceConfigPage';
 import { FirewallPage } from './FirewallPage';
 import { AaaPage } from './AaaPage';
 import { FindingsPage } from './FindingsPage';
+import { VulnerabilitiesPage } from './VulnerabilitiesPage';
+import { DiscoveryPage } from './DiscoveryPage';
 import { CompliancePage } from './CompliancePage';
 import { JobsPage } from './JobsPage';
 import { AuditLogPage } from './AuditLogPage';
@@ -96,6 +98,10 @@ export function App() {
               <Route path="aaa" element={<AaaPage />} />
               <Route path="jobs" element={<JobsPage />} />
               <Route path="findings" element={<FindingsPage />} />
+              {/* Estate-wide: a CVE is about a software version, and the same version
+                  is usually on many devices, so the question is rarely per-device. */}
+              <Route path="vulnerabilities" element={<VulnerabilitiesPage />} />
+              <Route path="discovery" element={<DiscoveryPage />} />
               <Route path="compliance" element={<CompliancePage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="profile" element={<ProfilePage />} />
