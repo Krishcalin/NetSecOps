@@ -34,6 +34,7 @@ from netsecops.ncm.models import (
     LocalUser,
     NormalisedConfig,
     NtpServer,
+    Route,
     SnmpCommunity,
     SnmpV3User,
     SyslogServer,
@@ -45,6 +46,7 @@ from netsecops.parsers.base import (
     is_default_community,
     mask_secret,
 )
+from netsecops.parsers.routes import connected_routes, store, to_cidr
 
 log = get_logger(__name__)
 
@@ -199,6 +201,61 @@ class CheckPointGaiaParser(ConfigParser):
         for name, interface in by_name.items():
             result.ncm.interfaces.append(interface)
             result.record(f"interfaces.{len(result.ncm.interfaces) - 1}", line=lines[name])
+
+        self._parse_routing(context, result)
+
+    # ── routing (FR-TOPO-01) ────────────────────────────────────────────
+
+    def _parse_routing(self, context: ParseContext, result: ParseResult) -> None:
+        """Static routes from ``set static-route`` (FR-TOPO-01).
+
+        Gaia writes the next hop as `nexthop gateway address <ip>` or
+        `nexthop gateway logical <interface>` — an address or an egress interface in the
+        same grammatical slot, the same shape as IOS but spelled with keywords. It ends
+        each line with `on` or `off`, and `off` means the route is configured and not
+        installed: a route that exists and does not forward. Treating that as an edge
+        would put a path through a link the operator has deliberately disabled.
+
+        Called from the interface parser so the connected routes it derives see the
+        interface list that has just been built.
+        """
+        collected: list[tuple[Route, int | None]] = []
+
+        for number, tokens in self._lines(context, "set", "static-route"):
+            if len(tokens) < 3:
+                continue
+
+            destination = to_cidr(tokens[2])
+            if destination is None:
+                continue
+
+            if tokens[-1].lower() == "off":
+                result.consume(number)
+                continue
+
+            next_hop: str | None = None
+            interface: str | None = None
+            for index, token in enumerate(tokens):
+                if token.lower() == "address" and index + 1 < len(tokens):
+                    next_hop = tokens[index + 1]
+                elif token.lower() == "logical" and index + 1 < len(tokens):
+                    interface = tokens[index + 1]
+
+            collected.append(
+                (
+                    Route(
+                        destination=destination,
+                        next_hop=next_hop,
+                        interface=interface,
+                        protocol="static",
+                    ),
+                    number,
+                )
+            )
+
+        collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
+
+        store(result, collected)
 
     # ── administrators ──────────────────────────────────────────────────
 

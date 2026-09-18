@@ -24,6 +24,7 @@ from netsecops.ncm.models import (
     NetworkObject,
     NormalisedConfig,
     NtpServer,
+    Route,
     SecurityRule,
     SnmpCommunity,
     SnmpV3User,
@@ -38,6 +39,7 @@ from netsecops.parsers.base import (
     mask_secret,
 )
 from netsecops.parsers.fortinet.blocks import Block, ParsedConfig, read
+from netsecops.parsers.routes import connected_routes, store, to_cidr
 
 log = get_logger(__name__)
 
@@ -58,6 +60,8 @@ class FortiOsParser(ConfigParser):
             self._parse_logging,
             self._parse_snmp,
             self._parse_interfaces,
+            # After interfaces: connected routes are derived from their addressing.
+            self._parse_routing,
             self._parse_firewall,
             self._parse_wireless,
             self._parse_certificates,
@@ -409,6 +413,57 @@ class FortiOsParser(ConfigParser):
                 line=entry.line,
                 line_end=entry.line_end,
             )
+
+    # ── routing (FR-TOPO-01) ────────────────────────────────────────────
+
+    def _parse_routing(self, config: ParsedConfig, result: ParseResult) -> None:
+        """Static routes from ``config router static``.
+
+        FortiOS omits ``set dst`` entirely for a default route rather than writing
+        `0.0.0.0 0.0.0.0`, so an absent destination is a real value here — it means
+        0.0.0.0/0 — and skipping entries without one would drop precisely the route that
+        matters most to a path walk.
+
+        A FortiGate also collects ``get router info routing-table all``, which holds what
+        the protocols learned. That output is gathered today and read by nothing; wiring
+        it in belongs with the other platforms' dynamic tables rather than being done
+        here alone, so this stays static-plus-connected like the rest.
+        """
+        collected: list[tuple[Route, int | None]] = []
+
+        section = config.section("router static")
+        if section:
+            for entry in section.entries():
+                if (entry.get("status") or "").lower() == "disable":
+                    # A disabled route is not in the forwarding table. Including it would
+                    # draw an edge for a path the device will not actually take.
+                    continue
+
+                dst = entry.get_all("dst")
+                if dst:
+                    destination = to_cidr(dst[0], dst[1] if len(dst) > 1 else None)
+                else:
+                    destination = "0.0.0.0/0"
+                if destination is None:
+                    continue
+
+                distance = entry.get("distance")
+                collected.append(
+                    (
+                        Route(
+                            destination=destination,
+                            next_hop=entry.get("gateway"),
+                            interface=(entry.get("device") or "").strip('"') or None,
+                            protocol="static",
+                            distance=int(distance) if distance and distance.isdigit() else None,
+                        ),
+                        entry.line,
+                    )
+                )
+
+        collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
+
+        store(result, collected)
 
     # ── the firewall (FR-FW-01) ─────────────────────────────────────────
 

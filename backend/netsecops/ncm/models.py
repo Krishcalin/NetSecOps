@@ -25,7 +25,15 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-NCM_VERSION = "1.0"
+#: Bumped 1.0 → 1.1 when `routing.routes` arrived (FR-TOPO-01).
+#:
+#: Additive, so nothing that reads a 1.0 snapshot breaks — but the bump is not
+#: ceremony. A 1.0 snapshot has an empty route list because no parser ever filled it,
+#: and a 1.1 snapshot has an empty one because the device really had no routes. Those
+#: are opposite facts and `ncm_version` is the only thing that distinguishes them, so a
+#: path walk over an old snapshot must answer Unknown rather than Unreachable. Same
+#: discipline as absent-is-not-false in the check engine.
+NCM_VERSION = "1.1"
 
 
 class NcmBase(BaseModel):
@@ -566,9 +574,73 @@ class RoutingProtocol(NcmBase):
     passive_default: bool | None = None
 
 
+class Route(NcmBase):
+    """One forwarding-table entry (FR-TOPO-01).
+
+    The shape is deliberately the minimum a path can be walked with — destination, where
+    it goes, and how it was learned — rather than everything a routing table prints.
+    Metrics and administrative distance are here because two routes to the same prefix
+    are ordinary and something has to choose between them; everything else a `show ip
+    route` line carries (age, uptime, the advertising neighbour) describes the routing
+    protocol's health, which is a different question from where a packet goes.
+
+    ``protocol`` is what makes a graph honest about itself. A topology built from static
+    routes alone is not wrong, it is *partial*, and it can only say so if each edge knows
+    how it was learned.
+    """
+
+    #: The prefix in CIDR form, normalised at parse time. Vendors print this four
+    #: different ways — `10.0.0.0 255.0.0.0`, `10.0.0.0/8`, `10.0.0.0 8` — and a graph
+    #: that compares them as strings silently fails to match a route to its own subnet.
+    destination: str
+    #: The gateway. None on a connected or interface-routed entry, which is a real
+    #: answer rather than missing data: the destination is on the link.
+    next_hop: str | None = None
+    interface: str | None = None
+    #: connected | static | ospf | bgp | eigrp | rip | isis | other.
+    protocol: str | None = None
+    #: Administrative distance, then metric. Both optional because a static route in a
+    #: configuration file carries neither unless somebody set them.
+    distance: int | None = None
+    metric: int | None = None
+    #: VRFs partition the table: two routes for the same prefix in different VRFs do not
+    #: compete, and a path walk that ignores this merges networks that cannot reach each
+    #: other. None means the global table.
+    vrf: str | None = None
+
+
 class Routing(NcmBase):
     protocols: list[RoutingProtocol] = Field(default_factory=list)
+
+    #: Superseded by :attr:`routes`, and retained only so that snapshots written before
+    #: NCM 1.1 still load.
+    #:
+    #: **Removing it is not a code change, it is a change to stored data.** Snapshots are
+    #: immutable evidence, they are kept for years, and `vuln_assessment` re-validates
+    #: them with `NormalisedConfig.model_validate`. Every model here sets
+    #: ``extra="forbid"`` so a parser typo fails loudly — which also means a field deleted
+    #: from the schema turns every older snapshot into a validation error. Tests would not
+    #: have caught it: they build snapshots with the current model.
+    #:
+    #: So it stays, and no parser writes it any more. New snapshots leave it None and
+    #: carry the real list; old ones keep whatever count they recorded. Nothing reads it.
     static_routes: int | None = None
+
+    #: The forwarding table as far as this parser could see it (FR-TOPO-01).
+    #:
+    #: Empty means "none found", and on a snapshot taken before NCM 1.1 it means "never
+    #: looked" — those are different, and `ncm_version` is what tells them apart. A path
+    #: engine reading an older snapshot must report Unknown rather than Unreachable, on
+    #: the same reasoning as absent-is-not-false in the check engine.
+    routes: list[Route] = Field(default_factory=list)
+
+    #: Set when a device's table was larger than the parser would store. A router
+    #: carrying a full BGP table has several hundred thousand routes and no assessment
+    #: needs them, but a path that falls off the end of a truncated table must resolve to
+    #: Unknown rather than Unreachable — so the truncation has to be recorded, not just
+    #: applied.
+    routes_truncated: bool | None = None
+
     #: Source routing lets a sender dictate the path; long deprecated.
     ip_source_routing: bool | None = None
 
@@ -819,6 +891,7 @@ __all__ = [
     "NtpServer",
     "Provenance",
     "ProvenanceMap",
+    "Route",
     "Routing",
     "RoutingProtocol",
     "Snmp",

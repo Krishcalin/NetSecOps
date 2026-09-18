@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 from netsecops.core.redaction import REDACTED
-from netsecops.ncm.models import NormalisedConfig
+from netsecops.ncm.models import NCM_VERSION, NormalisedConfig
 from netsecops.parsers.base import ParseContext
 from netsecops.parsers.registry import NoParserError, get_parser, supported_platforms
 
@@ -135,7 +135,11 @@ class TestEveryFixture:
     def test_parses_without_raising(self, fixture: Fixture) -> None:
         """FR-PARSE-03. A parser that raises takes the whole collection with it."""
         ncm = fixture.parse()
-        assert ncm.ncm_version == "1.0"
+        # Pinned against the constant rather than a literal. The version is stamped on
+        # every snapshot and is what lets a later reader tell "this device had no routes"
+        # from "this snapshot predates route parsing"; asserting a literal here would
+        # make the next bump look like a broken test rather than a schema change.
+        assert ncm.ncm_version == NCM_VERSION
 
     def test_coverage_is_at_least_90_percent(self, fixture: Fixture) -> None:
         """Phase 2 acceptance criterion."""

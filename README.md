@@ -49,16 +49,21 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phases 0–5 complete, 6 and 7 under way
+## Status — Phases 0–5 complete, 6 to 8 under way
 
 Development follows the phase plan in [SRS §12](docs/SRS.md). Phases 0–5 were built
 strictly in order, each one's acceptance criteria passing before the next began.
 
-Phases 6 and 7 are open at the same time, which is a deliberate departure from that
-rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Neither has
-met its acceptance criterion, and the sections below say exactly which part is missing
-in each — a phase that is 80% done is far easier to misread as finished than one that
-has not started.
+Phases 6, 7 and 8 are open at the same time, which is a deliberate departure from that
+rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. None has met
+its acceptance criterion, and the sections below say exactly which part is missing in
+each — a phase that is 80% done is far easier to misread as finished than one that has
+not started.
+
+Phase 8 was not in the SRS as issued. It was added after a competitive analysis found
+that multi-device reasoning — "can this host reach that one, and what decides" — is the
+one capability separating this product from the established tools in its category, and
+that most of the other gaps identified collapse into it.
 
 | Phase | Scope | Status |
 |:-----:|-------|--------|
@@ -69,7 +74,8 @@ has not started.
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
 | 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — no KEV/EPSS feed, no scheduled sync |
-| 7 | Discovery, reporting, integrations, hardening | **In progress** — discovery cannot probe, integrations not started |
+| 7 | Discovery, reporting, integrations, hardening | **In progress** — nothing is scheduled, integrations not started |
+| 8 | Topology and path analysis | **Started** — forwarding tables parsed; no graph yet |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
 
@@ -213,6 +219,33 @@ already in place.
   an API error, and the two must not be treated alike.
 - **Reports as dated artefacts.** Described above; the model and the freezing property
   live in `db/models/reporting.py` and `services/reporting.py`.
+
+### Phase 8 — what it does, and what is still owed
+
+**Forwarding tables are data now, and they were not before.** The NCM kept
+`static_routes` as an integer — a *count* — so the product could describe every rule on a
+firewall and had no idea which firewall a packet reached first. Each parser now reads its
+own platform's route grammar into a real list of destination, next hop, egress interface,
+protocol, distance, metric and VRF, and derives connected routes from interface
+addressing.
+
+**No new device access was needed for any of it.** Static routes are in the running
+configuration, which was already collected and already parsed — the lines were being
+counted and thrown away, and on the ASA they sat on an explicit ignore list as noise.
+That is also how the commercial tools build their maps: no probing, no traceroute, no
+CDP/LLDP walk, no agents. [SRS §8](docs/SRS.md)'s read-only guarantee is untouched.
+
+What is parsed is static and connected routes. **What a protocol learned is not**: OSPF,
+BGP and EIGRP tables live only in `show ip route`, which no Cisco platform collects —
+only `show ip route summary` is even allow-listed. So a graph built on this is partial by
+construction, and every route records the protocol that installed it so the graph can say
+so rather than implying completeness.
+
+Still owed: the graph itself (FR-TOPO-02), the path walk that evaluates each traversed
+device's rulebase (FR-TOPO-03), the two-axis result keeping routing confidence separate
+from policy verdict (FR-TOPO-04/05), and the ranked missing-device report (FR-TOPO-06).
+Dynamic routes need a deliberate decision to collect `show ip route`, which changes what
+the product sends to devices — a policy change rather than a parser change.
 
 ### What Phase 5 delivers
 

@@ -31,6 +31,7 @@ from netsecops.ncm.models import (
     NetworkObject,
     NormalisedConfig,
     NtpServer,
+    Route,
     SecurityRule,
     SnmpCommunity,
     SyslogServer,
@@ -43,6 +44,7 @@ from netsecops.parsers.base import (
     mask_secret,
     timeout_to_seconds,
 )
+from netsecops.parsers.routes import connected_routes, parse_asa_route, store
 
 log = get_logger(__name__)
 
@@ -53,11 +55,16 @@ class CiscoAsaParser(CiscoStyleParser):
     syntax = "asa"
 
     #: ASA configurations carry structural noise that is not configuration: the `: Saved`
-    #: header, `names`, and routing/service lines no baseline check reads. Listing them
-    #: keeps the unparsed report meaningful — a report full of known-irrelevant lines
-    #: would train readers to ignore it, which is exactly what FR-PARSE-03 is for.
+    #: header, `names`, and service lines no baseline check reads. Listing them keeps the
+    #: unparsed report meaningful — a report full of known-irrelevant lines would train
+    #: readers to ignore it, which is exactly what FR-PARSE-03 is for.
+    #:
+    #: `route` used to be on this list, as a line nothing read. FR-TOPO-01 is what reads
+    #: it: those lines are the forwarding table, and dismissing them as noise is why the
+    #: product could describe every rule on a firewall and not which firewall a packet
+    #: reaches first.
     IGNORE: re.Pattern[str] = re.compile(
-        r"^(?::|names$|end$|exit$|ftp\s+mode|dns\s+|route\s+|arp\s+timeout"
+        r"^(?::|names$|end$|exit$|ftp\s+mode|dns\s+|arp\s+timeout"
         r"|timeout\s+|class-map|policy-map|service-policy|prompt\s+|call-home"
         r"|crypto\s+|threat-detection|no\s+threat-detection|same-security-traffic"
         r"|mtu\s+|monitor-interface|failover\s+lan|pager\s+|asdm\s+|boot\s+system"
@@ -77,6 +84,9 @@ class CiscoAsaParser(CiscoStyleParser):
             self._parse_ntp,
             self._parse_snmp,
             self._parse_interfaces,
+            # After interfaces: connected routes are derived from their addressing, so
+            # the interface list has to be populated before this runs.
+            self._parse_routing,
             self._parse_objects,
             self._parse_access_lists,
             self._parse_nat,
@@ -359,6 +369,28 @@ class CiscoAsaParser(CiscoStyleParser):
             result.consume(start, end)
 
         result.ncm.firewall.zones = sorted({i.zone for i in result.ncm.interfaces if i.zone})
+
+    # ────────────────────────────── routing ─────────────────────────────
+
+    def _parse_routing(self, parse: CiscoConfParse, result: ParseResult) -> None:
+        """The forwarding table, from lines this parser used to discard (FR-TOPO-01).
+
+        An ASA is usually the device a path *ends* at, so its table matters twice over:
+        it says which way traffic leaves, and the interface each route exits names the
+        nameif — which on an ASA is the security zone the rulebase is written against.
+        That makes an ASA route the join between "where does this packet go" and "which
+        rule decides", which is the whole point of walking a path.
+        """
+        collected: list[tuple[Route, int | None]] = []
+        for obj in parse.find_objects(r"^route\s"):
+            route = parse_asa_route(obj.text)
+            if route is None:
+                continue
+            collected.append((route, self.line_number(obj)))
+
+        collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
+
+        store(result, collected)
 
     # ──────────────────────────── objects ───────────────────────────────
 

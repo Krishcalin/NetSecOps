@@ -43,6 +43,7 @@ from netsecops.ncm.models import (
     NetworkObject,
     NormalisedConfig,
     NtpServer,
+    Route,
     SecurityRule,
     SnmpCommunity,
     SyslogServer,
@@ -54,6 +55,7 @@ from netsecops.parsers.base import (
     is_default_community,
     mask_secret,
 )
+from netsecops.parsers.routes import connected_routes, store, to_cidr
 
 log = get_logger(__name__)
 
@@ -484,6 +486,60 @@ class PanOsParser(ConfigParser):
                 )
             )
             self._record(result, f"interfaces.{len(result.ncm.interfaces) - 1}", entry)
+
+        self._parse_routing(network, result)
+
+    # ── routing (FR-TOPO-01) ────────────────────────────────────────────
+
+    def _parse_routing(self, network: Element, result: ParseResult) -> None:
+        """Static routes, per virtual router.
+
+        Called from the interface parser because it needs the same ``network`` element
+        and the interface list it has just built.
+
+        **The virtual router is carried as the VRF, and that matters here more than on
+        the other platforms.** Separate virtual routers on one PAN-OS firewall are
+        separate forwarding tables by design — an internet VR and a management VR
+        commonly hold conflicting default routes, and merging them produces a graph where
+        a packet can cross between two networks that are deliberately isolated. That is
+        the one error class a reachability answer must never make.
+        """
+        collected: list[tuple[Route, int | None]] = []
+
+        for vr_name, vr_entry in _entries(network, "virtual-router"):
+            static = vr_entry.find("routing-table/ip/static-route")
+            for _route_name, route_entry in _entries(static, ".") if static is not None else []:
+                destination = to_cidr(_text(route_entry, "destination") or "")
+                if destination is None:
+                    continue
+
+                # `nexthop` is a choice element: an IP, a next-VR, or discard. Only the
+                # first is an edge to somewhere — a discard route is a deliberate black
+                # hole and drawing it as a hop would invent reachability.
+                next_hop = _text(route_entry, "nexthop/ip-address")
+                metric = _text(route_entry, "metric")
+
+                collected.append(
+                    (
+                        Route(
+                            destination=destination,
+                            next_hop=next_hop,
+                            interface=_text(route_entry, "interface"),
+                            protocol="static",
+                            metric=int(metric) if metric and metric.isdigit() else None,
+                            vrf=vr_name,
+                        ),
+                        # PAN-OS is XML: an element has no line number the way a CLI line
+                        # does, and the parser's provenance for XML is element-based
+                        # throughout. None keeps that consistent rather than inventing a
+                        # line that would point at the wrong place in the file.
+                        None,
+                    )
+                )
+
+        collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
+
+        store(result, collected)
 
     # ── the firewall (FR-FW-01) ─────────────────────────────────────────
 
