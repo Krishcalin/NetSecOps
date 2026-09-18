@@ -24,6 +24,12 @@
   --error: #b3261e;
   --error-soft: #fbe9e7;
 
+  /* The brand artwork's own background value, sampled from the master PNG rather than
+   * guessed — it is #fefefe, not #ffffff. Deliberately absent from the dark block
+   * below: this is not a theme colour, it is the one value that makes the logo's field
+   * disappear into the panel behind it. See the brand rules further down. */
+  --brand-field: #fefefe;
+
   --radius: 8px;
   --radius-sm: 5px;
   --gap: 16px;
@@ -82,6 +88,27 @@ a {
   outline-offset: 2px;
 }
 
+/* ─────────────────────────────── brand ───────────────────────────────── */
+
+/* The logo keeps its own near-white field instead of having it keyed out, because
+ * un-mixing a background to transparency clamps every stroke lighter than the field to
+ * nothing — here that is the pale blue traces, the white glyphs inside the shield
+ * badges and the thin connector lines, all of which are load-bearing. So the asset
+ * ships opaque and whatever shows it paints `--brand-field` behind it.
+ *
+ * That is not cosmetic. The console has a dark theme, and on `--bg: #101317` an opaque
+ * white-field logo with no panel reads as a rendering fault. With one it reads as a
+ * deliberate white card, which is how the logo is meant to be seen. The padding matters
+ * for the same reason: the panel has to be visibly larger than the image, or the effect
+ * is a logo with a hairline halo rather than a card.
+ *
+ * `tools/build_brand_assets.py` derives every asset here from `docs/brand/`, and
+ * `src/test/brand.test.ts` asserts this hex still equals the assets' own corner pixel. */
+.brand-panel {
+  background: var(--brand-field);
+  border-radius: var(--radius-sm);
+}
+
 /* ───────────────────────────── auth screen ───────────────────────────── */
 
 .auth-shell {
@@ -99,10 +126,22 @@ a {
   padding: 32px;
 }
 
+/* The sign-in heading is the logo itself, so the `h1` is a container for the image and
+ * the accessible name comes from its `alt`. Kept as an `h1` rather than demoted to a
+ * bare `<img>`: the page still needs exactly one top-level heading, and a logo that is
+ * the product name is the honest thing for it to be. */
 .auth-card__header h1 {
-  margin: 0;
-  font-size: 24px;
-  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+  padding: 18px 20px;
+  display: flex;
+  justify-content: center;
+}
+
+.auth-card__header h1 img {
+  display: block;
+  width: 100%;
+  max-width: 280px;
+  height: auto;
 }
 
 .auth-card__tagline,
@@ -138,8 +177,25 @@ a {
 
 .sidebar__brand {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 10px;
   padding: 0 10px;
+}
+
+/* The shield-only mark, never the lockup: at 26px the wordmark and its flanking rules
+ * are indistinguishable from dirt, which is the whole reason the build script emits two
+ * assets rather than one. */
+.sidebar__brand-mark {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 2px;
+}
+
+.sidebar__brand-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .sidebar__brand-name {

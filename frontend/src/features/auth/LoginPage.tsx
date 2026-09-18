@@ -54,7 +54,12 @@ export function LoginPage() {
     <div className="auth-shell">
       <div className="auth-card">
         <header className="auth-card__header">
-          <h1>NetSecOps</h1>
+          {/* Intrinsic size given so the card does not reflow once the image lands —
+              the asset is 560x522 and renders at half that. `alt` carries the product
+              name because this image *is* the `h1`. */}
+          <h1 className="brand-panel">
+            <img src="/brand/netsecops-lockup.png" alt="NetSecOps" width={280} height={261} />
+          </h1>
           <p className="auth-card__tagline">Network configuration &amp; vulnerability assessment</p>
         </header>
 

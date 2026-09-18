@@ -59,8 +59,19 @@ export function AppLayout() {
     <div className="layout">
       <aside className="sidebar">
         <div className="sidebar__brand">
-          <span className="sidebar__brand-name">NetSecOps</span>
-          <span className="sidebar__brand-sub">read-only assessment</span>
+          {/* Decorative: the product name is the very next element, and a non-empty
+              `alt` would have a screen reader announce "NetSecOps" twice. */}
+          <img
+            className="sidebar__brand-mark brand-panel"
+            src="/brand/netsecops-mark.png"
+            alt=""
+            width={26}
+            height={26}
+          />
+          <span className="sidebar__brand-text">
+            <span className="sidebar__brand-name">NetSecOps</span>
+            <span className="sidebar__brand-sub">read-only assessment</span>
+          </span>
         </div>
 
         <nav className="sidebar__nav" aria-label="Main">

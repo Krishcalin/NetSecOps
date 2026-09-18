@@ -21,7 +21,12 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": false,
 
-    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
+    // "node" is here for `src/test/brand.test.ts`, which reads the committed brand PNGs
+    // off disk and so genuinely runs Node-side. The cost is that Node globals are then
+    // visible to application code too, where `process.env` would typecheck and then be
+    // undefined in the browser — note that `import.meta.env` is Vite's equivalent and
+    // the only one that works there.
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom", "node"]
   },
   "include": ["src", "vite.config.ts"]
 }

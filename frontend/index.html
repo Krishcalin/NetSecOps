@@ -5,6 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <meta name="robots" content="noindex, nofollow" />
+    <!-- A real multi-size .ico (16/32/48) rather than one PNG the browser downscales:
+         the tab, the bookmark bar and the Windows taskbar each ask for a different size,
+         and a 256px shield squeezed into 16px comes out as a smudge. Both are generated
+         by tools/build_brand_assets.py. -->
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="apple-touch-icon" href="/brand/netsecops-mark.png" />
     <title>NetSecOps</title>
   </head>
   <body>

@@ -1,5 +1,8 @@
 <p align="center">
-  <strong>NetSecOps</strong><br/>
+  <img src="frontend/public/brand/netsecops-lockup.png" alt="NetSecOps" width="360"/>
+</p>
+
+<p align="center">
   <em>Read-only configuration &amp; vulnerability assessment for network and security infrastructure</em>
 </p>
 
