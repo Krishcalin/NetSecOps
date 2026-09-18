@@ -112,6 +112,16 @@ _REPORT_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 #: Accepting risk is explicitly the Analyst's, per the role description in SRS §2.3.
 _EXCEPTION_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 
+# Integrations and platform settings are the platform owner's, and nobody else's.
+#
+# Deliberately *not* the Security Analyst, who can everywhere else do the security work:
+# a channel's config decides where security alerts go, and a settings key decides how
+# long evidence is kept. Both are levers for making the product quieter about the very
+# things it exists to report, so they sit with the role that is accountable for the
+# platform rather than the one being measured by it.
+_INTEGRATION_ADMINS = frozenset({Role.SUPER_ADMIN})
+_SETTINGS_ADMINS = frozenset({Role.SUPER_ADMIN})
+
 MATRIX: list[Case] = [
     # ── User administration ─────────────────────────────────────────────────
     Case("GET", "/api/v1/users", _USER_READERS),
@@ -390,6 +400,28 @@ MATRIX: list[Case] = [
         "/api/v1/vulnerabilities/devices/{device_id}/upgrade-path",
         _VULN_READERS,
     ),
+    # ── Notifications and settings (Phase 7, FR-INT-01 / FR-ADM-01) ─────────────
+    Case("GET", "/api/v1/notifications/channels", _INTEGRATION_ADMINS),
+    Case("POST", "/api/v1/notifications/channels", _INTEGRATION_ADMINS),
+    Case("PATCH", "/api/v1/notifications/channels/{channel_id}", _INTEGRATION_ADMINS),
+    Case("DELETE", "/api/v1/notifications/channels/{channel_id}", _INTEGRATION_ADMINS),
+    Case("POST", "/api/v1/notifications/channels/{channel_id}/test", _INTEGRATION_ADMINS),
+    Case("GET", "/api/v1/notifications/subscriptions", _INTEGRATION_ADMINS),
+    Case("POST", "/api/v1/notifications/subscriptions", _INTEGRATION_ADMINS),
+    Case(
+        "DELETE",
+        "/api/v1/notifications/subscriptions/{subscription_id}",
+        _INTEGRATION_ADMINS,
+    ),
+    Case("GET", "/api/v1/notifications/deliveries", _INTEGRATION_ADMINS),
+    Case(
+        "POST",
+        "/api/v1/notifications/deliveries/{delivery_id}/requeue",
+        _INTEGRATION_ADMINS,
+    ),
+    Case("GET", "/api/v1/settings", _SETTINGS_ADMINS),
+    Case("GET", "/api/v1/settings/{key}", _SETTINGS_ADMINS),
+    Case("PUT", "/api/v1/settings/{key}", _SETTINGS_ADMINS),
     # ── Discovery (Phase 7) ─────────────────────────────────────────────────────
     # Reading the queue is a device read by another name — "what is on my network that
     # I did not put there" — so the Network Engineer and the Auditor both get it.

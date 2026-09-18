@@ -52,6 +52,13 @@ from netsecops.db.models.jobs import (
     JobType,
     Schedule,
 )
+from netsecops.db.models.notifications import (
+    ChannelType,
+    DeliveryStatus,
+    NotificationChannel,
+    NotificationDelivery,
+    NotificationSubscription,
+)
 from netsecops.db.models.policy import (
     CheckResult,
     CustomCheck,
@@ -88,13 +95,13 @@ from netsecops.db.models.vulnerability import (
 )
 
 __all__ = [
-    "GENESIS_HASH",
     "ApiToken",
     "Artifact",
     "ArtifactKind",
     "AuditAction",
     "AuditLog",
     "AuditOutcome",
+    "ChannelType",
     "CheckResult",
     "Collection",
     "Credential",
@@ -102,6 +109,7 @@ __all__ = [
     "CredentialType",
     "Criticality",
     "CustomCheck",
+    "DeliveryStatus",
     "Device",
     "DeviceClass",
     "DeviceGroup",
@@ -124,12 +132,16 @@ __all__ = [
     "FindingKind",
     "FindingSeverity",
     "FindingStatus",
+    "GENESIS_HASH",
     "Job",
     "JobDevice",
     "JobStatus",
     "JobType",
     "LoginAttempt",
     "MFASecret",
+    "NotificationChannel",
+    "NotificationDelivery",
+    "NotificationSubscription",
     "PasswordHistory",
     "Policy",
     "PolicyAssignment",

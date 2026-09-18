@@ -39,6 +39,8 @@ class JobType(StrEnum):
     #: Push findings and audit records to a SIEM (FR-INT-02). Also device-less, and the
     #: only job type whose traffic leaves the estate rather than staying inside it.
     SIEM_FORWARD = "siem_forward"
+    #: Send queued notifications (FR-INT-01). Device-less for the same reason.
+    NOTIFY = "notify"
 
 
 class JobStatus(StrEnum):

@@ -313,6 +313,44 @@ class JobService:
         await self.session.flush()
         return job
 
+    async def create_notify(
+        self,
+        *,
+        actor: Principal,
+        schedule_id: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        org_id: int = 1,
+    ) -> Job:
+        """Queue a notification dispatch run (FR-INT-01).
+
+        Device-less, like the feed sync and the SIEM forwarder. Raising a notification is
+        a database write inside whatever transaction produced the event; *sending* it is
+        this job, so a slow SMTP server cannot slow the assessment that raised the alert.
+        """
+        if idempotency_key:
+            existing = (
+                await self.session.execute(
+                    select(Job).where(Job.idempotency_key == idempotency_key)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
+
+        job = Job(
+            org_id=org_id,
+            job_type=JobType.NOTIFY.value,
+            status=JobStatus.QUEUED.value,
+            scope={},
+            requested_by_id=actor.id,
+            schedule_id=schedule_id,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id.get(),
+            stats={"sent": 0, "failed": 0, "dead": 0},
+        )
+        self.session.add(job)
+        await self.session.flush()
+        return job
+
     async def resolve_scope(
         self, scope: JobScope, principal_scope: Scope, *, org_id: int = 1
     ) -> Sequence[Device]:
@@ -542,6 +580,20 @@ class JobService:
             details={"status": job.status, **counts},
             org_id=job.org_id,
         )
+
+        # FR-INT-01's job trigger, raised in the one place every job type passes through.
+        #
+        # Notification jobs are excluded, and that exclusion is load-bearing rather than
+        # tidiness: a notify job raising its own completion would queue an event that the
+        # *next* notify job delivers before completing and raising another — a generator
+        # that produces one notification per run, for ever, and looks like a working
+        # integration while doing it. The SIEM forwarder is excluded for the same reason.
+        if job.job_type not in {JobType.NOTIFY.value, JobType.SIEM_FORWARD.value}:
+            from netsecops.integrations.triggers import job_event
+            from netsecops.services.notifications import NotificationService
+
+            await NotificationService(self.session, org_id=job.org_id).raise_event(job_event(job))
+
         return job
 
     # ────────────────────────────── control ─────────────────────────────

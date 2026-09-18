@@ -15,7 +15,9 @@ from netsecops.api.v1 import (
     firewall,
     jobs,
     managers,
+    notifications,
     reports,
+    settings,
     snapshots,
     topology,
     users,
@@ -83,7 +85,14 @@ api_v1_router.include_router(reports.router)
 # audit log as an object than as a query string.
 api_v1_router.include_router(topology.router)
 
-# Routers added in later phases:
-#   Phase 7 — integrations, settings
+# Phase 7 — notification channels, subscriptions and the delivery queue (FR-INT-01).
+# `/notifications/channels/{id}/test` is a literal sub-resource of a UUID path, so there
+# is no literal/UUID sibling collision here.
+api_v1_router.include_router(notifications.router)
+
+# Phase 7 — platform settings (FR-ADM-01). `/settings/{key}` takes a free string, so a
+# literal sibling added later would be shadowed silently; there are none today, and any
+# addition belongs above this line.
+api_v1_router.include_router(settings.router)
 
 __all__ = ["api_v1_router"]

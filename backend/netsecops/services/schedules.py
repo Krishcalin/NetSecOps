@@ -390,6 +390,13 @@ class ScheduleService:
                 org_id=self.org_id,
             )
 
+        if job_type is JobType.NOTIFY:
+            return await jobs.create_notify(
+                actor=_scheduler_principal(schedule),
+                schedule_id=schedule.id,
+                org_id=self.org_id,
+            )
+
         if job_type is JobType.SIEM_FORWARD:
             return await jobs.create_siem_forward(
                 actor=_scheduler_principal(schedule),

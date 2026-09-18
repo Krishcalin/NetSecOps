@@ -150,6 +150,9 @@ async def execute_job(
     if JobType(job.job_type) is JobType.SIEM_FORWARD:
         return await _run_siem_forward(session, job, jobs)
 
+    if JobType(job.job_type) is JobType.NOTIFY:
+        return await _run_notify(session, job, jobs, vault)
+
     while True:
         # A cancel is honoured between devices, never mid-session (FR-JOB-03).
         await session.refresh(job)
@@ -384,6 +387,18 @@ async def _run_feed_sync(session: AsyncSession, job: Job, jobs: JobService) -> J
         synced += 1
         ingested += result.cves + result.advisories + result.kev_entries + result.epss_scores
 
+    if failures:
+        # Raised here rather than derived, because a failed sync leaves no finding behind
+        # — and silence about a stale feed is the worst outcome available, since it
+        # produces a confident clean answer rather than an obviously broken one.
+        from netsecops.integrations.triggers import feed_failure_event
+        from netsecops.services.notifications import NotificationService
+
+        notifier = NotificationService(session, org_id=job.org_id)
+        for failure in failures:
+            feed, _, message = failure.partition(": ")
+            await notifier.raise_event(feed_failure_event(feed, message))
+
     if synced == 0 and failed:
         completed = await jobs.complete(job, status_override=JobStatus.FAILED)
     elif failed:
@@ -448,6 +463,55 @@ async def _run_siem_forward(session: AsyncSession, job: Job, jobs: JobService) -
         status=completed.status,
         forwarded=result.total,
         disabled=result.disabled,
+    )
+    return completed
+
+
+async def _run_notify(
+    session: AsyncSession, job: Job, jobs: JobService, vault: SecretVault | None
+) -> Job:
+    """Send queued notifications (FR-INT-01).
+
+    A delivery that fails is not a failed *job*: the failure belongs to that delivery,
+    which is retried and eventually parked in `dead` where somebody can see it. The job
+    succeeds having done its work — reporting otherwise would turn one unreachable Slack
+    workspace into a permanently red job history that nobody reads any more.
+
+    Deliveries that gave up are surfaced in the stats instead, which is where an operator
+    should be looking for "did anyone actually get told".
+    """
+    from netsecops.integrations.triggers import scan
+    from netsecops.services.notifications import NotificationService
+
+    service = NotificationService(session, vault=vault, org_id=job.org_id)
+
+    # Scan first, then dispatch, so anything found this run goes out this run rather than
+    # waiting for the next one. Four of the eight FR-INT-01 triggers are already findings
+    # and are derived here; the other four are raised where they happen.
+    raised = 0
+    for event in await scan(session, org_id=job.org_id):
+        raised += await service.raise_event(event)
+
+    result = await service.dispatch()
+
+    completed = await jobs.complete(job, status_override=JobStatus.SUCCEEDED)
+    completed.stats = {
+        **completed.stats,
+        "raised": raised,
+        "sent": result.sent,
+        "failed": result.failed,
+        "dead": result.dead,
+    }
+    await session.flush()
+
+    log.info(
+        "job.finished",
+        job_id=str(job.id),
+        status=completed.status,
+        raised=raised,
+        sent=result.sent,
+        failed=result.failed,
+        dead=result.dead,
     )
     return completed
 
