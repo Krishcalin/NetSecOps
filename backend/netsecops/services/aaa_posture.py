@@ -1,7 +1,7 @@
 """The estate-wide AAA picture (FR-AAA-06).
 
-FR-AAA-06 asks for four things on one page â€” coverage, protocols in use, orphaned
-clients and a certificate expiry timeline â€” and the reason they belong together is that
+FR-AAA-06 asks for four things on one page — coverage, protocols in use, orphaned
+clients and a certificate expiry timeline — and the reason they belong together is that
 each one is the context for the others. 94% coverage is good news until you notice the
 6% is the datacentre. A list of expiring certificates is administrivia until you notice
 the one expiring in nine days is the EAP certificate every wireless client on site
@@ -23,7 +23,7 @@ on it is not coming; it has to be able to say where it is blind.
 
 *Protocol lists that flatten "accepts" and "requires".* What the NCM knows is which
 protocols a server will *accept* if a client offers them, which is the security-relevant
-question â€” one policy still accepting MS-CHAPv1 is a way in regardless of what the other
+question — one policy still accepting MS-CHAPv1 is a way in regardless of what the other
 forty require. It is named ``accepted_protocols`` rather than "in use" for that reason:
 nothing here observes live authentications, and calling it usage would imply we had.
 """
@@ -52,7 +52,7 @@ from netsecops.services.aaa_correlation import (
 log = get_logger(__name__)
 
 #: Protocols whose presence is a finding on its own. Kept in step with
-#: :attr:`AaaServerConfig.weak_protocols`, which is the authority â€” this set exists only
+#: :attr:`AaaServerConfig.weak_protocols`, which is the authority — this set exists only
 #: so the dashboard can mark a protocol without re-deriving it per server.
 _WEAK = frozenset({"pap", "chap", "ms-chapv1", "mschapv1", "eap-md5", "leap"})
 
@@ -91,7 +91,7 @@ class CertificateTimeline:
     #: Certificates whose expiry date could not be interpreted. Reported, never dropped:
     #: an unreadable date is not a distant one.
     undated: int = 0
-    #: AAA servers that contributed no certificate at all â€” the timeline's blind spots.
+    #: AAA servers that contributed no certificate at all — the timeline's blind spots.
     servers_without_certificates: list[str] = field(default_factory=list)
 
     @property
@@ -172,7 +172,7 @@ class AaaPostureService:
             ncm: dict[str, Any] = (snapshot.ncm if snapshot else None) or {}
             label = device.hostname or str(device.mgmt_ip)
 
-            # â”€â”€ device side: which transport, if any â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── device side: which transport, if any ────────────────────
             kinds = {
                 str(entry.get("type") or "unknown").lower()
                 for entry in ((ncm.get("aaa") or {}).get("servers") or [])
@@ -186,7 +186,7 @@ class AaaPostureService:
                 for certificate in certificates
             )
 
-            # â”€â”€ server side: what this server will accept â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            # ── server side: what this server will accept ───────────────
             config = AaaServerConfig.model_validate(ncm.get("aaa_server") or {})
             if config.product is None:
                 continue
@@ -196,7 +196,7 @@ class AaaPostureService:
 
             if not certificates:
                 # An AAA server with no certificate in the NCM is not an AAA server
-                # without certificates â€” it is one whose certificate endpoint we did not
+                # without certificates — it is one whose certificate endpoint we did not
                 # read. Naming it is what keeps the timeline from reading as complete.
                 blind.append(label)
 
@@ -240,7 +240,7 @@ class AaaPostureService:
         )
         return posture
 
-    # â”€â”€ findings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── findings ────────────────────────────────────────────────────────
 
     async def _open_findings(self, org_id: int) -> dict[str, int]:
         rows = (
@@ -256,7 +256,7 @@ class AaaPostureService:
         ).all()
         return {str(severity): int(count) for severity, count in rows}
 
-    # â”€â”€ honesty â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── honesty ─────────────────────────────────────────────────────────
 
     def _limitations(self, posture: AaaPosture) -> list[str]:
         """The correlation's caveats, plus the ones this view adds."""
@@ -266,7 +266,7 @@ class AaaPostureService:
             notes.append(
                 f"{posture.certificates.undated} certificate(s) carry an expiry date "
                 "NetSecOps could not interpret. They are listed without a date rather "
-                "than omitted â€” an unreadable date is not a distant one."
+                "than omitted — an unreadable date is not a distant one."
             )
 
         if posture.certificates.servers_without_certificates:

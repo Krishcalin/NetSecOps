@@ -29,6 +29,20 @@ export interface DiscoveryRun {
   hosts_found: number;
   hosts_unidentified: number;
   error_message: string | null;
+  /** What the run could not do, which is not what went wrong — echo unavailable for want
+   *  of a capability, SNMP unread for want of a credential. Shown beside the counters,
+   *  because "0 hosts found" means one thing alone and another next to "and nothing could
+   *  be asked". */
+  notes: string[];
+}
+
+/** What starting a run hands back. A job id rather than a run id: the run row does not
+ *  exist yet, because the executor writes it as its first act. */
+export interface DiscoveryRunStart {
+  job_id: string;
+  scope_id: string;
+  address_count: number;
+  rate_limit_per_second: number;
 }
 
 export interface DiscoveredHost {

@@ -9,7 +9,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phases-5%20of%207%20complete-orange?style=flat-square" alt="5 of 7 phases complete"/>
+  <img src="https://img.shields.io/badge/phases-0--5%20complete%2C%206--7%20partial-orange?style=flat-square" alt="Phases 0-5 complete, 6-7 partial"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -49,17 +49,21 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phases 0–5 complete, 6 and 7 under way
+## Status — Phases 0–5 complete, 6 to 8 under way
 
 Development follows the phase plan in [SRS §12](docs/SRS.md). Phases 0–5 were built
 strictly in order, each one's acceptance criteria passing before the next began.
 
-Phases 6 and 7 are open at the same time, which is a deliberate departure from that
-rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Phase 6's
-acceptance criterion is **not** met: the foundations are in place but nothing yet
-produces a vulnerability finding. Phase 7 begins with discovery, which depends on none
-of it — but reporting's vulnerability templates and the TEST-08 acceptance both do, and
-cannot close until Phase 6 does.
+Phases 6, 7 and 8 are open at the same time, which is a deliberate departure from that
+rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. None has met
+its acceptance criterion, and the sections below say exactly which part is missing in
+each — a phase that is 80% done is far easier to misread as finished than one that has
+not started.
+
+Phase 8 was not in the SRS as issued. It was added after a competitive analysis found
+that multi-device reasoning — "can this host reach that one, and what decides" — is the
+one capability separating this product from the established tools in its category, and
+that most of the other gaps identified collapse into it.
 
 | Phase | Scope | Status |
 |:-----:|-------|--------|
@@ -69,16 +73,46 @@ cannot close until Phase 6 does.
 | **3** | Check engine + baseline library, findings, compliance mapping | **Complete** |
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
-| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** |
-| 7 | Discovery, reporting, integrations, hardening | **In progress** |
+| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — no KEV/EPSS feed, no scheduled sync |
+| 7 | Discovery, reporting, integrations, hardening | **In progress** — nothing is scheduled, integrations not started |
+| 8 | Topology and path analysis | **In progress** — graph, path query and missing-device report built; dynamic routes not collected |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
 
-### Phase 6 so far — and what is still missing
+### Phase 6 — what it does, and what is still owed
 
-Vulnerability assessment is **not usable yet**. No feed is ingested on a schedule,
-nothing is matched against a device, and no vulnerability finding is produced. What
-exists is the part the rest of it has to stand on:
+Vulnerability assessment **produces findings now**. A device is assessed against
+ingested advisories and end-of-life data, and the result is a finding on that device
+with its own lifecycle, visible in the console at `/vulnerabilities`.
+
+The parts that shape the answer:
+
+- **Four outcomes, not two.** The matcher returns *confirmed*, *likely*, *not affected*
+  or **not evaluated**, and the last is the default. A finding opens on confirmed or
+  likely and is resolved only by a *positive* not-affected; not-evaluated leaves it
+  open. Clearing a device requires evidence, never the absence of it.
+- **Only a fully-understood advisory can clear a device.** An advisory whose version
+  ranges were partly unparseable can rule a device *in* and never *out*, which is why
+  CSAF ingestion keeps what it cannot read instead of dropping or guessing it.
+- **Offline bundle import, hash-verified.** `POST /vulnerabilities/feeds/import` takes
+  NVD 2.0 JSON, CSAF 2.0 and endoflife.date bundles, checks SHA-256 before anything is
+  written, and records every attempt including the failures.
+
+Still owed, and each one changes what an answer means:
+
+- **KEV and EPSS are columns, not data.** There is no CISA or FIRST ingestion, so every
+  KEV flag is null. Null is rendered as *unknown*, never as "not on KEV" — but the
+  `kev_only` filter can only ever match nothing today, and that is a gap, not a result.
+- **No scheduled sync.** Import is offline and by hand. A stale feed produces a
+  confident-looking clean answer, so this matters more than its size suggests.
+- **CPE product names are unverified.** `unverified_products()` exists precisely to
+  check them against a real NVD CPE dictionary, there is none in the repository, and it
+  has never been run — see the CPE note below for why a wrong name is dangerous rather
+  than merely wrong.
+- **No upgrade-path view (FR-VUL-10).** Fixed versions are carried on each match, but
+  nothing yet answers "what would upgrading to 17.9.4 actually eliminate".
+
+#### The foundations underneath
 
 - **Versions that are not a total order.** `packaging.Version` and every semver library
   assume any two versions can be ranked. Cisco IOS breaks that: `15.2(7)E3` and
@@ -104,11 +138,48 @@ exists is the part the rest of it has to stand on:
   flags every device running the product. An advisory that is only partly understood can
   rule a device *in*, never *out*.
 
-Still to come: NVD JSON and EoL ingestion, scheduled feed sync and offline bundle import
-(FR-VUL-07/08), the feature-aware matcher and its confidence levels (FR-VUL-03),
-vulnerability findings and states (FR-VUL-04/09), and the upgrade-path view (FR-VUL-10).
+### Phase 7 — what it does, and what is still owed
 
-### Phase 7 so far
+**Reporting is built, and reports are dated artefacts rather than saved queries.** A
+report's content is assembled once, hashed, and never recomputed: re-reading March's
+report in September returns March's numbers, including findings that have since been
+fixed. That is what lets it answer "what did you know on 31 March", which no live view
+can. All nine catalogued templates assemble, in four formats — JSON, CSV, XLSX and PDF —
+and every format of one report carries the same content hash, because they render the
+same frozen content. A template with no single table is refused for CSV and XLSX rather
+than emitting a blank grid that reads as "no findings".
+
+**Discovery probes, and every run is paced.** Scopes, the FR-DISC-02 probe allow-list,
+fingerprinting with confidence scoring and the pending-review queue were built first and
+had nothing driving them; FR-DISC-05 supplies the rest. A run is a job: it is queued,
+cancellable between batches, and recorded as a `discovery_runs` row that outlives the
+job history. Four of the five permitted probes are sent — ICMP echo, TCP connect to the
+scope's ports, an SSH banner read and an HTTPS certificate-and-header fetch.
+
+The rate limit is the reason this could ship at all. An unpaced run across a scope is
+the port sweep [SRS §1.2](docs/SRS.md) forbids, whatever the allow-list says about the
+individual packets, so the prober *holds* the limiter and there is no code path from the
+endpoint to a socket that skips it. The default is FR-DISC-05's 50 hosts a second,
+configurable per scope up to a ceiling — "configurable" with no ceiling would make the
+requirement unenforceable.
+
+Two things a run cannot do are recorded on the run itself rather than left to look like
+a quiet network. **SNMP is not read**: FR-DISC-02 permits it, but no SNMP credential can
+be stored against a scope yet, and sysObjectID is the heaviest fingerprint signal there
+is — so hosts score lower and more of them need a person. **ICMP needs `CAP_NET_RAW`**,
+which containers withhold by default; without it liveness falls back to TCP and a device
+with no open port on the list is missed. Both appear beside the counters in the console,
+because "0 hosts found" and "0 hosts found, and nothing could be asked" are different
+answers.
+
+Still owed: scheduling — the other half of FR-DISC-05, and shared with FR-JOB-02 and
+FR-RPT-04's scheduled delivery, since the `schedules` table has no service behind it;
+SNMP discovery, which needs credential storage on a scope; and the whole of integrations
+(FR-INT-01/02/03) — syslog to a SIEM, webhooks and ServiceNow/Jira ticketing are not
+started. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part of that group
+already in place.
+
+#### What is built
 
 - **A discovery probe allow-list.** SRS §1.2 rules out port sweeps, exploitation and
   brute-forcing; FR-DISC-02 names the five things discovery may do instead. That set is
@@ -117,17 +188,98 @@ vulnerability findings and states (FR-VUL-04/09), and the upgrade-path view (FR-
   each defensible alone and a port scanner in sum. A scope may name at most eight TCP
   ports, since "configurable list" otherwise permits a sweep assembled entirely from
   permitted probes. SNMP is refused outright without a configured credential: probing
-  anyway means trying `public`, which is a credential guess.
+  anyway means trying `public`, which is a credential guess. No scope can supply one
+  yet, so in practice the executor sends the other four probes and says so on the run.
 - **Scopes that refuse a mistyped prefix.** `10.0.0.0/8` is one character from
   `10.0.0.0/18` and sixteen million probes from what the operator meant. The ceiling is
   counted from network sizes without expanding anything, exclusions are *subtracted*
   from the address space rather than filtered at probe time — so an excluded host is
   never enumerated at all — and the refusal names the likely cause, because an operator
   who reads only "over the limit" raises the limit.
+- **Fingerprinting that scores what it could not tell apart.** Signals are weighted by
+  how much they actually prove — an SNMP sysObjectID far above an HTTP header — and
+  confidence is capped below certainty, because no banner is proof. Conflicting signals
+  subtract. The review queue then opens with the *lowest* confidence first, which looks
+  backwards until you remember what the queue is for: a low score means the
+  fingerprinter could not tell, and those are the entries that need a person.
+- **A review queue that onboards nothing by itself.** An approval carries the operator's
+  corrections, a rejection carries a note, and neither deletes anything.
+- **A paced run executor (FR-DISC-05).** The limiter's unit is hosts, because the
+  requirement's unit is hosts: one slot is taken when a host's probing begins, and that
+  host's probes then run in sequence, so the packet rate stays proportional instead of
+  multiplying by the port count. Concurrency is separate from the rate and answers a
+  different question — how many hosts may be in flight while the slow ones time out —
+  without which a scope of mostly-dead addresses runs at one host per timeout and the
+  rate limit never binds at all. A cancel is honoured between batches, and the run keeps
+  what it had already found rather than discarding it.
+- **Managers as an inventory source (FR-DISC-06).** Panorama, FortiManager and Check
+  Point management enumerate their children. Preview and import are separate calls,
+  children land in pending review rather than the inventory, and nothing is ever
+  auto-deleted — a child that disappears from a manager may be a decommission or may be
+  an API error, and the two must not be treated alike.
+- **Reports as dated artefacts.** Described above; the model and the freezing property
+  live in `db/models/reporting.py` and `services/reporting.py`.
 
-Still to come: fingerprinting with confidence scoring (FR-DISC-03), the pending-review
-queue (FR-DISC-04), rate limiting (FR-DISC-05), managers as a discovery source
-(FR-DISC-06), then reporting, integrations and hardening.
+### Phase 8 — what it does, and what is still owed
+
+**Forwarding tables are data now, and they were not before.** The NCM kept
+`static_routes` as an integer — a *count* — so the product could describe every rule on a
+firewall and had no idea which firewall a packet reached first. Each parser now reads its
+own platform's route grammar into a real list of destination, next hop, egress interface,
+protocol, distance, metric and VRF, and derives connected routes from interface
+addressing.
+
+**No new device access was needed for any of it.** Static routes are in the running
+configuration, which was already collected and already parsed — the lines were being
+counted and thrown away, and on the ASA they sat on an explicit ignore list as noise.
+That is also how the commercial tools build their maps: no probing, no traceroute, no
+CDP/LLDP walk, no agents. [SRS §8](docs/SRS.md)'s read-only guarantee is untouched.
+
+What is parsed is static and connected routes. **What a protocol learned is not**: OSPF,
+BGP and EIGRP tables live only in `show ip route`, which no Cisco platform collects —
+only `show ip route summary` is even allow-listed. So a graph built on this is partial by
+construction, and every route records the protocol that installed it so the graph can say
+so rather than implying completeness.
+
+**A path can now be traced across devices, and the answer has two axes.** Give it a
+source, a destination, a protocol and a port, and it finds the devices in between and asks
+each of their rulebases — the FR-FW-06 rule query, run once per hop. Devices are joined by
+*interface address*: a route's next hop either is an address configured on another
+inventoried device or it is not, and matching on subnet instead would invent adjacencies
+on any shared transit link.
+
+The two axes are the point, and they never collapse into one verdict:
+
+> Every firewall I found permits this, but I lost the path at `0.0.0.0/0` because
+> `203.0.113.1` belongs to no device in the inventory.
+
+That is `routing: partially-routed`, `policy: partially-allowed` — and `allowed` is only
+ever produced alongside `routed`. A permit speaks for the devices actually consulted, and
+an untraced remainder may hold another firewall; somebody opens a firewall on the strength
+of these answers. A block is the asymmetric case and stands on its own: the packet dies at
+the first denial, so what lies beyond it cannot change the result.
+
+Three other distinctions the model keeps that a simpler one would lose. A router with no
+rulebase reports **no decision** rather than "allow", because a device that inspected
+nothing is not a control that was checked. A route in a VRF is never followed as if it
+were global — which VRF a packet is in depends on the ingress interface, and no parser
+records that binding, so the answer is `unknown` naming the VRF rather than `unreachable`.
+And a device whose snapshot predates route parsing, or whose table was truncated, cannot
+produce a negative answer at all.
+
+**The ranked missing-device report** names the unmanaged next hops that terminate path
+analysis, ordered by how much reachability each conceals — a default route counts for far
+more than one specific prefix, and a next hop nine devices share counts for more than one.
+It is computed from the routes themselves rather than by running every path, which is
+quadratic in the estate and measures the queries somebody happened to ask instead of the
+gap itself. The addresses are evidence, not a work queue: an unmanaged next hop may be an
+ISP router, a customer handoff, or a virtual address no single box owns.
+
+Still owed: dynamic routes, which need a deliberate decision to collect `show ip route` —
+that changes what the product sends to devices, a policy change rather than a parser
+change. Until then a graph is built from static and connected routes, which is complete
+for an edge or DMZ estate and partial in a routed core; the two-axis result is what makes
+that partiality visible instead of wrong.
 
 ### What Phase 5 delivers
 
@@ -345,7 +497,10 @@ netsecops/
 │  │  ├─ core/         # config, logging, crypto, security, RBAC, errors
 │  │  ├─ db/           # declarative base, session, models, Alembic migrations
 │  │  ├─ checks/       # the check engine, its YAML library and policy packs
-│  │  ├─ discovery/    # the probe allow-list and scopes (Phase 7)
+│  │  ├─ discovery/    # probe allow-list, scopes, fingerprinting, pacing, the
+│  │  │                #   probe transport and the run executor (Phase 7)
+│  │  ├─ topology/     # the layer-3 graph, the path walk and the ranked
+│  │  │                #   missing-device report (Phase 8)
 │  │  ├─ firewall/     # rulebase model, relationship analysis, NAT, hygiene
 │  │  ├─ ncm/          # the Normalised Config Model (NCM v1)
 │  │  ├─ parsers/      # vendor config parsers, one package per vendor

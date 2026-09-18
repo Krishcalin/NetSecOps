@@ -12,12 +12,12 @@ rather than a maintenance window and someone needs to start it early.
 **Two dates, and the gap between them matters.** End-of-support (or end-of-security-
 maintenance) is when fixes stop; end-of-life is when the vendor stops answering the
 phone. A release past support but before EOL still runs, still has a contract, and no
-longer receives security fixes â€” which is the state operators most often do not realise
+longer receives security fixes — which is the state operators most often do not realise
 they are in. They are tracked separately rather than collapsed into one date.
 
 **The dataset's own quirk.** `endoflife.date` types these fields as *either* a date
 *or* a boolean: `"eol": true` means "yes, and no date given", `"eol": false` means "not
-yet". Code expecting a date either crashes on the boolean or, worse, drops the record â€”
+yet". Code expecting a date either crashes on the boolean or, worse, drops the record —
 and dropping a record that says `true` is dropping the strongest possible statement that
 the release is dead. Both forms are read, and a field that is neither becomes
 :data:`LifecycleStatus.UNKNOWN` rather than being treated as supported.
@@ -61,7 +61,7 @@ class EolRecord:
 
     vendor: str
     product: str
-    #: The release train this covers â€” `9.18`, `17.9`, `R81.20`. Matched against a
+    #: The release train this covers — `9.18`, `17.9`, `R81.20`. Matched against a
     #: device version by prefix, since a device reports `9.18(4)` and the dataset
     #: tracks `9.18`.
     cycle: str
@@ -125,7 +125,7 @@ def parse_endoflife_date(
     """Parse an `endoflife.date` product response.
 
     The API returns a list of cycles. Anything that is not a list of objects yields
-    nothing rather than raising â€” this reads bytes fetched from a third party, and an
+    nothing rather than raising — this reads bytes fetched from a third party, and an
     error page must not abort a sync.
     """
     if not isinstance(payload, list):
@@ -164,7 +164,7 @@ def _date_or_flag(value: Any) -> tuple[date | None, bool]:
     """Read a field that is either a date, a boolean, or absent.
 
     Returns (date, ended_without_a_date). `True` is the strongest statement the dataset
-    makes â€” "this is over" â€” and losing it because the field was not a string would
+    makes — "this is over" — and losing it because the field was not a string would
     discard exactly the records that matter most.
     """
     if value is True:
@@ -189,7 +189,7 @@ def assess(
 ) -> LifecycleAssessment:
     """Place a device's version in its product's lifecycle.
 
-    Returns UNKNOWN rather than SUPPORTED wherever the answer cannot be established â€”
+    Returns UNKNOWN rather than SUPPORTED wherever the answer cannot be established —
     no version, no matching cycle, or an entry with no usable dates. "We have no record
     of this release" and "this release is supported" are opposite operational states and
     must not render the same.
@@ -283,7 +283,7 @@ def _explain(record: EolRecord, status: LifecycleStatus, version: str) -> str:
         case LifecycleStatus.APPROACHING_END_OF_SUPPORT:
             return (
                 f"{version} is in the {record.cycle} cycle, whose security maintenance "
-                f"ends on {record.support_ends} â€” within {APPROACHING_DAYS} days. An "
+                f"ends on {record.support_ends} — within {APPROACHING_DAYS} days. An "
                 f"upgrade needs planning now rather than after the date.{upgrade}"
             )
         case LifecycleStatus.SUPPORTED:

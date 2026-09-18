@@ -5,20 +5,20 @@ answers one question about one advisory and returns a dataclass. This runs it ac
 estate, writes the answers down, and gives them a lifecycle.
 
 **Which advisories a device is weighed against.** All of them. Pre-filtering by product
-before matching sounds obvious and is where a whole vendor's coverage disappears â€” the
+before matching sounds obvious and is where a whole vendor's coverage disappears — the
 filter needs the same product-identity logic the matcher already has, and two
 implementations of that drift. The matcher is cheap; the estate is not large; correctness
 is worth more than the query.
 
 **The rule that governs resolution.** A vulnerability finding closes only when the
-advisory stops matching â€” the device was upgraded. It does **not** close because the
+advisory stops matching — the device was upgraded. It does **not** close because the
 device became unassessable. Those look identical in the data (no confirmed match this
 run) and mean opposite things: one is patched, the other is a device whose version
 stopped being readable. Resolving on `NOT_EVALUATED` would mean an estate that lost its
 `show version` collection would report itself progressively cured.
 
 **Findings and matches are different records.** A match exists for every advisory weighed
-against every device, including the ones that did not apply â€” it is the audit trail of
+against every device, including the ones that did not apply — it is the audit trail of
 what was considered. A finding exists only where something needs doing. Conflating them
 gives you either a findings list nobody can read or a match table that cannot answer
 "was this even checked?".
@@ -102,7 +102,7 @@ class DeviceAssessment:
     #: device is clean — the distinction a job log has to preserve.
     advisories_considered: int = 0
     #: Devices the assessment could not rule on, and why. Surfaced rather than counted
-    #: as clean â€” this is the coverage gap the estate does not know it has.
+    #: as clean — this is the coverage gap the estate does not know it has.
     not_evaluated: list[str] = field(default_factory=list)
 
     @property
@@ -191,7 +191,7 @@ class VulnAssessmentService:
         )
         return [await self.assess_device(device) for device in devices]
 
-    # â”€â”€ end of life (FR-VUL-05) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── end of life (FR-VUL-05) ─────────────────────────────────────────
 
     async def _assess_lifecycle(
         self,
@@ -238,7 +238,7 @@ class VulnAssessmentService:
         )
         outcome.findings_opened += 1
 
-    # â”€â”€ persistence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── persistence ─────────────────────────────────────────────────────
 
     async def _store_match(
         self, device: Device, snapshot: Snapshot, row: VulnAdvisory, result: Match
@@ -276,8 +276,8 @@ class VulnAssessmentService:
         cves = ", ".join(result.cve_ids) or row.advisory_id
         qualifier = " (likely)" if result.confidence is Confidence.LIKELY else ""
 
-        # Upgrade guidance, as text and only as text â€” the same rule the check library
-        # follows for remediation (SRS Â§8). There is no field here that could be run.
+        # Upgrade guidance, as text and only as text — the same rule the check library
+        # follows for remediation (SRS §8). There is no field here that could be run.
         remediation = (
             f"Upgrade to {', '.join(result.fixed_versions)} or later."
             if result.fixed_versions
@@ -338,7 +338,7 @@ class VulnAssessmentService:
             if remediation:
                 existing.remediation = remediation
             if not FindingStatus(existing.status).is_active:
-                # It came back â€” the device was downgraded, or an exception lapsed.
+                # It came back — the device was downgraded, or an exception lapsed.
                 # Reopened rather than New, so the history shows a regression.
                 existing.status = FindingStatus.REOPENED.value
                 existing.resolved_at = None
@@ -370,7 +370,7 @@ class VulnAssessmentService:
         """Close a finding whose advisory no longer matches.
 
         Reached only from a positive NOT_AFFECTED. The caller must never route
-        NOT_EVALUATED here â€” see the module docstring.
+        NOT_EVALUATED here — see the module docstring.
         """
         finding = (
             await self.session.execute(
@@ -388,7 +388,7 @@ class VulnAssessmentService:
         await self.session.flush()
         return True
 
-    # â”€â”€ reads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    # ── reads ───────────────────────────────────────────────────────────
 
     async def _latest_snapshot(self, device: Device) -> Snapshot | None:
         return (
@@ -440,7 +440,7 @@ class VulnAssessmentService:
         ]
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ rebuilding an advisory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────── rebuilding an advisory ──────────────────────────
 
 
 def _rebuild(row: VulnAdvisory) -> Advisory:

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.adapters.http_transport import (
@@ -134,6 +135,13 @@ async def execute_job(
 
     log.info("job.started", job_id=str(job.id), job_type=job.job_type)
 
+    if JobType(job.job_type) is JobType.DISCOVERY:
+        # Branched here, above the device loop, because a discovery job has no devices:
+        # it is looking for them. The loop below claims `job_devices` rows and resolves
+        # credentials for each, which is the opposite of what discovery does — it probes
+        # addresses nobody has approved, and must never authenticate to one.
+        return await _run_discovery(session, job, jobs)
+
     while True:
         # A cancel is honoured between devices, never mid-session (FR-JOB-03).
         await session.refresh(job)
@@ -190,17 +198,21 @@ async def _run_one_device(
             return await _rematch_vulnerabilities(session, device)
 
         if job_type is JobType.DISCOVERY:
-            # The enum entry has existed since the discovery migration; the executor it
-            # names has not been built (FR-DISC-05). Falling through from here would
-            # resolve credentials and open a session against a device — the opposite of
-            # what a discovery job is for — so it is refused explicitly and loudly.
+            # Unreachable by design, and kept as the backstop that makes the design hold.
+            # `execute_job` sends discovery jobs to `_run_discovery` before this loop, and
+            # `create_discovery` writes no `job_devices` rows — so arriving here means
+            # something created one, and the next few lines would resolve credentials and
+            # open an authenticated session against a host nobody has approved. That is
+            # precisely what FR-DISC-04 exists to prevent, so it is refused rather than
+            # trusted to be impossible.
             return DeviceOutcome(
                 device_id=device.id,
                 succeeded=False,
                 error_class=ErrorClass.INTERNAL_ERROR,
                 error_message=(
-                    "Discovery runs are not implemented yet (FR-DISC-05 covers the rate "
-                    "limiting they depend on). No probe was sent."
+                    "A discovery job was given a device to collect from. Discovery probes "
+                    "addresses and never authenticates to them (FR-DISC-04); no session "
+                    "was opened."
                 ),
             )
 
@@ -230,6 +242,93 @@ async def _run_one_device(
             error_class=error_class,
             error_message=message,
         )
+
+
+async def _run_discovery(session: AsyncSession, job: Job, jobs: JobService) -> Job:
+    """Execute a discovery job (FR-DISC-05).
+
+    The run's own record is the ``discovery_runs`` row the executor writes, not this job:
+    "what did we probe, when, and what answered" is the question an operator asks months
+    later, and job history is prunable. The job supplies the things a run needs and does
+    not have — a queue to be picked off, a cancel signal, a correlation id — and takes
+    the summary back so that ``/jobs`` shows something truthful rather than a row of
+    zeroes borrowed from a device count that does not exist.
+    """
+    from netsecops.db.models.discovery import DiscoveryRunStatus, DiscoveryScope
+    from netsecops.discovery.executor import DiscoveryExecutor
+
+    raw_scope_id = (job.scope or {}).get("discovery_scope_id")
+    if not raw_scope_id:
+        return await _fail_discovery(
+            session,
+            job,
+            jobs,
+            "This discovery job names no scope, so there is nothing to probe. No packet was sent.",
+        )
+
+    scope_row = (
+        await session.execute(
+            select(DiscoveryScope).where(DiscoveryScope.id == uuid.UUID(str(raw_scope_id)))
+        )
+    ).scalar_one_or_none()
+    if scope_row is None:
+        # Deleted between queueing and running. Refused rather than guessed at: the scope
+        # is the only record of which addresses consent was given for.
+        return await _fail_discovery(
+            session,
+            job,
+            jobs,
+            f"Discovery scope {raw_scope_id} no longer exists. Nothing was probed — the "
+            "scope is the only record of which addresses may be contacted.",
+        )
+
+    async def cancelled() -> bool:
+        # Checked between batches rather than between addresses, and never mid-host: the
+        # same bargain as a device session finishing (FR-JOB-03). A batch is seconds.
+        await session.refresh(job)
+        return job.cancel_requested_at is not None
+
+    try:
+        summary = await DiscoveryExecutor(session, org_id=job.org_id).run(
+            scope_row,
+            actor=_system_principal(job),
+            should_stop=cancelled,
+            job_id=job.id,
+        )
+    except Exception as exc:
+        _, message = classify_error(exc)
+        log.warning("job.discovery_failed", job_id=str(job.id), error=message)
+        return await _fail_discovery(session, job, jobs, message)
+
+    status = (
+        JobStatus.PARTIAL
+        if summary.status == DiscoveryRunStatus.PARTIAL.value
+        else JobStatus.SUCCEEDED
+    )
+    completed = await jobs.complete(job, status_override=status)
+
+    # After `complete`, not before: it merges the per-device counts over whatever stats
+    # it finds, and for a job with no devices those are all zero. Writing the discovery
+    # summary last is what stops `/jobs` reporting "succeeded: 0" for a run that found
+    # forty switches.
+    # The run's caveats are deliberately not copied onto the job. `error_message` belongs
+    # to a failure, and a succeeded job carrying "ICMP was unavailable" in an error field
+    # is the same misreport as an unevaluated check shown as a pass. They live on the
+    # `discovery_runs` row, which has a `notes` column for exactly this and is where the
+    # question gets asked.
+    completed.stats = {**completed.stats, **summary.as_stats()}
+    await session.flush()
+
+    log.info("job.finished", job_id=str(job.id), status=completed.status, **summary.as_stats())
+    return completed
+
+
+async def _fail_discovery(session: AsyncSession, job: Job, jobs: JobService, message: str) -> Job:
+    """Close a discovery job that could not start, saying why on the job itself."""
+    completed = await jobs.complete(job, status_override=JobStatus.FAILED)
+    completed.error_message = message[:2000]
+    await session.flush()
+    return completed
 
 
 async def _try_credentials(

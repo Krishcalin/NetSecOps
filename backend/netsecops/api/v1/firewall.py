@@ -21,7 +21,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 
-from netsecops.api.deps import PrincipalDep, SessionDep, VaultDep, require
+from netsecops.api.deps import PrincipalDep, SessionDep, VaultDep, require, verify_csrf
 from netsecops.core.errors import NotFoundError
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
@@ -110,7 +110,9 @@ async def read_rulebase(
 @router.post(
     "/devices/{device_id}/firewall/query",
     response_model=RuleQueryResponse,
-    dependencies=[Depends(require(Permission.SNAPSHOT_READ))],
+    # Read-only, and still CSRF-checked: see the note on `POST /topology/path`. One rule
+    # with no exceptions is cheaper to keep than one with a defensible exception.
+    dependencies=[Depends(require(Permission.SNAPSHOT_READ)), Depends(verify_csrf)],
     summary="Which rule would match this packet (FR-FW-06)",
 )
 async def query_rulebase(

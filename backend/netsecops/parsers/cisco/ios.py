@@ -36,6 +36,7 @@ from netsecops.ncm.models import (
     LocalUser,
     NormalisedConfig,
     NtpServer,
+    Route,
     RoutingProtocol,
     SecurityRule,
     SnmpCommunity,
@@ -54,6 +55,7 @@ from netsecops.parsers.base import (
     timeout_to_seconds,
 )
 from netsecops.parsers.cisco.acl import UNREADABLE, parse_ace
+from netsecops.parsers.routes import connected_routes, parse_ios_static_route, store
 
 log = get_logger(__name__)
 
@@ -808,11 +810,26 @@ class CiscoIosParser(CiscoStyleParser):
                 )
                 result.consume(start, end)
 
-        static = parse.find_objects(r"^ip\s+route\s")
-        if static:
-            routing.static_routes = len(static)
-            for obj in static:
-                result.consume(self.line_number(obj))
+        # Static routes come out of the running configuration, which is already
+        # collected — the forwarding table needs no new command and no new access. What
+        # is *not* here is anything a protocol learned; those live only in `show ip
+        # route`, so a graph built from this is partial by construction and says so
+        # through each route's `protocol` (FR-TOPO-01).
+        collected: list[tuple[Route, int | None]] = []
+        for obj in parse.find_objects(r"^ip\s+route\s"):
+            route = parse_ios_static_route(obj.text)
+            if route is None:
+                # Left unconsumed on purpose, so an `ip route` line this cannot read
+                # counts against parser coverage rather than disappearing quietly.
+                continue
+            collected.append((route, self.line_number(obj)))
+
+        # Derived, not parsed: an interface with an address is a route to its own subnet,
+        # and those edges are what attach this device to the networks it actually serves.
+        # No line of their own — their provenance is the interface they came from.
+        collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
+
+        store(result, collected)
 
         routing.ip_source_routing = self._toggle_value(
             parse, r"^ip\s+source-route\s*$", r"^no\s+ip\s+source-route\s*$"

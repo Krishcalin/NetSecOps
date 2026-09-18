@@ -7,9 +7,13 @@ configuration rather than from a credentialed scanner — was unreachable. This 
 surface.
 
 Read paths are scoped through the device, so a principal restricted to a device group
-sees that group's exposure and the totals agree with the rows. Writes are two: an
-offline bundle import for air-gapped deployments (FR-VUL-08, constraint C-7) and a feed
-sync. Neither touches a device; the whole subsystem is a read of data we already hold.
+sees that group's exposure and the totals agree with the rows. There is exactly one
+write: an offline bundle import for air-gapped deployments (FR-VUL-08, constraint C-7).
+It does not touch a device; the whole subsystem is a read of data we already hold.
+
+There is no scheduled or network feed sync (FR-VUL-07). Imports are offline and by hand,
+which matters because a stale feed produces a confident-looking clean answer rather than
+an obviously broken one.
 
 State changes on a vulnerability finding — Risk Accepted, False Positive and the rest of
 FR-VUL-09 — go through `PATCH /findings/{id}`, which already enforces the lifecycle and
@@ -24,7 +28,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 
-from netsecops.api.deps import PrincipalDep, SessionDep, require
+from netsecops.api.deps import PrincipalDep, SessionDep, require, verify_csrf
 from netsecops.core.errors import NotFoundError, ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
@@ -128,7 +132,7 @@ async def list_feeds(
 @router.post(
     "/vulnerabilities/feeds/import",
     response_model=FeedImportRead,
-    dependencies=[Depends(require(Permission.VULN_WRITE))],
+    dependencies=[Depends(require(Permission.VULN_WRITE)), Depends(verify_csrf)],
     summary="Import an offline NVD/CSAF/EoL bundle (FR-VUL-08)",
 )
 async def import_feed_bundle(

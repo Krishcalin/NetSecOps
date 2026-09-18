@@ -158,6 +158,67 @@ class JobService:
         )
         return job
 
+    async def create_discovery(
+        self,
+        *,
+        discovery_scope_id: uuid.UUID,
+        actor: Principal,
+        schedule_id: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        org_id: int = 1,
+    ) -> Job:
+        """Queue a discovery run (FR-DISC-05).
+
+        Deliberately not a branch inside :meth:`create`. Every other job type targets
+        devices, and ``create`` is built around that: it refuses an empty scope, resolves
+        it against the caller's visible estate, and writes a ``job_devices`` row per
+        device. A discovery job has no devices *by definition* — it is looking for them —
+        so threading it through that method would mean disabling the device checks for
+        one job type, and a disabled check is one nobody notices has stopped applying.
+
+        The absence of ``job_devices`` rows is also load-bearing. ``_run_one_device``
+        refuses a discovery job outright, so a row appearing here would be the only way
+        for discovery to reach the credential resolver and open an authenticated session
+        against a host nobody has approved. There is no code that writes one; this
+        docstring is here so that nobody adds it.
+        """
+        if idempotency_key:
+            existing = (
+                await self.session.execute(
+                    select(Job).where(Job.idempotency_key == idempotency_key)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
+
+        job = Job(
+            org_id=org_id,
+            job_type=JobType.DISCOVERY.value,
+            status=JobStatus.QUEUED.value,
+            scope={"discovery_scope_id": str(discovery_scope_id)},
+            requested_by_id=actor.id,
+            schedule_id=schedule_id,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id.get(),
+            stats={"addresses_probed": 0, "hosts_found": 0, "hosts_unidentified": 0},
+        )
+        self.session.add(job)
+        await self.session.flush()
+
+        await self.audit.record(
+            AuditAction.JOB_STARTED,
+            actor_id=actor.id,
+            actor_username=actor.username,
+            object_type="job",
+            object_id=job.id,
+            details={
+                "job_type": JobType.DISCOVERY.value,
+                "discovery_scope_id": str(discovery_scope_id),
+            },
+            org_id=org_id,
+        )
+        return job
+
     async def resolve_scope(
         self, scope: JobScope, principal_scope: Scope, *, org_id: int = 1
     ) -> Sequence[Device]:
@@ -346,11 +407,21 @@ class JobService:
         await self._refresh_stats(job_device.job_id)
         return job_device
 
-    async def complete(self, job: Job) -> Job:
-        """Close a job, choosing its final status from its device outcomes."""
+    async def complete(self, job: Job, *, status_override: JobStatus | None = None) -> Job:
+        """Close a job, choosing its final status from its device outcomes.
+
+        ``status_override`` exists for the one job type that has no device outcomes to
+        choose from. A discovery job's result is "how many addresses were probed and what
+        answered", and the device-count rule below would read its empty ``job_devices``
+        table as "nothing failed" and call a run that aborted a success. The override is
+        narrow on purpose: the caller must know its own outcome, and every job type that
+        does have devices still gets it decided here.
+        """
         counts = await self._counts(job.id)
 
-        if job.cancel_requested_at is not None:
+        if status_override is not None and job.cancel_requested_at is None:
+            job.status = status_override.value
+        elif job.cancel_requested_at is not None:
             job.status = JobStatus.CANCELLED.value
         elif counts["failed"] == 0:
             job.status = JobStatus.SUCCEEDED.value

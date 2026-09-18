@@ -101,6 +101,14 @@ _VULN_READERS = frozenset(
 )
 #: Loading a feed bundle changes what the product asserts about every device at once.
 _VULN_IMPORTERS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
+#: Reading a report is reading evidence. The Auditor especially — an auditor who cannot
+#: pull the record independently has to accept it from the team being audited.
+_REPORT_READERS = frozenset(
+    {Role.SUPER_ADMIN, Role.SECURITY_ANALYST, Role.NETWORK_ENGINEER, Role.AUDITOR}
+)
+#: Generating writes a durable artefact that will be mailed and filed under the product's
+#: name, so it sits with the roles that own what the product asserts.
+_REPORT_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 #: Accepting risk is explicitly the Analyst's, per the role description in SRS §2.3.
 _EXCEPTION_AUTHORS = frozenset({Role.SUPER_ADMIN, Role.SECURITY_ANALYST})
 
@@ -256,6 +264,7 @@ MATRIX: list[Case] = [
     Case("PATCH", "/api/v1/findings/{finding_id}", _FINDING_TRIAGERS, body={"status": "open"}),
     Case("GET", "/api/v1/devices/{device_id}/checks", _CHECK_READERS),
     Case("GET", "/api/v1/devices/{device_id}/risk", _DEVICE_READERS),
+    Case("GET", "/api/v1/compliance/frameworks", _DEVICE_READERS),
     Case("GET", "/api/v1/compliance/{framework}", _DEVICE_READERS),
     # ── Exceptions (FR-CHK-07) ──────────────────────────────────────────────
     Case("GET", "/api/v1/exceptions", _CHECK_READERS),
@@ -286,6 +295,19 @@ MATRIX: list[Case] = [
         _DEVICE_READERS,
         body={"source": "10.0.0.1", "destination": "10.20.0.10", "protocol": "tcp", "port": 443},
     ),
+    # ── Topology and path analysis (Phase 8, FR-TOPO) ───────────────────────
+    # The same placement as the rulebase query above, and for the same reason: a path
+    # answer is assembled entirely out of stored configuration, so anyone who may read
+    # the configuration may ask what it implies. It sends nothing, so there is no
+    # outward-facing action to protect — unlike starting a discovery run, which does.
+    Case(
+        "POST",
+        "/api/v1/topology/path",
+        _DEVICE_READERS,
+        body={"source": "10.10.0.5", "destination": "10.20.0.5", "protocol": "tcp", "port": 443},
+    ),
+    Case("GET", "/api/v1/topology/missing-devices", _DEVICE_READERS),
+    Case("GET", "/api/v1/topology/summary", _DEVICE_READERS),
     # ── Manager child enumeration (FR-INV-04, FR-DISC-06) ───────────────────
     # Previewing reads and writes nothing — a POST only because a manager's device list
     # does not fit in a URL — so it sits with the other device reads.
@@ -352,6 +374,11 @@ MATRIX: list[Case] = [
         body={"name": "matrix-scope", "targets": ["198.51.100.0/30"]},
     ),
     Case("DELETE", "/api/v1/discovery/scopes/{scope_id}", _DEVICE_WRITERS),
+    # Starting a run sends packets to a customer's network. It is the most outward-facing
+    # thing this read-only product does, so it sits with the writers rather than with
+    # everyone who may read the queue — an Auditor may see what was found and may not go
+    # looking.
+    Case("POST", "/api/v1/discovery/scopes/{scope_id}/runs", _DEVICE_WRITERS, body={}),
     # Approving is how a discovered address becomes a device the product will collect
     # from, under a platform that selects its command allow-list. Same writers.
     Case(
@@ -365,6 +392,17 @@ MATRIX: list[Case] = [
         "/api/v1/discovery/pending/{host_id}/reject",
         _DEVICE_WRITERS,
         body={"note": "Matrix test rejection, a printer rather than a switch."},
+    ),
+    # ── Reports (Phase 7) ───────────────────────────────────────────────────────
+    Case("GET", "/api/v1/reports/templates", _REPORT_READERS),
+    Case("GET", "/api/v1/reports", _REPORT_READERS),
+    Case("GET", "/api/v1/reports/{report_id}", _REPORT_READERS),
+    Case("GET", "/api/v1/reports/{report_id}/download", _REPORT_READERS),
+    Case(
+        "POST",
+        "/api/v1/reports",
+        _REPORT_AUTHORS,
+        body={"template": "executive_summary"},
     ),
 ]
 
@@ -396,6 +434,7 @@ def _resolve(path: str, target: User) -> str:
         .replace("{cve_id}", "CVE-2024-20353")
         .replace("{scope_id}", str(uuid.uuid4()))
         .replace("{host_id}", str(uuid.uuid4()))
+        .replace("{report_id}", str(uuid.uuid4()))
     )
 
 

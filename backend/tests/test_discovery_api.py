@@ -8,9 +8,14 @@ was built with survives being exposed over HTTP.
 SRS §1.2 rules out port sweeps. The scope endpoint is where that constraint either holds
 or quietly erodes: one more port for a customer running SSH on 2222, a slightly wider
 prefix than intended, each defensible alone and a scanner in sum. So the refusals are
-tested as carefully as the successes, and the absence of a "start a run" endpoint is
-tested too — an unpaced run is exactly the thing §1.2 forbids, and FR-DISC-05's pacing
-loop does not exist yet.
+tested as carefully as the successes.
+
+There is now an endpoint that starts a run, where before there deliberately was not. What
+made it writable is FR-DISC-05: the pacer, and the fact that the prober holds one, so
+"go" cannot mean "as fast as the event loop allows". These tests cover what this layer is
+responsible for — refusing a disabled or unresolvable scope *before* anything is queued,
+and handing the work to the queue rather than doing it in the request. The pacing itself
+is proved in ``test_discovery_pacing.py`` and the run in ``test_discovery_executor.py``.
 """
 
 from __future__ import annotations
@@ -196,24 +201,131 @@ class TestScopes:
         assert response.status_code == 404
 
 
-class TestRunsAreReadOnlyForNow:
-    async def test_there_is_no_endpoint_that_starts_a_run(self, app) -> None:
-        """FR-DISC-05's pacing loop does not exist, and neither does a run executor.
+@pytest.fixture
+def deferred_queue():
+    """Record what the endpoint queues without executing it.
 
-        An endpoint that accepted "go" and probed as fast as the event loop allowed
-        would be the port sweep SRS §1.2 forbids. This pins that the gap is deliberate,
-        so that adding the button later is a decision rather than an oversight.
+    The default queue runs jobs inline, which is right for development and wrong here:
+    it would open its own database session and probe real addresses from inside an HTTP
+    test. What this layer owes is "the right work was queued"; whether the work is
+    correct is `test_discovery_executor.py`'s question.
+    """
+    from netsecops.workers.queue import DeferredQueue, set_queue
+
+    queue = DeferredQueue()
+    set_queue(queue)
+    yield queue
+    set_queue(None)
+
+
+async def create_scope(client: AsyncClient, **overrides) -> dict:
+    body = {"name": "lab", "targets": ["198.51.100.0/30"], **overrides}
+    response = await client.post(SCOPES, json=body)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+class TestStartingARun:
+    async def test_it_queues_the_work_rather_than_doing_it(
+        self, client: AsyncClient, signed_in, deferred_queue
+    ) -> None:
+        """202, and a job to watch.
+
+        Probing even a small scope outlives an HTTP request, so the run is handed to the
+        queue. The ``discovery_runs`` row does not exist yet when this returns — the
+        executor writes it as its first act — which is why a job id comes back.
         """
-        paths = {
-            (method.upper(), path)
-            for path, ops in app.openapi()["paths"].items()
-            for method in ops
-            if "discovery" in path
-        }
+        scope = await create_scope(client)
 
-        assert ("POST", "/api/v1/discovery/runs") not in paths
-        assert not any(path.endswith("/start") for _, path in paths)
+        response = await client.post(f"{SCOPES}/{scope['id']}/runs", json={})
 
+        assert response.status_code == 202
+        body = response.json()
+        assert body["scope_id"] == scope["id"]
+        assert body["address_count"] == 2
+        assert body["rate_limit_per_second"] == 50
+        assert len(deferred_queue.enqueued) == 1
+        assert str(deferred_queue.enqueued[0][0]) == body["job_id"]
+
+    async def test_the_job_it_queues_targets_no_devices(
+        self, client: AsyncClient, signed_in, session: AsyncSession, deferred_queue
+    ) -> None:
+        """The property that keeps discovery from authenticating to anything.
+
+        A discovery job carries a scope id and no ``job_devices`` rows. If it carried
+        devices, the runner's device loop would resolve credentials and open a session
+        against a host nobody has approved — which is what FR-DISC-04 exists to prevent.
+        """
+        from sqlalchemy import select
+
+        from netsecops.db.models.jobs import Job, JobDevice, JobType
+
+        scope = await create_scope(client)
+        await client.post(f"{SCOPES}/{scope['id']}/runs", json={})
+
+        job = (await session.execute(select(Job))).scalars().one()
+        assert job.job_type == JobType.DISCOVERY.value
+        assert job.scope == {"discovery_scope_id": scope["id"]}
+        assert (await session.execute(select(JobDevice))).scalars().all() == []
+
+    async def test_a_disabled_scope_is_refused_and_nothing_is_queued(
+        self, client: AsyncClient, signed_in, deferred_queue
+    ) -> None:
+        """Enabling is how the decision to send packets is made explicit."""
+        scope = await create_scope(client, enabled=False)
+
+        response = await client.post(f"{SCOPES}/{scope['id']}/runs", json={})
+
+        assert response.status_code == 422
+        assert deferred_queue.enqueued == []
+
+    async def test_an_unknown_scope_is_a_404(
+        self, client: AsyncClient, signed_in, deferred_queue
+    ) -> None:
+        response = await client.post(f"{SCOPES}/00000000-0000-0000-0000-000000000000/runs", json={})
+
+        assert response.status_code == 404
+        assert deferred_queue.enqueued == []
+
+    async def test_a_retried_request_does_not_start_a_second_run(
+        self, client: AsyncClient, signed_in, deferred_queue
+    ) -> None:
+        """An idempotency key means a retried POST re-probes nothing.
+
+        Without it, a client that times out and retries sends every packet twice — and
+        the operator has no way to tell that from a network that answered differently.
+        """
+        scope = await create_scope(client)
+        payload = {"idempotency_key": "run-once-please"}
+
+        first = await client.post(f"{SCOPES}/{scope['id']}/runs", json=payload)
+        second = await client.post(f"{SCOPES}/{scope['id']}/runs", json=payload)
+
+        assert first.json()["job_id"] == second.json()["job_id"]
+
+    async def test_starting_a_run_needs_more_than_read_access(
+        self, client: AsyncClient, session: AsyncSession, authenticate, deferred_queue
+    ) -> None:
+        """Sending packets to a customer's network is not a read.
+
+        It sits with the roles that may create devices, not with everyone who may look
+        at them — the same placement as defining the scope in the first place.
+        """
+        auditor = await make_user(session, username="disc_auditor", roles={Role.AUDITOR})
+        analyst = await make_user(session, username="disc_starter", roles={Role.SECURITY_ANALYST})
+        await session.commit()
+
+        authenticate(analyst)
+        scope = await create_scope(client)
+
+        authenticate(auditor)
+        response = await client.post(f"{SCOPES}/{scope['id']}/runs", json={})
+
+        assert response.status_code == 403
+        assert deferred_queue.enqueued == []
+
+
+class TestRunHistory:
     async def test_the_run_history_reads_empty_rather_than_erroring(
         self, client: AsyncClient, signed_in
     ) -> None:
@@ -221,6 +333,36 @@ class TestRunsAreReadOnlyForNow:
 
         assert response.status_code == 200
         assert response.json() == []
+
+    async def test_a_run_carries_its_caveats_alongside_its_counters(
+        self, client: AsyncClient, signed_in, session: AsyncSession
+    ) -> None:
+        """ "0 hosts found" beside "no echo request could be sent" is a different answer.
+
+        The counters alone would make an estate nobody could have detected read exactly
+        like a quiet one, which is the same misreport as an unevaluated check shown as a
+        pass.
+        """
+        from netsecops.db.models.discovery import DiscoveryRun, DiscoveryRunStatus, DiscoveryScope
+
+        scope_row = DiscoveryScope(
+            org_id=1, name="noted", targets=["198.51.100.0/30"], tcp_ports=[22]
+        )
+        session.add(scope_row)
+        await session.flush()
+        session.add(
+            DiscoveryRun(
+                org_id=1,
+                scope_id=scope_row.id,
+                status=DiscoveryRunStatus.SUCCEEDED.value,
+                notes=["ICMP was unavailable."],
+            )
+        )
+        await session.flush()
+
+        body = (await client.get(RUNS)).json()
+
+        assert body[0]["notes"] == ["ICMP was unavailable."]
 
 
 class TestTheReviewQueue:

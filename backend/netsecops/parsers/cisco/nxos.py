@@ -31,6 +31,7 @@ from netsecops.ncm.models import (
     LocalUser,
     NormalisedConfig,
     NtpServer,
+    Route,
     RoutingProtocol,
     SecurityRule,
     SnmpCommunity,
@@ -47,6 +48,7 @@ from netsecops.parsers.base import (
     timeout_to_seconds,
 )
 from netsecops.parsers.cisco.acl import UNREADABLE, parse_ace
+from netsecops.parsers.routes import connected_routes, parse_ios_static_route, store
 
 log = get_logger(__name__)
 
@@ -461,11 +463,19 @@ class CiscoNxosParser(CiscoStyleParser):
                 )
                 result.consume(start, end)
 
-        static = parse.find_objects(r"^ip\s+route\s")
-        if static:
-            routing.static_routes = len(static)
-            for obj in static:
-                result.consume(self.line_number(obj))
+        # Same grammar as IOS, so the same reader (FR-TOPO-01). NX-OS writes the mask as
+        # a prefix length where IOS writes it dotted, which `to_cidr` absorbs — the one
+        # difference that would otherwise need a second regex here.
+        collected: list[tuple[Route, int | None]] = []
+        for obj in parse.find_objects(r"^ip\s+route\s"):
+            route = parse_ios_static_route(obj.text)
+            if route is None:
+                continue
+            collected.append((route, self.line_number(obj)))
+
+        collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
+
+        store(result, collected)
 
     def _parse_acls(self, parse: CiscoConfParse, result: ParseResult) -> None:
         """ACLs, as both an NCM ACL and a normalised rulebase (FR-PARSE-02, FR-FW-01).

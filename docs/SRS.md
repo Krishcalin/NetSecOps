@@ -270,6 +270,31 @@ Applies to Cisco ASA/FTD, PAN-OS, FortiGate, Check Point.
 | FR-FW-06 | The system SHALL provide a **rule query**: given src IP, dst IP, protocol/port (and optional zone/app), show which rule would match on a selected device and config version (offline simulation over the normalised rulebase; documented limitations for app-id/user-id). | S |
 | FR-FW-07 | Results SHALL be presented in a rulebase viewer with highlighting, filters and export. | M |
 
+### 3.8a Topology and path analysis (FR-TOPO)
+
+> **Added 2026-09-18, after the 1.0 baseline.** These requirements were not in the SRS
+> as issued; they were added at the product owner's direction following a competitive
+> analysis which found that multi-device reasoning is the single capability separating
+> this product from the established firewall-policy-management tools, and that four of
+> the five identified gaps collapse into it. They extend FR-FW-06, which answers "which
+> rule matches on *this* device" — the question an operator actually asks is "can this
+> host reach that one, and what decides".
+>
+> Nothing here requires a new data source. A topology is built from the forwarding
+> tables already present in collected configurations, which is how the commercial tools
+> build theirs: no probing, no traceroute, no CDP/LLDP walk, no agents. This stays
+> inside §8 — the read-only guarantee is untouched.
+
+| ID | Requirement | Pri |
+|---|---|---|
+| FR-TOPO-01 | The system SHALL normalise each device's forwarding table into the NCM: destination prefix, next hop, egress interface, protocol by which the route was learned, administrative distance, metric, and VRF. Connected routes SHALL be derived from interface addressing. | M |
+| FR-TOPO-02 | The system SHALL assemble the per-device tables into a single layer-3 graph, keyed by prefix, with VRFs treated as separate forwarding domains. | M |
+| FR-TOPO-03 | The system SHALL answer a path query — given source IP, destination IP, protocol and port — by walking that graph and evaluating each traversed device's rulebase via FR-FW-06. | M |
+| FR-TOPO-04 | A path result SHALL report **routing confidence and policy verdict as two separate axes**. Routing: `unreachable`, `same-zone`, `routed`, `partially-routed`, `unknown`. Policy: `allowed`, `blocked`, `partially-allowed`, `not-routed`. A bare "allowed" that conceals a lost path is a dangerous answer and SHALL NOT be produced. | M |
+| FR-TOPO-05 | Where a path leaves the managed estate — a next hop belonging to no inventoried device, or a snapshot predating route collection — the result SHALL be `unknown` and SHALL name the prefix and next hop at which analysis stopped. It SHALL NOT be reported as unreachable. | M |
+| FR-TOPO-06 | The system SHALL produce a **ranked missing-device report**: the unmanaged next hops that terminate the most path analyses, ordered by how much reachability they obscure, so that onboarding effort can be spent where it buys the most coverage. | S |
+| FR-TOPO-07 | Route tables SHALL be bounded per device, and any truncation SHALL be recorded on the snapshot so that a path falling beyond the stored table resolves to `unknown` rather than `unreachable`. | M |
+
 ### 3.9 AAA / RADIUS / TACACS+ assessment (FR-AAA)
 
 | ID | Requirement | Pri |
@@ -649,6 +674,23 @@ NVD/CSAF/PSIRT/EoL ingestion (online + offline import), CPE builder, feature-awa
 
 **Phase 7 — Discovery, reporting, integrations, hardening (week 22–25)**
 Discovery & fingerprinting; PDF/XLSX reports & scheduling; dashboards; SMTP/webhook/Slack/Teams/syslog-CEF; ServiceNow/Jira (S); Helm chart; performance harness; ASVS review; docs. *Acceptance:* TEST-08.
+
+**Phase 8 — Topology and path analysis (added 2026-09-18)**
+Forwarding-table normalisation into the NCM; the layer-3 graph; path query with the
+two-axis result; the ranked missing-device report; API and console surface. Covers
+FR-TOPO-01 … FR-TOPO-07. *Acceptance:* over a fixture estate of five devices, a path
+query across three of them returns the correct traversed-device list and rule verdicts,
+and a query whose next hop is not in inventory returns `unknown` naming that next hop
+rather than `unreachable`.
+
+> **Scope departure, recorded 2026-09-18.** This phase was not in the SRS as issued.
+> It was added at the product owner's direction after a competitive analysis, on the
+> finding that multi-device reasoning is the one capability separating this product
+> from the established tools in its category. Phase 7 is not closed when Phase 8
+> begins: scheduling (FR-DISC-05's second half, FR-JOB-02, FR-RPT-04) and the whole of
+> integrations (FR-INT-01/02/03) remain open, so §0's ordering rule does not hold for
+> this pair either. Phase 8 depends on neither — it builds on Phase 2 parsing and the
+> Phase 4 rule query, both of which are complete.
 
 ---
 

@@ -32,6 +32,7 @@ from netsecops.schemas.checks import (
     FindingRead,
     FindingUpdate,
     FrameworkControl,
+    FrameworkSummary,
     PaginatedFindings,
     PolicyAssign,
     PolicyCheckRead,
@@ -96,7 +97,7 @@ def _detail(definition: CheckDefinition, *, is_custom: bool = False) -> CheckDet
     )
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ the library â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ────────────────────────────── the library ─────────────────────────────────
 
 
 @router.get(
@@ -222,7 +223,7 @@ async def preview_check(
     )
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ policies â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────── policies ───────────────────────────────────
 
 
 @router.get(
@@ -327,7 +328,7 @@ async def set_default_policy(
     return PolicyRead.model_validate(policy)
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ findings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────── findings ───────────────────────────────────
 
 
 @router.get(
@@ -489,7 +490,7 @@ async def update_finding(
     return FindingRead.model_validate(finding)
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ results, risk, compliance â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ───────────────────────── results, risk, compliance ────────────────────────
 
 
 @router.get(
@@ -566,6 +567,28 @@ async def device_risk(
         components=components,
         assessed_at=latest.created_at,
     )
+
+
+# Declared before `/compliance/{framework}`: FastAPI matches in registration order, and
+# the other way round this path would be read as a framework named "frameworks".
+@router.get(
+    "/compliance/frameworks",
+    response_model=list[FrameworkSummary],
+    dependencies=[Depends(require(Permission.REPORT_READ))],
+    summary="The frameworks checks are mapped to (FR-CHK-05)",
+)
+async def list_frameworks() -> list[FrameworkSummary]:
+    """Served from the registry so no caller hard-codes the list.
+
+    The console did hard-code it, and drifted: CERT-In and CEA were mapped and stayed
+    invisible because nobody updated the second copy. A mapping the product has and
+    does not offer is indistinguishable, to a user, from one it does not have.
+    """
+    registry = get_registry()
+    return [
+        FrameworkSummary(key=name, checks=len(registry.by_framework(name)))
+        for name in sorted(registry.frameworks())
+    ]
 
 
 @router.get(
@@ -651,7 +674,7 @@ async def compliance_by_framework(
     )
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ exceptions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ────────────────────────────── exceptions ──────────────────────────────────
 
 
 @router.get(

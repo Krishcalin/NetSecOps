@@ -224,6 +224,18 @@ class FrameworkControl(BaseModel):
     not_evaluated: int
 
 
+class FrameworkSummary(BaseModel):
+    """One framework the check library maps to, and how many checks reach it.
+
+    The count matters: a framework with 13 mapped checks and one with 103 support very
+    different claims, and a picker that lists them identically invites the stronger
+    claim to be made from the weaker mapping.
+    """
+
+    key: str
+    checks: int
+
+
 class ComplianceRead(BaseModel):
     """A compliance view pivoted by framework (FR-CHK-05)."""
 
@@ -258,6 +270,7 @@ __all__ = [
     "FindingRead",
     "FindingUpdate",
     "FrameworkControl",
+    "FrameworkSummary",
     "PaginatedFindings",
     "PolicyAssign",
     "PolicyCheckRead",

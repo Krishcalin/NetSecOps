@@ -15,7 +15,9 @@ from netsecops.api.v1 import (
     firewall,
     jobs,
     managers,
+    reports,
     snapshots,
+    topology,
     users,
     vulnerabilities,
 )
@@ -63,13 +65,25 @@ api_v1_router.include_router(aaa.router)
 # correspondingly harder to notice.
 api_v1_router.include_router(vulnerabilities.router)
 
-# Phase 7 — discovery scopes and the review queue. Every path here is literal, so there
-# is no shadowing order to preserve. Note there is no route that *starts* a run: the
-# pacing loop FR-DISC-05 calls for does not exist yet, and an unpaced run is the port
-# sweep SRS §1.2 forbids. `discovery.py` says so where someone would look for it.
+# Phase 7 — discovery scopes, runs and the review queue. Every path here is literal, so
+# there is no shadowing order to preserve. Runs are started by POST to a scope's `/runs`
+# sub-resource rather than to a top-level `/discovery/runs`, which is deliberate: a run
+# cannot exist without the scope that says which addresses may be contacted, and nesting
+# it makes a request that omits the scope unroutable rather than merely invalid.
 api_v1_router.include_router(discovery.router)
 
+# Phase 7 — reports. /reports/templates is a literal sibling of /reports/{report_id},
+# which takes a UUID, so a mis-ordered declaration would 422 rather than 404 — louder
+# than the CVE case above, but the literal still goes first inside the module.
+api_v1_router.include_router(reports.router)
+
+# Phase 8 — the layer-3 graph and path analysis. Every path here is literal, so there is
+# no shadowing order to preserve. `/topology/path` is a POST that changes nothing: it
+# takes a body because a packet is four correlated fields, and reads far better in an
+# audit log as an object than as a query string.
+api_v1_router.include_router(topology.router)
+
 # Routers added in later phases:
-#   Phase 7 — reports, integrations, settings
+#   Phase 7 — integrations, settings
 
 __all__ = ["api_v1_router"]

@@ -26,15 +26,32 @@ interface Compliance {
   controls: FrameworkControl[];
 }
 
-const FRAMEWORKS: { key: string; label: string }[] = [
-  { key: 'cis', label: 'CIS Benchmarks' },
-  { key: 'nist_800_53', label: 'NIST 800-53' },
-  { key: 'pci_dss', label: 'PCI DSS' },
-  { key: 'iso_27001', label: 'ISO 27001' },
-];
+interface FrameworkOption {
+  key: string;
+  checks: number;
+}
+
+/** Display names for the frameworks the registry serves. A key with no entry here
+ *  falls back to itself rather than being hidden: a framework the product maps and the
+ *  console does not offer is, to a user, one the product does not have — which is
+ *  exactly what happened to CERT-In and CEA while this list was hard-coded. */
+const LABELS: Record<string, string> = {
+  cis: 'CIS Benchmarks',
+  nist_800_53: 'NIST 800-53',
+  pci_dss: 'PCI DSS',
+  iso_27001: 'ISO 27001',
+  cert_in: 'CERT-In',
+  cea: 'CEA Cyber Security Guidelines',
+};
 
 export function CompliancePage() {
   const [framework, setFramework] = useState('cis');
+
+  const frameworks = useQuery({
+    queryKey: ['frameworks'],
+    queryFn: () => api.get<FrameworkOption[]>('/compliance/frameworks'),
+    staleTime: Infinity,
+  });
 
   const compliance = useQuery({
     queryKey: ['compliance', framework],
@@ -58,9 +75,9 @@ export function CompliancePage() {
           onChange={(event) => setFramework(event.target.value)}
           aria-label="Framework"
         >
-          {FRAMEWORKS.map((entry) => (
+          {(frameworks.data ?? []).map((entry) => (
             <option key={entry.key} value={entry.key}>
-              {entry.label}
+              {LABELS[entry.key] ?? entry.key} ({entry.checks} checks)
             </option>
           ))}
         </select>

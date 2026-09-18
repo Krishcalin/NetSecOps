@@ -51,6 +51,28 @@ class TestNoFrameworkIsAdvertisedAndEmpty:
             f"test asserts. Declared: {sorted(declared)}; advertised: {sorted(ADVERTISED)}."
         )
 
+    async def test_the_api_serves_every_advertised_framework(
+        self, client, analyst, authenticate
+    ) -> None:
+        """The other half of the same defect, from the other end.
+
+        The console used to hard-code its own list of four, so `cert_in` and `cea` were
+        mapped, tested and invisible. A mapping the product has and does not offer is,
+        to a user, indistinguishable from one it does not have — so the list is served
+        from the registry and this asserts the two agree.
+        """
+        authenticate(analyst)
+
+        rows = (await client.get("/api/v1/compliance/frameworks")).json()
+
+        assert {r["key"] for r in rows} == set(ADVERTISED)
+        # The count travels with the key: 13 mapped checks and 103 support very
+        # different claims, and a picker that lists them identically invites the
+        # stronger claim to be made from the weaker mapping.
+        counts = {r["key"]: r["checks"] for r in rows}
+        assert counts["cert_in"] > 0
+        assert counts["nist_800_53"] > counts["cert_in"]
+
 
 class TestTheIndianFrameworksAreMappedDeliberately:
     """CERT-In and CEA are prose directives, not numbered control catalogues.
