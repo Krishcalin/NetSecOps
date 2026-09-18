@@ -163,16 +163,18 @@ describe('VulnerabilitiesPage', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let rows: unknown[];
   let summary: typeof SUMMARY;
+  let feedRows: unknown[];
 
   beforeEach(() => {
     rows = [KEV_ROW, CHECKED_NOT_LISTED, NEVER_CHECKED];
     summary = { ...SUMMARY };
+    feedRows = [];
 
     fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes('/auth/me')) return Promise.resolve(jsonResponse(ME));
       if (url.includes('/vulnerabilities/summary')) return Promise.resolve(jsonResponse(summary));
-      if (url.includes('/vulnerabilities/feeds')) return Promise.resolve(jsonResponse([]));
+      if (url.includes('/vulnerabilities/feeds')) return Promise.resolve(jsonResponse(feedRows));
       if (url.includes('/vulnerabilities/CVE-')) return Promise.resolve(jsonResponse(CVE_DETAIL));
       if (url.includes('/vulnerabilities')) {
         return Promise.resolve(
@@ -332,6 +334,49 @@ describe('VulnerabilitiesPage', () => {
 
       expect(await screen.findByText(/No feed has ever been imported/i)).toBeInTheDocument();
       expect(screen.getByText(/not the same as being clear/i)).toBeInTheDocument();
+    });
+
+    it('says the KEV catalogue is what makes the filter mean anything', async () => {
+      // Otherwise an operator sees a known-exploited filter that returns nothing and
+      // concludes the estate is clean, rather than that the catalogue is missing.
+      renderPage();
+      await screen.findByText('sw-core-01');
+
+      await userEvent.click(screen.getByRole('button', { name: /feed status/i }));
+
+      expect(
+        await screen.findByText(/make the known-exploited filter mean anything/i),
+      ).toBeInTheDocument();
+    });
+
+    it('shows how old the data is, not only when it was imported', async () => {
+      // A sync that ran an hour ago against a year-old catalogue is fresh and stale at
+      // the same time. Showing only the import time reports the reassuring half.
+      feedRows = [
+        {
+          feed: 'kev',
+          mode: 'offline',
+          status: 'succeeded',
+          started_at: '2026-09-18T09:00:00Z',
+          finished_at: '2026-09-18T09:00:05Z',
+          advisories_ingested: 0,
+          cves_ingested: 0,
+          eol_records_ingested: 0,
+          kev_entries_ingested: 1183,
+          epss_scores_ingested: 0,
+          records_rejected: 0,
+          source_version: '2023.01.01',
+          error_message: null,
+        },
+      ];
+
+      renderPage();
+      await screen.findByText('sw-core-01');
+      await userEvent.click(screen.getByRole('button', { name: /feed status/i }));
+
+      expect(await screen.findByText('Data dated')).toBeInTheDocument();
+      expect(screen.getByText('2023.01.01')).toBeInTheDocument();
+      expect(screen.getByText('1,183 / 0')).toBeInTheDocument();
     });
   });
 

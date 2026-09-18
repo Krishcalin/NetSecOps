@@ -73,7 +73,7 @@ that most of the other gaps identified collapse into it.
 | **3** | Check engine + baseline library, findings, compliance mapping | **Complete** |
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
-| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — no KEV/EPSS feed, no scheduled sync |
+| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — acceptance met; no scheduled sync |
 | 7 | Discovery, reporting, integrations, hardening | **In progress** — nothing is scheduled, integrations not started |
 | 8 | Topology and path analysis | **In progress** — graph, path query and missing-device report built; dynamic routes not collected |
 
@@ -95,16 +95,29 @@ The parts that shape the answer:
   ranges were partly unparseable can rule a device *in* and never *out*, which is why
   CSAF ingestion keeps what it cannot read instead of dropping or guessing it.
 - **Offline bundle import, hash-verified.** `POST /vulnerabilities/feeds/import` takes
-  NVD 2.0 JSON, CSAF 2.0 and endoflife.date bundles, checks SHA-256 before anything is
-  written, and records every attempt including the failures.
+  NVD 2.0 JSON, CSAF 2.0, endoflife.date, CISA KEV and FIRST EPSS bundles — the last as
+  gzipped CSV, which is what FIRST actually publishes. SHA-256 is checked before anything
+  is written, and every attempt is recorded including the failures.
+- **KEV is prioritisation you can act on.** *Is this being exploited right now* outranks
+  every severity score: a CVSS 9.8 nobody has ever attacked and a 7.5 in active
+  ransomware use are not the same work item. Importing the catalogue writes `False` onto
+  every CVE it does *not* list, which is the whole difference between three states and
+  two — set only the listed ones and everything else still reads "never checked", so the
+  filter still matches nothing.
+- **The catalogue is stored whole, not reduced to a flag.** Otherwise the answer depends
+  on import order: load the catalogue, then an advisory bundle introducing a new CVE, and
+  that CVE reads "never checked" while an entry for it sits in the same database. With
+  the catalogue present the flag is derivable whenever a CVE arrives, either way round.
+- **EPSS scores what is known and leaves the rest null.** A CVE the feed does not mention
+  is *unscored*; writing zero would say "almost certainly not exploited", which for
+  anything too new to have been modelled is exactly backwards.
 
 Still owed, and each one changes what an answer means:
 
-- **KEV and EPSS are columns, not data.** There is no CISA or FIRST ingestion, so every
-  KEV flag is null. Null is rendered as *unknown*, never as "not on KEV" — but the
-  `kev_only` filter can only ever match nothing today, and that is a gap, not a result.
 - **No scheduled sync.** Import is offline and by hand. A stale feed produces a
-  confident-looking clean answer, so this matters more than its size suggests.
+  confident-looking clean answer, so this matters more than its size suggests. The feed
+  table now reports the data's *own* date beside the import time, which makes staleness
+  visible without fixing it.
 - **CPE product names are unverified.** `unverified_products()` exists precisely to
   check them against a real NVD CPE dictionary, there is none in the repository, and it
   has never been run — see the CPE note below for why a wrong name is dangerous rather

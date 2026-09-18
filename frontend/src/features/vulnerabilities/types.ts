@@ -98,7 +98,12 @@ export interface FeedStatus {
   advisories_ingested: number;
   cves_ingested: number;
   eol_records_ingested: number;
+  kev_entries_ingested: number;
+  epss_scores_ingested: number;
   records_rejected: number;
+  /** The feed's own version or date stamp — CISA's catalogVersion, EPSS's score_date —
+   *  as opposed to when the import ran. Null for feeds that carry no such stamp. */
+  source_version: string | null;
   error_message: string | null;
 }
 

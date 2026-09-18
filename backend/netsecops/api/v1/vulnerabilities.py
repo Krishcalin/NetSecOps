@@ -133,7 +133,7 @@ async def list_feeds(
     "/vulnerabilities/feeds/import",
     response_model=FeedImportRead,
     dependencies=[Depends(require(Permission.VULN_WRITE)), Depends(verify_csrf)],
-    summary="Import an offline NVD/CSAF/EoL bundle (FR-VUL-08)",
+    summary="Import an offline NVD/CSAF/EoL/KEV/EPSS bundle (FR-VUL-08)",
 )
 async def import_feed_bundle(
     feeds: FeedDep,
@@ -180,7 +180,11 @@ async def import_feed_bundle(
         advisories_ingested=result.advisories,
         cves_ingested=result.cves,
         eol_records_ingested=result.eol_records,
+        kev_entries_ingested=result.kev_entries,
+        epss_scores_ingested=result.epss_scores,
+        kev_cleared=result.kev_cleared,
         records_rejected=result.rejected,
+        source_version=result.source_version,
         errors=[result.sync.error_message] if result.sync.error_message else [],
     )
 

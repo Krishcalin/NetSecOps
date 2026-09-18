@@ -122,7 +122,14 @@ class TestIntegrity:
         assert result.sync.bundle_sha256 == digest(CSAF)
 
     async def test_an_unreadable_bundle_fails_cleanly(self, feeds, actor) -> None:
-        with pytest.raises(ValidationProblem, match="not readable JSON"):
+        """Refused, and the message names both formats it tried.
+
+        Four of the five bundle kinds are JSON; FIRST publishes EPSS as CSV, so a file
+        that will not parse as JSON is offered to the CSV reader before being rejected.
+        The message says so, because "not readable JSON" would send an operator holding
+        a perfectly good EPSS export looking for a JSON problem that does not exist.
+        """
+        with pytest.raises(ValidationProblem, match="neither readable JSON nor"):
             await feeds.import_bundle(b"\xff\xfe not json", feed="paloalto", actor=actor)
 
 

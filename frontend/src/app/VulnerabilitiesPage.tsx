@@ -111,7 +111,8 @@ function FeedPanel() {
       <p className="empty">
         No feed has ever been imported. Until one is, every device reports no vulnerabilities
         because nothing has been compared against it — which is not the same as being clear. Import
-        an NVD, CSAF or end-of-life bundle to begin.
+        an NVD, CSAF or end-of-life bundle to begin, and a CISA KEV catalogue to make the
+        known-exploited filter mean anything.
       </p>
     );
   }
@@ -126,8 +127,13 @@ function FeedPanel() {
             <th>Advisories</th>
             <th>CVEs</th>
             <th>EoL records</th>
+            <th>KEV / EPSS</th>
             <th>Rejected</th>
             <th>When</th>
+            {/* The feed's own stamp, beside the import time. A sync that ran an hour ago
+                against a year-old catalogue is fresh and stale at once, and the import
+                time alone reports only the reassuring half. */}
+            <th>Data dated</th>
           </tr>
         </thead>
         <tbody>
@@ -152,8 +158,14 @@ function FeedPanel() {
               <td>{row.advisories_ingested.toLocaleString()}</td>
               <td>{row.cves_ingested.toLocaleString()}</td>
               <td>{row.eol_records_ingested.toLocaleString()}</td>
+              <td>
+                {row.kev_entries_ingested > 0 || row.epss_scores_ingested > 0
+                  ? `${row.kev_entries_ingested.toLocaleString()} / ${row.epss_scores_ingested.toLocaleString()}`
+                  : '—'}
+              </td>
               <td>{row.records_rejected > 0 ? row.records_rejected.toLocaleString() : '—'}</td>
               <td>{new Date(row.started_at).toLocaleString()}</td>
+              <td className="mono">{row.source_version ?? '—'}</td>
             </tr>
           ))}
         </tbody>
