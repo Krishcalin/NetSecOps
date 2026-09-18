@@ -56,11 +56,16 @@ def to_cidr(network: str, mask: str | int | None = None) -> str | None:
     # `default`, `default-route` and `0.0.0.0/0` all mean the same thing, and a table
     # that stores them differently cannot match a default route to anything.
     #
-    # nosec B104 on both literals below: bandit reads any bare "0.0.0.0" as a socket
-    # binding to every interface. These are a *routing destination* — the spellings
-    # vendors use for a default route — and this module opens no socket at all. The
-    # suppression is per-line rather than a B104 entry in pyproject's skip list, so a
+    # Both literals below carry a B104 suppression: bandit reads any bare "0.0.0.0" as a
+    # socket binding to every interface. These are a *routing destination* — the
+    # spellings vendors use for a default route — and this module opens no socket at all.
+    # The suppression is per-line rather than a B104 entry in pyproject's skip list, so a
     # real bind-all elsewhere in the codebase still fails the build.
+    #
+    # Keep the explanation here and the marker bare. Bandit treats every word after the
+    # marker as another test id and logs a warning for each, and it scans *any* comment
+    # containing the marker — including one merely describing it, which is how this
+    # paragraph itself produced five warnings a run until it stopped spelling it out.
     default_spellings = {"default", "default-route", "0.0.0.0", "any"}  # nosec B104
     unset_masks = (None, "", "0.0.0.0", 0)  # nosec B104
     if text.lower() in default_spellings and mask in unset_masks:

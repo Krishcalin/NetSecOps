@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phases-0--5%20complete%2C%206--8%20in%20progress-orange?style=flat-square" alt="Phases 0-5 complete, 6-8 in progress"/>
+  <img src="https://img.shields.io/badge/phases-0--5%20%26%208%20complete%2C%206--7%20in%20progress-orange?style=flat-square" alt="Phases 0-5 and 8 complete, 6-7 in progress"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -52,16 +52,16 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phases 0–5 complete, 6 to 8 under way
+## Status — Phases 0–5 and 8 complete, 6 and 7 under way
 
 Development follows the phase plan in [SRS §12](docs/SRS.md). Phases 0–5 were built
 strictly in order, each one's acceptance criteria passing before the next began.
 
-Phases 6, 7 and 8 are open at the same time, which is a deliberate departure from that
-rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. None has met
-its acceptance criterion, and the sections below say exactly which part is missing in
-each — a phase that is 80% done is far easier to misread as finished than one that has
-not started.
+Phases 6, 7 and 8 were opened at the same time, which is a deliberate departure from that
+rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Phase 8 has
+since met its acceptance criterion; 6 and 7 have not, and the sections below say exactly
+which part is missing in each — a phase that is 80% done is far easier to misread as
+finished than one that has not started.
 
 Phase 8 was not in the SRS as issued. It was added after a competitive analysis found
 that multi-device reasoning — "can this host reach that one, and what decides" — is the
@@ -78,7 +78,7 @@ that most of the other gaps identified collapse into it.
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
 | 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — acceptance met; no scheduled sync |
 | 7 | Discovery, reporting, integrations, hardening | **In progress** — integrations not started |
-| 8 | Topology and path analysis | **In progress** — graph, path query and missing-device report built; dynamic routes not collected |
+| **8** | Topology and path analysis | **Complete** — acceptance met |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
 
@@ -268,11 +268,26 @@ counted and thrown away, and on the ASA they sat on an explicit ignore list as n
 That is also how the commercial tools build their maps: no probing, no traceroute, no
 CDP/LLDP walk, no agents. [SRS §8](docs/SRS.md)'s read-only guarantee is untouched.
 
-What is parsed is static and connected routes. **What a protocol learned is not**: OSPF,
-BGP and EIGRP tables live only in `show ip route`, which no Cisco platform collects —
-only `show ip route summary` is even allow-listed. So a graph built on this is partial by
-construction, and every route records the protocol that installed it so the graph can say
-so rather than implying completeness.
+**What a protocol learned is now collected too**, which it was not at first. OSPF, BGP and
+EIGRP routes exist in no configuration file on any platform — they live only in the
+forwarding table — so the first version of this was static-and-connected only: complete
+for an edge or DMZ estate, partial in a routed core. Closing that needed `show ip route`
+(IOS), `show ip route vrf all` (NX-OS) and `show route` (ASA) added to the read-only
+allow-list, which is a change to what the product sends to a device and so was made
+deliberately and [recorded in SRS §8.2](docs/SRS.md) rather than slipped in. FortiOS
+already collected its table and nothing read it.
+
+Every route still records the protocol that installed it, because the graph has to be able
+to say how complete it is rather than implying completeness. Three formats are parsed:
+IOS/ASA/FortiOS print a leading protocol code and a prefix, NX-OS prints a prefix line with
+indented `*via` lines and names protocols in words. Each has a way of failing silently —
+IOS prints subnetted children *without* a prefix length, so reading one literally gives a
+/32 host route to a network address that matches nothing; equal-cost paths arrive as
+continuation lines carrying no destination of their own; NX-OS ends its lines with the
+protocol and route type, so a reader working backwards adopts `direct` or a BGP tag as an
+interface name. All three are fixture-tested, and the operational table supersedes the
+configuration's statics rather than adding to them, since the device's own table already
+contains them.
 
 **A path can now be traced across devices, and the answer has two axes.** Give it a
 source, a destination, a protocol and a port, and it finds the devices in between and asks
@@ -308,11 +323,25 @@ quadratic in the estate and measures the queries somebody happened to ask instea
 gap itself. The addresses are evidence, not a work queue: an unmanaged next hop may be an
 ISP router, a customer handoff, or a virtual address no single box owns.
 
-Still owed: dynamic routes, which need a deliberate decision to collect `show ip route` —
-that changes what the product sends to devices, a policy change rather than a parser
-change. Until then a graph is built from static and connected routes, which is complete
-for an edge or DMZ estate and partial in a routed core; the two-axis result is what makes
-that partiality visible instead of wrong.
+**The acceptance criterion is met** ([`test_phase8_acceptance.py`](backend/tests/test_phase8_acceptance.py)):
+a five-device fixture estate, a path query crossing three of them with the right
+traversed-device list and rule verdicts, and a query whose next hop belongs to no
+inventoried device naming that next hop instead of reporting it unreachable.
+
+Writing it surfaced a contradiction in the specification. FR-TOPO-04 defines
+`partially-routed` as its own routing value; FR-TOPO-05 says the leaves-the-estate case is
+`unknown`. Both cannot hold — if that case were `unknown`, `partially-routed` would have
+nothing to describe. It is resolved in favour of the more precise value and
+[recorded in SRS §3.8a](docs/SRS.md): a path that leaves the estate at a named, real next
+hop is `partially-routed`, and `unknown` is kept for what genuinely could not be determined
+— a table never collected, a truncated one, a routing loop, a VRF binding nothing records.
+The difference is operational: the first is fixed by onboarding a device the report already
+ranks, the second by re-collecting one.
+
+Still owed, and deliberately: IOS per-VRF tables. `show ip route vrf <name>` needs the VRF
+list first and a round trip per VRF, where NX-OS returns every table in one response — so
+IOS collects the global table only, and a path that depends on an IOS VRF resolves to
+`unknown` naming the VRF rather than guessing.
 
 ### What Phase 5 delivers
 

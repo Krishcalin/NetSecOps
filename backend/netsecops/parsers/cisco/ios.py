@@ -55,7 +55,8 @@ from netsecops.parsers.base import (
     timeout_to_seconds,
 )
 from netsecops.parsers.cisco.acl import UNREADABLE, parse_ace
-from netsecops.parsers.routes import connected_routes, parse_ios_static_route, store
+from netsecops.parsers.route_tables import parse_cisco_route_table, store_routes
+from netsecops.parsers.routes import connected_routes, parse_ios_static_route
 
 log = get_logger(__name__)
 
@@ -810,11 +811,11 @@ class CiscoIosParser(CiscoStyleParser):
                 )
                 result.consume(start, end)
 
-        # Static routes come out of the running configuration, which is already
-        # collected — the forwarding table needs no new command and no new access. What
-        # is *not* here is anything a protocol learned; those live only in `show ip
-        # route`, so a graph built from this is partial by construction and says so
-        # through each route's `protocol` (FR-TOPO-01).
+        # Static routes out of the running configuration. These are now the *fallback*:
+        # `show ip route` is collected as of 2026-09-18 and carries what the protocols
+        # learned as well, which no configuration file contains. They still matter — an
+        # offline upload and any snapshot taken before that change have nothing else
+        # (FR-TOPO-01).
         collected: list[tuple[Route, int | None]] = []
         for obj in parse.find_objects(r"^ip\s+route\s"):
             route = parse_ios_static_route(obj.text)
@@ -829,7 +830,12 @@ class CiscoIosParser(CiscoStyleParser):
         # No line of their own — their provenance is the interface they came from.
         collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
 
-        store(result, collected)
+        store_routes(
+            result,
+            "show ip route",
+            parser=parse_cisco_route_table,
+            from_config=collected,
+        )
 
         routing.ip_source_routing = self._toggle_value(
             parse, r"^ip\s+source-route\s*$", r"^no\s+ip\s+source-route\s*$"

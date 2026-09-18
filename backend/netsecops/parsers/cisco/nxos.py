@@ -48,7 +48,8 @@ from netsecops.parsers.base import (
     timeout_to_seconds,
 )
 from netsecops.parsers.cisco.acl import UNREADABLE, parse_ace
-from netsecops.parsers.routes import connected_routes, parse_ios_static_route, store
+from netsecops.parsers.route_tables import parse_nxos_route_table, store_routes
+from netsecops.parsers.routes import connected_routes, parse_ios_static_route
 
 log = get_logger(__name__)
 
@@ -475,7 +476,14 @@ class CiscoNxosParser(CiscoStyleParser):
 
         collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
 
-        store(result, collected)
+        # `vrf all` rather than the global table: FR-TOPO-02 requires VRFs to be separate
+        # forwarding domains, and a collection that only ever sees one cannot honour it.
+        store_routes(
+            result,
+            "show ip route vrf all",
+            parser=parse_nxos_route_table,
+            from_config=collected,
+        )
 
     def _parse_acls(self, parse: CiscoConfParse, result: ParseResult) -> None:
         """ACLs, as both an NCM ACL and a normalised rulebase (FR-PARSE-02, FR-FW-01).

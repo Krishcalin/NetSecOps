@@ -108,6 +108,10 @@ CISCO_IOS_PROFILE: Final = CollectionProfile(
         CollectionCommand("show inventory", "Serial numbers and module list"),
         CollectionCommand("show ip interface brief", "Interface addressing and operational state"),
         CollectionCommand("show interfaces status", "Port state, VLAN and duplex"),
+        CollectionCommand(
+            "show ip route",
+            "The forwarding table, including protocol-learned routes (FR-TOPO-01)",
+        ),
         CollectionCommand("show ip ssh", "Live SSH version and timeout, which the config omits"),
         CollectionCommand("show snmp user", "SNMPv3 users; the config stores these opaquely"),
         CollectionCommand("show aaa servers", "AAA server reachability, not visible in config"),
@@ -138,6 +142,10 @@ CISCO_NXOS_PROFILE: Final = CollectionProfile(
         CollectionCommand("show inventory", "Serial numbers and module list"),
         CollectionCommand("show feature", "Enabled features — NX-OS gates most behaviour on these"),
         CollectionCommand("show interface brief", "Interface state"),
+        CollectionCommand(
+            "show ip route vrf all",
+            "Every VRF's forwarding table, including protocol-learned routes (FR-TOPO-01)",
+        ),
         CollectionCommand("show ssh server", "Live SSH server state"),
         CollectionCommand("show snmp user", "SNMPv3 users and their security levels"),
         CollectionCommand("show aaa authentication", "Authentication method lists"),
@@ -164,6 +172,10 @@ CISCO_ASA_PROFILE: Final = CollectionProfile(
         CollectionCommand("show inventory", "Serial numbers and module list"),
         CollectionCommand("show nameif", "Interface names and security levels"),
         CollectionCommand("show interface ip brief", "Interface addressing and state"),
+        CollectionCommand(
+            "show route",
+            "The forwarding table, including protocol-learned routes (FR-TOPO-01)",
+        ),
         CollectionCommand("show access-list", "ACL hit counts — absent from the configuration"),
         CollectionCommand("show run access-group", "Which ACL is bound to which interface"),
         CollectionCommand("show run object", "Network and service objects"),
@@ -197,7 +209,8 @@ FORTIOS_PROFILE: Final = CollectionProfile(
         CollectionCommand("get system admin list", "Administrators currently logged in"),
         CollectionCommand("get user radius", "RADIUS server reachability"),
         CollectionCommand(
-            "get router info routing-table all", "Routing table, for reachability context"
+            "get router info routing-table all",
+            "The forwarding table, including protocol-learned routes (FR-TOPO-01)",
         ),
     ),
 )

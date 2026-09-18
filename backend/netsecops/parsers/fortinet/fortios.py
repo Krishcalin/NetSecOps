@@ -39,7 +39,8 @@ from netsecops.parsers.base import (
     mask_secret,
 )
 from netsecops.parsers.fortinet.blocks import Block, ParsedConfig, read
-from netsecops.parsers.routes import connected_routes, store, to_cidr
+from netsecops.parsers.route_tables import parse_cisco_route_table, store_routes
+from netsecops.parsers.routes import connected_routes, to_cidr
 
 log = get_logger(__name__)
 
@@ -463,7 +464,13 @@ class FortiOsParser(ConfigParser):
 
         collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
 
-        store(result, collected)
+        # FortiOS prints a code-prefixed table like Cisco's, so it shares that reader.
+        store_routes(
+            result,
+            "get router info routing-table all",
+            parser=parse_cisco_route_table,
+            from_config=collected,
+        )
 
     # ── the firewall (FR-FW-01) ─────────────────────────────────────────
 

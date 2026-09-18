@@ -44,7 +44,8 @@ from netsecops.parsers.base import (
     mask_secret,
     timeout_to_seconds,
 )
-from netsecops.parsers.routes import connected_routes, parse_asa_route, store
+from netsecops.parsers.route_tables import parse_cisco_route_table, store_routes
+from netsecops.parsers.routes import connected_routes, parse_asa_route
 
 log = get_logger(__name__)
 
@@ -390,7 +391,13 @@ class CiscoAsaParser(CiscoStyleParser):
 
         collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
 
-        store(result, collected)
+        # The ASA spells it `show route`, without the `ip`.
+        store_routes(
+            result,
+            "show route",
+            parser=parse_cisco_route_table,
+            from_config=collected,
+        )
 
     # ──────────────────────────── objects ───────────────────────────────
 

@@ -291,9 +291,27 @@ Applies to Cisco ASA/FTD, PAN-OS, FortiGate, Check Point.
 | FR-TOPO-02 | The system SHALL assemble the per-device tables into a single layer-3 graph, keyed by prefix, with VRFs treated as separate forwarding domains. | M |
 | FR-TOPO-03 | The system SHALL answer a path query — given source IP, destination IP, protocol and port — by walking that graph and evaluating each traversed device's rulebase via FR-FW-06. | M |
 | FR-TOPO-04 | A path result SHALL report **routing confidence and policy verdict as two separate axes**. Routing: `unreachable`, `same-zone`, `routed`, `partially-routed`, `unknown`. Policy: `allowed`, `blocked`, `partially-allowed`, `not-routed`. A bare "allowed" that conceals a lost path is a dangerous answer and SHALL NOT be produced. | M |
-| FR-TOPO-05 | Where a path leaves the managed estate — a next hop belonging to no inventoried device, or a snapshot predating route collection — the result SHALL be `unknown` and SHALL name the prefix and next hop at which analysis stopped. It SHALL NOT be reported as unreachable. | M |
+| FR-TOPO-05 | Where a path leaves the managed estate — a next hop belonging to no inventoried device, or a snapshot predating route collection — the result SHALL be `partially-routed` (a next hop that is real but unmanaged) or `unknown` (nothing could be determined), and SHALL name the prefix and next hop at which analysis stopped. It SHALL NOT be reported as unreachable. See the note below. | M |
 | FR-TOPO-06 | The system SHALL produce a **ranked missing-device report**: the unmanaged next hops that terminate the most path analyses, ordered by how much reachability they obscure, so that onboarding effort can be spent where it buys the most coverage. | S |
 | FR-TOPO-07 | Route tables SHALL be bounded per device, and any truncation SHALL be recorded on the snapshot so that a path falling beyond the stored table resolves to `unknown` rather than `unreachable`. | M |
+
+> **Amendment, recorded 2026-09-18 — `unknown` versus `partially-routed`.** As issued,
+> FR-TOPO-04 defines `partially-routed` as its own routing value while FR-TOPO-05 says the
+> leaves-the-estate case SHALL be `unknown`. Both cannot hold: if that case were `unknown`,
+> FR-TOPO-04 would have no need of `partially-routed` at all. The contradiction surfaced
+> when the Phase 8 acceptance test was written against the criterion's literal wording.
+>
+> Resolved in favour of the more precise value. A path that leaves the estate at a named,
+> real next hop is `partially-routed`; `unknown` is reserved for what genuinely could not
+> be determined — a table never collected, a truncated table, a routing loop, or a VRF
+> binding no parser records. The distinction is operational, not cosmetic: the first is
+> fixed by onboarding a device the report already names and ranks (FR-TOPO-06), the second
+> by re-collecting one. Collapsing them would send an operator looking for the wrong
+> remedy.
+>
+> Unchanged, and the part that actually matters: neither is ever reported as
+> `unreachable`, both name the prefix and next hop where analysis stopped, and neither
+> ever yields a policy verdict of `allowed`.
 
 ### 3.9 AAA / RADIUS / TACACS+ assessment (FR-AAA)
 
@@ -538,17 +556,34 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 
 ### 8.2 Vendor read-only command / API matrix (initial allow-lists)
 
+> **Amendment, recorded 2026-09-18 — forwarding tables.** `show ip route` (IOS/IOS-XE),
+> `show ip route vrf all` (NX-OS) and `show route` (ASA) were added at the product
+> owner's direction, and `get router info routing-table all` (FortiOS) was already
+> present but read by nothing. FR-TOPO-01 requires the protocol by which each route was
+> learned, and OSPF, BGP and EIGRP routes exist in no configuration file on any platform
+> — so a topology built without these is static-and-connected only: complete for an edge
+> or DMZ estate, partial in a routed core.
+>
+> All four are `show` commands with no side effects, so §8.1's principles are untouched.
+> The amendment is recorded rather than made silently because this list is closed
+> precisely so that "it is only a show command" cannot grow it one entry at a time; the
+> rationale is what a customer reviewing `netsecops-cli audit-commands` needs.
+>
+> Scope deliberately not taken: IOS per-VRF retrieval (`show ip route vrf <name>`) needs
+> the VRF list first and is a second round-trip per VRF, so IOS collects the global table
+> only. NX-OS's `vrf all` returns every table in one response, which is why it differs.
+
 **Cisco IOS / IOS-XE (routers, switches, Catalyst 9800 WLC, IOS APs)**
-`terminal length 0`, `terminal width 512`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show ip interface brief`, `show interfaces status`, `show interfaces description`, `show cdp neighbors detail`, `show lldp neighbors detail`, `show vlan brief`, `show spanning-tree summary`, `show ip route summary`, `show ip ssh`, `show ssh`, `show crypto key mypubkey rsa`, `show snmp community`, `show snmp user`, `show aaa servers`, `show tacacs`, `show radius server-group all`, `show ntp status`, `show ntp associations`, `show logging | include (Trap|Buffer|Logging to)`, `show users`, `show access-lists`, `show ip access-lists`, `show line`, `show clock`, `show archive`, `show ip http server status`, `show crypto pki certificates`, `show boot`, `show redundancy`, `show stackwise-virtual`, `show switch`, `show port-security`, `show ip dhcp snooping`, `show ip arp inspection`, `show errdisable recovery`, `show wireless summary`, `show wlan summary`, `show wlan all`, `show ap summary`, `show ap config general`, `show wireless profile policy summary`, `show aaa method-lists all`.
+`terminal length 0`, `terminal width 512`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show ip interface brief`, `show interfaces status`, `show interfaces description`, `show cdp neighbors detail`, `show lldp neighbors detail`, `show vlan brief`, `show spanning-tree summary`, `show ip route summary`, `show ip route`, `show ip ssh`, `show ssh`, `show crypto key mypubkey rsa`, `show snmp community`, `show snmp user`, `show aaa servers`, `show tacacs`, `show radius server-group all`, `show ntp status`, `show ntp associations`, `show logging | include (Trap|Buffer|Logging to)`, `show users`, `show access-lists`, `show ip access-lists`, `show line`, `show clock`, `show archive`, `show ip http server status`, `show crypto pki certificates`, `show boot`, `show redundancy`, `show stackwise-virtual`, `show switch`, `show port-security`, `show ip dhcp snooping`, `show ip arp inspection`, `show errdisable recovery`, `show wireless summary`, `show wlan summary`, `show wlan all`, `show ap summary`, `show ap config general`, `show wireless profile policy summary`, `show aaa method-lists all`.
 
 **Cisco NX-OS**
-`terminal length 0`, `show version`, `show running-config [all]`, `show inventory`, `show interface brief`, `show cdp neighbors detail`, `show vlan brief`, `show vpc`, `show feature`, `show ssh server`, `show snmp community`, `show snmp user`, `show aaa authentication`, `show aaa authorization`, `show tacacs-server`, `show radius-server`, `show ntp peers`, `show logging server`, `show user-account`, `show role`, `show access-lists`, `show hardware`, `show system resources`.
+`terminal length 0`, `show version`, `show running-config [all]`, `show inventory`, `show interface brief`, `show cdp neighbors detail`, `show vlan brief`, `show ip route vrf all`, `show vpc`, `show feature`, `show ssh server`, `show snmp community`, `show snmp user`, `show aaa authentication`, `show aaa authorization`, `show tacacs-server`, `show radius-server`, `show ntp peers`, `show logging server`, `show user-account`, `show role`, `show access-lists`, `show hardware`, `show system resources`.
 
 **Cisco IOS-XR**
 `terminal length 0`, `show version`, `show running-config`, `show inventory`, `show ipv4 interface brief`, `show ssh`, `show aaa`, `show tacacs`, `show radius`, `show ntp associations`, `show logging`, `show user`, `show install active summary`.
 
 **Cisco ASA**
-`terminal pager 0`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show interface ip brief`, `show nameif`, `show access-list`, `show nat`, `show ssh`, `show ssh sessions`, `show snmp-server statistics`, `show aaa-server`, `show ntp associations`, `show logging`, `show crypto ca certificates`, `show crypto ikev1 sa`, `show crypto ikev2 sa`, `show failover`, `show context`, `show local-host` (bounded), `show run access-group`, `show run object`, `show run object-group`, `show run service-policy`, `show run policy-map`, `show run class-map`, `show run http`, `show run ssh`, `show run username`.
+`terminal pager 0`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show interface ip brief`, `show nameif`, `show route`, `show access-list`, `show nat`, `show ssh`, `show ssh sessions`, `show snmp-server statistics`, `show aaa-server`, `show ntp associations`, `show logging`, `show crypto ca certificates`, `show crypto ikev1 sa`, `show crypto ikev2 sa`, `show failover`, `show context`, `show local-host` (bounded), `show run access-group`, `show run object`, `show run object-group`, `show run service-policy`, `show run policy-map`, `show run class-map`, `show run http`, `show run ssh`, `show run username`.
 
 **Cisco FTD via FMC REST API (GET only)**
 `POST /api/fmc_platform/v1/auth/generatetoken` (auth only), `GET /api/fmc_platform/v1/info/serverversion`, `GET /api/fmc_config/v1/domain/{uuid}/devices/devicerecords`, `.../policy/accesspolicies` + `/accessrules`, `.../policy/prefilterpolicies`, `.../policy/ftdnatpolicies`, `.../object/{networks,hosts,networkgroups,ports,portobjectgroups,urls,...}`, `.../policy/intrusionpolicies`, `.../policy/filepolicies`, `.../devices/devicerecords/{id}/{physicalinterfaces,routing/...}`, `.../object/realms`, `.../integration/...` (read). FDM (device-managed) MAY be supported via `GET /api/fdm/v6/...`.
@@ -680,8 +715,10 @@ Forwarding-table normalisation into the NCM; the layer-3 graph; path query with 
 two-axis result; the ranked missing-device report; API and console surface. Covers
 FR-TOPO-01 … FR-TOPO-07. *Acceptance:* over a fixture estate of five devices, a path
 query across three of them returns the correct traversed-device list and rule verdicts,
-and a query whose next hop is not in inventory returns `unknown` naming that next hop
-rather than `unreachable`.
+and a query whose next hop is not in inventory names that next hop and is reported as
+`partially-routed` — never `unreachable`, and never with a policy verdict of `allowed`
+(see the §3.8a amendment of 2026-09-18 for why this is not spelled `unknown`).
+**Met** — `backend/tests/test_phase8_acceptance.py`.
 
 > **Scope departure, recorded 2026-09-18.** This phase was not in the SRS as issued.
 > It was added at the product owner's direction after a competitive analysis, on the

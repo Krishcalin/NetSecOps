@@ -48,6 +48,17 @@ CISCO_IOS = PlatformPolicy(
             "show vlan brief",
             "show spanning-tree summary",
             "show ip route summary",
+            # Added 2026-09-18 for FR-TOPO-01's dynamic routes. Protocol-learned routes
+            # exist in no configuration file, so a topology built without this is
+            # static-and-connected only — complete for an edge estate, partial in a
+            # routed core. Read-only and side-effect-free, but recorded here and in
+            # SRS §8.2 as a deliberate widening: this list is closed precisely so that
+            # "it is only a show command" cannot grow it one entry at a time.
+            #
+            # The global table only. IOS spells per-VRF retrieval `show ip route vrf
+            # <name>`, which needs the VRF list first; NX-OS's `vrf all` returns every
+            # table in one response and is allow-listed there instead.
+            "show ip route",
             "show ip ssh",
             "show ssh",
             "show crypto key mypubkey rsa",
@@ -103,6 +114,11 @@ CISCO_NXOS = PlatformPolicy(
             "show interface brief",
             "show cdp neighbors detail",
             "show vlan brief",
+            # Added 2026-09-18 for FR-TOPO-01, with the same reasoning as the IOS entry.
+            # `vrf all` rather than the global table alone: NX-OS returns every VRF in
+            # one response, and FR-TOPO-02 requires VRFs to be separate forwarding
+            # domains — which cannot be honoured by a collection that only ever sees one.
+            "show ip route vrf all",
             "show vpc",
             "show feature",
             "show ssh server",
@@ -165,6 +181,10 @@ CISCO_ASA = PlatformPolicy(
             "show inventory",
             "show interface ip brief",
             "show nameif",
+            # Added 2026-09-18 for FR-TOPO-01. The ASA spells it `show route`, without
+            # the `ip`; Check Point Gaia already allowed the same spelling, which is why
+            # this looked present and was not.
+            "show route",
             "show access-list",
             "show nat",
             "show ssh",

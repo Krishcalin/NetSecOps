@@ -1,0 +1,16 @@
+Codes: K - kernel, C - connected, S - static, R - RIP, B - BGP
+       O - OSPF, IA - OSPF inter area
+       N1 - OSPF NSSA external type 1, N2 - OSPF NSSA external type 2
+       E1 - OSPF external type 1, E2 - OSPF external type 2
+       i - IS-IS, L1 - IS-IS level-1, L2 - IS-IS level-2, ia - IS-IS inter area
+       * - candidate default
+
+Routing table for VRF=0
+S*      0.0.0.0/0 [10/0] via 203.0.113.1, wan1
+C       203.0.113.0/24 is directly connected, wan1
+C       10.10.0.0/24 is directly connected, internal
+C       10.20.0.0/24 is directly connected, dmz
+C       10.100.0.0/24 is directly connected, mgmt
+O       10.10.10.0/24 [110/2] via 10.10.0.2, internal, 01:05:44
+B       192.0.2.0/24 [20/0] via 203.0.113.1, wan1, 02:18:09
+S       10.30.0.0/16 [10/0] via 10.10.0.2, internal
