@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phases-0--5%20complete%2C%206--7%20partial-orange?style=flat-square" alt="Phases 0-5 complete, 6-7 partial"/>
+  <img src="https://img.shields.io/badge/phases-0--5%20complete%2C%206--8%20in%20progress-orange?style=flat-square" alt="Phases 0-5 complete, 6-8 in progress"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -546,8 +546,11 @@ netsecops/
 │     └─ fixtures/     # anonymised configs and operational output, by platform
 ├─ frontend/           # Vite + React 18 + TypeScript SPA
 ├─ scripts/            # smoke_test.py — post-deployment verification
+├─ tools/              # build_brand_assets.py — derives the served brand assets
 ├─ deploy/             # Dockerfiles, docker-compose, Caddy, Postgres init
-└─ docs/               # SRS, ADRs, device-account guidance, deployment
+└─ docs/
+   ├─ brand/           # the master logo artwork, committed unmodified
+   └─ ...              # SRS, ADRs, device-account guidance, deployment
 ```
 
 Vendor-specific logic stays inside `adapters/`, `parsers/` and the vendor packs under
@@ -625,7 +628,18 @@ netsecops-cli audit-commands         # print the read-only allow-list per platfo
 netsecops-cli permissions            # print the role × permission matrix
 netsecops-cli health-check           # database reachability + schema revision
 netsecops-cli show-config            # effective configuration, secrets masked
+netsecops-cli version                # build version
 ```
+
+One command is not a utility but a long-running process:
+
+```bash
+netsecops-cli scheduler              # fire due schedules (FR-JOB-02)
+```
+
+It runs as its own container under the `workers` compose profile. Running two is safe —
+due schedules are claimed with `FOR UPDATE SKIP LOCKED` — and running none means
+schedules simply never fire, which shows in the console as a next-run time in the past.
 
 ### Locked out of MFA?
 
@@ -650,10 +664,10 @@ python scripts/smoke_test.py \
     --admin-user admin --admin-password '...'
 ```
 
-33 checks over the live stack: unauthenticated rejection, security headers, cookie
-flags, RBAC, MFA enrolment and challenge, refresh rotation, audit-chain integrity and
-the SPA. It creates a throwaway user for the destructive parts and deletes it
-afterwards, so it never alters the account it signs in with.
+Checks the live stack across fourteen sections: unauthenticated rejection, security
+headers, cookie flags, RBAC, MFA enrolment and challenge, refresh rotation, audit-chain
+integrity, inventory and the SPA. It creates a throwaway user for the destructive parts
+and deletes it afterwards, so it never alters the account it signs in with.
 
 ---
 
