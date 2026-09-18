@@ -220,9 +220,7 @@ class TestTheWatermark:
 
 
 class TestTheFeedSyncJob:
-    async def test_it_targets_no_devices(
-        self, session: AsyncSession, actor: Principal
-    ) -> None:
+    async def test_it_targets_no_devices(self, session: AsyncSession, actor: Principal) -> None:
         """The property that keeps this job away from customer equipment entirely.
 
         A `job_devices` row would be the only route by which a feed sync could reach the

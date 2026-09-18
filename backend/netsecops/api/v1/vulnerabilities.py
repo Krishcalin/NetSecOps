@@ -49,6 +49,7 @@ from netsecops.schemas.vulnerability import (
 from netsecops.services.cpe_coverage import CpeCoverageService, as_dict
 from netsecops.services.feeds import FeedImportService
 from netsecops.services.jobs import JobService
+from netsecops.services.upgrade_path import UpgradePathService
 from netsecops.services.vuln_view import VulnViewService
 from netsecops.vuln.fetch import DEFAULT_SOURCES
 
@@ -235,6 +236,28 @@ async def sync_feeds(
 
     job = await JobService(session).create_feed_sync(sources=chosen, actor=principal)
     return JobRead.model_validate(job)
+
+
+@router.get(
+    "/vulnerabilities/devices/{device_id}/upgrade-path",
+    dependencies=[Depends(require(Permission.VULN_READ))],
+    summary="What each candidate release would eliminate (FR-VUL-10)",
+)
+async def upgrade_path(device_id: uuid.UUID, session: SessionDep) -> dict[str, Any]:
+    """Rank the releases this device could move to by what each one closes.
+
+    Candidates come only from versions the device's own advisories name as fixed —
+    nothing is synthesised, because recommending a release that may not exist costs an
+    engineer a maintenance window they do not get back.
+
+    Each CVE is reported as eliminated, remaining or **undetermined**, and the third is
+    never folded into the others. Cisco IOS trains are why: `15.2(7)E3` and `15.2(4)M5`
+    are parallel with independent fix schedules, and neither is later than the other.
+    """
+    report = await UpgradePathService(session).for_device(device_id)
+    if report is None:
+        raise NotFoundError(f"No device with id {device_id}.")
+    return report.as_dict()
 
 
 @router.get(

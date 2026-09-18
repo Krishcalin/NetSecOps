@@ -705,7 +705,7 @@ PAN-OS/Panorama, FortiGate/FortiManager, Check Point Mgmt/Gaia adapters & parser
 WLC AireOS, Catalyst 9800 wireless parsing, FortiGate WLC; Cisco ISE, FortiAuthenticator, FreeRADIUS/tac_plus adapters; AAA correlation & posture dashboard; wireless & AAA checks. *Acceptance:* AAA coverage report correct against fixture lab.
 
 **Phase 6 — Vulnerability assessment (week 19–21)**
-NVD/CSAF/PSIRT/EoL ingestion (online + offline import), CPE builder, feature-aware matcher, KEV/EPSS, vuln UI & states. *Acceptance:* known-vulnerable fixture versions produce expected CVEs with correct confidence.
+NVD/CSAF/PSIRT/EoL ingestion (online + offline import), CPE builder, feature-aware matcher, KEV/EPSS, vuln UI & states. *Acceptance:* known-vulnerable fixture versions produce expected CVEs with correct confidence. **Met** — `backend/tests/test_phase6_acceptance.py`. Online sync covers NVD, CISA KEV and FIRST EPSS; vendor PSIRT feeds remain offline-import only, since Cisco's openVuln API needs an OAuth client credential and the others publish CSAF at per-advisory URLs that must be walked from an index.
 
 **Phase 7 — Discovery, reporting, integrations, hardening (week 22–25)**
 Discovery & fingerprinting; PDF/XLSX reports & scheduling; dashboards; SMTP/webhook/Slack/Teams/syslog-CEF; ServiceNow/Jira (S); Helm chart; performance harness; ASVS review; docs. *Acceptance:* TEST-08.

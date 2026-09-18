@@ -383,6 +383,13 @@ MATRIX: list[Case] = [
     # what changes is which advisories the product asserts about every device, and the
     # Network Engineer operating those devices is not who should decide it.
     Case("POST", "/api/v1/vulnerabilities/feeds/sync", _VULN_IMPORTERS),
+    # An upgrade plan is a read of vulnerability data the caller can already see, so it
+    # sits with the readers rather than the importers.
+    Case(
+        "GET",
+        "/api/v1/vulnerabilities/devices/{device_id}/upgrade-path",
+        _VULN_READERS,
+    ),
     # ── Discovery (Phase 7) ─────────────────────────────────────────────────────
     # Reading the queue is a device read by another name — "what is on my network that
     # I did not put there" — so the Network Engineer and the Auditor both get it.

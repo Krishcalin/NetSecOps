@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/React-18-61dafb?style=flat-square&logo=react&logoColor=black" alt="React 18"/>
   <img src="https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL 16"/>
   <img src="https://img.shields.io/badge/device%20access-READ--ONLY-2ea043?style=flat-square" alt="Read-only"/>
-  <img src="https://img.shields.io/badge/phases-0--5%20%26%208%20complete%2C%206--7%20in%20progress-orange?style=flat-square" alt="Phases 0-5 and 8 complete, 6-7 in progress"/>
+  <img src="https://img.shields.io/badge/phases-0--6%20%26%208%20complete%2C%207%20in%20progress-orange?style=flat-square" alt="Phases 0-6 and 8 complete, 7 in progress"/>
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT"/>
 </p>
 
@@ -52,15 +52,15 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phases 0–5 and 8 complete, 6 and 7 under way
+## Status — Phases 0–6 and 8 complete, 7 under way
 
 Development follows the phase plan in [SRS §12](docs/SRS.md). Phases 0–5 were built
 strictly in order, each one's acceptance criteria passing before the next began.
 
 Phases 6, 7 and 8 were opened at the same time, which is a deliberate departure from that
-rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Phase 8 has
-since met its acceptance criterion; 6 and 7 have not, and the sections below say exactly
-which part is missing in each — a phase that is 80% done is far easier to misread as
+rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Phases 6 and 8
+have since met their acceptance criteria. Phase 7 has not, and the section below says
+exactly which part is missing — a phase that is 80% done is far easier to misread as
 finished than one that has not started.
 
 Phase 8 was not in the SRS as issued. It was added after a competitive analysis found
@@ -76,13 +76,13 @@ that most of the other gaps identified collapse into it.
 | **3** | Check engine + baseline library, findings, compliance mapping | **Complete** |
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
-| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — acceptance met; no scheduled sync |
+| **6** | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **Complete** — acceptance met |
 | 7 | Discovery, reporting, integrations, hardening | **In progress** — integrations not started |
 | **8** | Topology and path analysis | **Complete** — acceptance met |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
 
-### Phase 6 — what it does, and what is still owed
+### Phase 6 — what it does
 
 Vulnerability assessment **produces findings now**. A device is assessed against
 ingested advisories and end-of-life data, and the result is a finding on that device
@@ -115,7 +115,7 @@ The parts that shape the answer:
   is *unscored*; writing zero would say "almost certainly not exploited", which for
   anything too new to have been modelled is exactly backwards.
 
-Still owed, and each one changes what an answer means:
+The parts added last, each of which changes what an answer means:
 
 - **Scheduled sync is built** (FR-VUL-07). `POST /vulnerabilities/feeds/sync` queues a
   job, and the scheduler fires one nightly. Three design points carry it. The online
@@ -143,8 +143,25 @@ Still owed, and each one changes what an answer means:
   *no evidence*. Deliberately not string similarity: `ios_xe` and `ios_xr` are 0.8
   similar and are different operating systems. Against the repository's fixtures: 2
   corroborated, 0 contradicted, 11 unconfirmed for want of advisories.
-- **No upgrade-path view (FR-VUL-10).** Fixed versions are carried on each match, but
-  nothing yet answers "what would upgrading to 17.9.4 actually eliminate".
+- **The upgrade-path view is built** (FR-VUL-10).
+  `GET /vulnerabilities/devices/{id}/upgrade-path` ranks every release the device's own
+  advisories name as fixed by what each would close, KEV first — a release ending one
+  vulnerability under active exploitation beats one ending nine nobody has attacked.
+
+  Candidates are never synthesised. Suggesting "try 17.9.5" because 17.9.4 is fixed would
+  recommend a release that may not exist, and an engineer who schedules an outage for it
+  does not get a second one.
+
+  Each CVE comes back eliminated, remaining or **undetermined**, and the third is never
+  folded into the others: `15.2(7)E3` and `15.2(4)M5` are parallel trains with
+  independent fix schedules, and neither is later than the other. Calling such a CVE
+  fixed is dangerous; calling it still-open is safer and still wrong, because it makes a
+  good upgrade look worse and steers the engineer toward a release that closes less.
+
+  A CVE is only eliminated when *every* advisory naming it is closed. One flaw routinely
+  appears in several — a vendor re-issues, or it affects two components with different
+  fix trains — and an earlier version of this credited a release with a fix it only
+  partly delivered.
 
 #### The foundations underneath
 

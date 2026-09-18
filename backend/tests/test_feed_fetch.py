@@ -144,9 +144,7 @@ class TestFetchSimple:
             raise httpx.ConnectError("no route to host", request=request)
 
         with pytest.raises(FeedFetchError) as caught:
-            await fetch_simple(
-                DEFAULT_SOURCES["kev"], settings(), client=client_returning(handler)
-            )
+            await fetch_simple(DEFAULT_SOURCES["kev"], settings(), client=client_returning(handler))
         assert "Could not reach" in str(caught.value)
 
 
@@ -165,9 +163,7 @@ def nvd_pages(total: int, page_size: int = 2_000):
                 "resultsPerPage": count,
                 "startIndex": start,
                 "totalResults": total,
-                "vulnerabilities": [
-                    {"cve": {"id": f"CVE-2026-{start + i}"}} for i in range(count)
-                ],
+                "vulnerabilities": [{"cve": {"id": f"CVE-2026-{start + i}"}} for i in range(count)],
             },
         )
 
