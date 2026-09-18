@@ -114,7 +114,12 @@ class Report(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     #: What was asked for — the filters, the date window, the framework. Kept beside the
     #: output so a report can be explained, and so "generate that again" is answerable
     #: without guessing what "that" was.
-    parameters: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    #: `server_default` as well as `default`, matching migration 0009 — `alembic check`
+    #: compares models against the database and a default declared in only one of them
+    #: is drift that fails the build.
+    parameters: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
 
     #: Scope. All three are nullable and at most one is set; none set means the whole
     #: estate. Stored as real foreign keys so a deleted device cannot leave a report
@@ -129,7 +134,9 @@ class Report(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
 
     #: The report itself. See the module docstring: frozen, denormalised, never
     #: recomputed.
-    content: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    content: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb")
+    )
     #: SHA-256 over the canonical JSON of `content`. Lets a recipient prove the artefact
     #: they hold is the one that was generated.
     content_hash: Mapped[str | None] = mapped_column(String(64))

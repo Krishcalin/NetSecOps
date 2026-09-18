@@ -73,8 +73,8 @@ that most of the other gaps identified collapse into it.
 | **3** | Check engine + baseline library, findings, compliance mapping | **Complete** |
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
-| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — no KEV/EPSS feed, no scheduled sync |
-| 7 | Discovery, reporting, integrations, hardening | **In progress** — nothing is scheduled, integrations not started |
+| 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — acceptance met; no scheduled sync |
+| 7 | Discovery, reporting, integrations, hardening | **In progress** — integrations not started |
 | 8 | Topology and path analysis | **In progress** — graph, path query and missing-device report built; dynamic routes not collected |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
@@ -95,20 +95,37 @@ The parts that shape the answer:
   ranges were partly unparseable can rule a device *in* and never *out*, which is why
   CSAF ingestion keeps what it cannot read instead of dropping or guessing it.
 - **Offline bundle import, hash-verified.** `POST /vulnerabilities/feeds/import` takes
-  NVD 2.0 JSON, CSAF 2.0 and endoflife.date bundles, checks SHA-256 before anything is
-  written, and records every attempt including the failures.
+  NVD 2.0 JSON, CSAF 2.0, endoflife.date, CISA KEV and FIRST EPSS bundles — the last as
+  gzipped CSV, which is what FIRST actually publishes. SHA-256 is checked before anything
+  is written, and every attempt is recorded including the failures.
+- **KEV is prioritisation you can act on.** *Is this being exploited right now* outranks
+  every severity score: a CVSS 9.8 nobody has ever attacked and a 7.5 in active
+  ransomware use are not the same work item. Importing the catalogue writes `False` onto
+  every CVE it does *not* list, which is the whole difference between three states and
+  two — set only the listed ones and everything else still reads "never checked", so the
+  filter still matches nothing.
+- **The catalogue is stored whole, not reduced to a flag.** Otherwise the answer depends
+  on import order: load the catalogue, then an advisory bundle introducing a new CVE, and
+  that CVE reads "never checked" while an entry for it sits in the same database. With
+  the catalogue present the flag is derivable whenever a CVE arrives, either way round.
+- **EPSS scores what is known and leaves the rest null.** A CVE the feed does not mention
+  is *unscored*; writing zero would say "almost certainly not exploited", which for
+  anything too new to have been modelled is exactly backwards.
 
 Still owed, and each one changes what an answer means:
 
-- **KEV and EPSS are columns, not data.** There is no CISA or FIRST ingestion, so every
-  KEV flag is null. Null is rendered as *unknown*, never as "not on KEV" — but the
-  `kev_only` filter can only ever match nothing today, and that is a gap, not a result.
 - **No scheduled sync.** Import is offline and by hand. A stale feed produces a
-  confident-looking clean answer, so this matters more than its size suggests.
-- **CPE product names are unverified.** `unverified_products()` exists precisely to
-  check them against a real NVD CPE dictionary, there is none in the repository, and it
-  has never been run — see the CPE note below for why a wrong name is dangerous rather
-  than merely wrong.
+  confident-looking clean answer, so this matters more than its size suggests. The feed
+  table now reports the data's *own* date beside the import time, which makes staleness
+  visible without fixing it.
+- **CPE product names are checked, against evidence rather than a dictionary.**
+  `GET /vulnerabilities/cpe-coverage` compares the platform-to-CPE table against the CPE
+  strings imported advisories actually use — no NVD dictionary needed, because every
+  advisory carries NVD's own spelling. A name is *corroborated*, *contradicted* (the same
+  name under different punctuation appears instead — `nx-os` against NVD's `nx_os`), or
+  *no evidence*. Deliberately not string similarity: `ios_xe` and `ios_xr` are 0.8
+  similar and are different operating systems. Against the repository's fixtures: 2
+  corroborated, 0 contradicted, 11 unconfirmed for want of advisories.
 - **No upgrade-path view (FR-VUL-10).** Fixed versions are carried on each match, but
   nothing yet answers "what would upgrading to 17.9.4 actually eliminate".
 
@@ -172,12 +189,25 @@ with no open port on the list is missed. Both appear beside the counters in the 
 because "0 hosts found" and "0 hosts found, and nothing could be asked" are different
 answers.
 
-Still owed: scheduling — the other half of FR-DISC-05, and shared with FR-JOB-02 and
-FR-RPT-04's scheduled delivery, since the `schedules` table has no service behind it;
-SNMP discovery, which needs credential storage on a scope; and the whole of integrations
-(FR-INT-01/02/03) — syslog to a SIEM, webhooks and ServiceNow/Jira ticketing are not
-started. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part of that group
-already in place.
+**Scheduling is built** (FR-JOB-02, and FR-DISC-05's second half). `netsecops-cli
+scheduler` is a separate process that fires due schedules and enqueues them through the
+same path the API uses, so a scheduled collection and a manual one are the same job. Four
+behaviours are where the obvious implementation is the wrong one: a scheduler down for a
+day fires each schedule **once**, not once per missed occurrence; a blackout window
+**skips** rather than defers, because deferring stacks every skipped schedule onto one
+minute; two schedulers never fire the same schedule (`FOR UPDATE SKIP LOCKED`); and a
+schedule with no possible slot is **disabled with a reason** rather than silently never
+running. Cron is read in the schedule's own time zone — `0 2 * * *` in `Asia/Kolkata` is
+not 02:00 UTC.
+
+Still owed: **scheduled feed sync**, which is not a scheduler gap — it needs outbound
+internet access to NVD, CISA and FIRST, and C-7 requires the product to run air-gapped,
+so it is a deliberate open decision rather than missing work. SNMP discovery, which needs
+credential storage on a scope. And the whole of integrations (FR-INT-01/02/03) — syslog
+to a SIEM, webhooks and ServiceNow/Jira ticketing are not started; FR-RPT-04's scheduled
+*delivery* waits on the mail transport there, though scheduled report *generation* works
+today. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part of that group already
+in place.
 
 #### What is built
 

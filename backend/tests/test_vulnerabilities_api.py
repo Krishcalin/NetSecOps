@@ -228,11 +228,17 @@ class TestRouteOrdering:
     ) -> None:
         summary = await client.get(SUMMARY)
         feeds = await client.get(FEEDS)
+        coverage = await client.get("/api/v1/vulnerabilities/cpe-coverage")
 
         assert summary.status_code == 200
         assert "total" in summary.json()
         assert feeds.status_code == 200
         assert isinstance(feeds.json(), list)
+        # A CVE id is a plain string, so a literal declared *after* `/{cve_id}` would
+        # resolve to a 404 CVE lookup rather than a 422 — quieter than the UUID case
+        # elsewhere, and correspondingly easier to miss.
+        assert coverage.status_code == 200
+        assert "products" in coverage.json()
 
 
 class TestListing:

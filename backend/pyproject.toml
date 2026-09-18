@@ -62,6 +62,11 @@ dependencies = [
     # core fonts only, so no font file ships and no glyph licence question arises.
     "openpyxl>=3.1",
     "fpdf2>=2.8",
+    # Recurring assessments (FR-JOB-02). Cron has more edge cases than it looks — the
+    # day-of-month/day-of-week OR rule, month lengths, DST transitions in a named zone —
+    # and every one of them is a schedule that silently runs at the wrong time or not at
+    # all. Not worth hand-rolling for the sake of avoiding one pure-Python dependency.
+    "croniter>=6.0",
 ]
 
 [project.optional-dependencies]
@@ -86,6 +91,7 @@ dev = [
     # renderer, which the override would have hidden along with everything else openpyxl
     # has to say.
     "types-openpyxl",
+    "types-croniter",
 ]
 
 [project.scripts]

@@ -19,8 +19,12 @@ from netsecops.schemas.jobs import (
     JobProgress,
     JobRead,
     PaginatedJobs,
+    ScheduleCreate,
+    ScheduleRead,
+    ScheduleUpdate,
 )
 from netsecops.services.jobs import JobScope, JobService
+from netsecops.services.schedules import ScheduleService
 
 log = get_logger(__name__)
 router = APIRouter(tags=["jobs"])
@@ -155,6 +159,95 @@ async def rerun_failed(job_id: uuid.UUID, jobs: JobDep, principal: PrincipalDep)
 async def job_progress(job_id: uuid.UUID, jobs: JobDep) -> JobProgress:
     job = await jobs.get(job_id)
     return JobProgress(**await jobs.progress(job))
+
+
+# ── schedules (FR-JOB-02) ────────────────────────────────────────────────────
+#
+# Under `/schedules` rather than `/jobs/schedules`: a schedule is not a job, it is the
+# thing that makes jobs. Nesting it would put a resource with its own lifecycle inside
+# one that is created and completed, and `/jobs/{job_id}` would shadow the literal.
+
+
+def schedule_service(session: SessionDep) -> ScheduleService:
+    return ScheduleService(session)
+
+
+ScheduleDep = Annotated[ScheduleService, Depends(schedule_service)]
+
+
+@router.get(
+    "/schedules",
+    response_model=list[ScheduleRead],
+    dependencies=[Depends(require(Permission.JOB_READ))],
+    summary="Recurring assessments (FR-JOB-02)",
+)
+async def list_schedules(schedules: ScheduleDep) -> list[ScheduleRead]:
+    return [ScheduleRead.model_validate(row) for row in await schedules.list_all()]
+
+
+@router.post(
+    "/schedules",
+    response_model=ScheduleRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require(Permission.JOB_EXECUTE)), Depends(verify_csrf)],
+    summary="Create a recurring assessment (FR-JOB-02)",
+)
+async def create_schedule(
+    payload: ScheduleCreate, schedules: ScheduleDep, principal: PrincipalDep
+) -> ScheduleRead:
+    """Define work that will run unattended, repeatedly.
+
+    Behind `job:execute` rather than a lesser permission: a schedule is a standing
+    instruction to touch the estate, and whoever may not run a job once should not be
+    able to arrange for one to run every night.
+
+    The response carries `next_run_at`, computed before the row is stored. It is the only
+    way to notice that a cron expression means something other than what was intended,
+    and it is the first thing anybody checks.
+    """
+    schedule = await schedules.create(
+        name=payload.name,
+        job_type=payload.job_type,
+        scope=payload.scope.model_dump(mode="json"),
+        cron=payload.cron,
+        actor=principal,
+        timezone=payload.timezone,
+        description=payload.description,
+        enabled=payload.enabled,
+        blackout=payload.blackout,
+    )
+    return ScheduleRead.model_validate(schedule)
+
+
+@router.patch(
+    "/schedules/{schedule_id}",
+    response_model=ScheduleRead,
+    dependencies=[Depends(require(Permission.JOB_EXECUTE)), Depends(verify_csrf)],
+    summary="Change a recurring assessment",
+)
+async def update_schedule(
+    schedule_id: uuid.UUID,
+    payload: ScheduleUpdate,
+    schedules: ScheduleDep,
+    principal: PrincipalDep,
+) -> ScheduleRead:
+    schedule = await schedules.get(schedule_id)
+    updated = await schedules.update(
+        schedule, actor=principal, **payload.model_dump(exclude_unset=True)
+    )
+    return ScheduleRead.model_validate(updated)
+
+
+@router.delete(
+    "/schedules/{schedule_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require(Permission.JOB_EXECUTE)), Depends(verify_csrf)],
+    summary="Remove a recurring assessment",
+)
+async def delete_schedule(
+    schedule_id: uuid.UUID, schedules: ScheduleDep, principal: PrincipalDep
+) -> None:
+    await schedules.delete(await schedules.get(schedule_id), actor=principal)
 
 
 @router.websocket("/ws/jobs/{job_id}")

@@ -377,6 +377,32 @@ def cmd_permissions() -> None:
     console.print(table)
 
 
+@app.command("scheduler")
+def cmd_scheduler(
+    interval: Annotated[
+        float, typer.Option(help="Seconds between checks for due schedules.")
+    ] = 30.0,
+) -> None:
+    """Run the recurring-assessment scheduler (FR-JOB-02).
+
+    Long-running. It fires schedules whose time has come and enqueues them through the
+    same path the API uses, so a scheduled collection and a manual one are the same job.
+
+    Safe to run more than one: due schedules are claimed with `FOR UPDATE SKIP LOCKED`,
+    so a second process passes over anything the first is holding. Running none means
+    schedules do not fire, which the console shows as a next-run time in the past.
+    """
+    import asyncio
+
+    from netsecops.workers.scheduler import run
+
+    console.print(f"Scheduler running, checking every {interval:g}s. Ctrl-C to stop.")
+    try:
+        asyncio.run(run(interval=interval))
+    except KeyboardInterrupt:
+        console.print("Stopped.")
+
+
 @app.command("version")
 def cmd_version() -> None:
     from netsecops import __version__

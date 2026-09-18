@@ -55,12 +55,15 @@ def to_cidr(network: str, mask: str | int | None = None) -> str | None:
 
     # `default`, `default-route` and `0.0.0.0/0` all mean the same thing, and a table
     # that stores them differently cannot match a default route to anything.
-    if text.lower() in {"default", "default-route", "0.0.0.0", "any"} and mask in (
-        None,
-        "",
-        "0.0.0.0",
-        0,
-    ):
+    #
+    # nosec B104 on both literals below: bandit reads any bare "0.0.0.0" as a socket
+    # binding to every interface. These are a *routing destination* — the spellings
+    # vendors use for a default route — and this module opens no socket at all. The
+    # suppression is per-line rather than a B104 entry in pyproject's skip list, so a
+    # real bind-all elsewhere in the codebase still fails the build.
+    default_spellings = {"default", "default-route", "0.0.0.0", "any"}  # nosec B104
+    unset_masks = (None, "", "0.0.0.0", 0)  # nosec B104
+    if text.lower() in default_spellings and mask in unset_masks:
         return "0.0.0.0/0"
 
     if "/" in text:

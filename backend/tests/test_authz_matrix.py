@@ -214,6 +214,24 @@ MATRIX: list[Case] = [
     Case("POST", "/api/v1/jobs/{job_id}/cancel", _JOB_RUNNERS),
     Case("POST", "/api/v1/jobs/{job_id}/rerun-failed", _JOB_RUNNERS),
     Case("GET", "/api/v1/jobs/{job_id}/progress", _DEVICE_READERS),
+    # ── Schedules (FR-JOB-02) ───────────────────────────────────────────────
+    # Reading is a job read. Creating one is behind `job:execute`, not a lesser
+    # permission: a schedule is a standing instruction to touch the estate unattended,
+    # and whoever may not run a job once should not be able to arrange for one nightly.
+    Case("GET", "/api/v1/schedules", _DEVICE_READERS),
+    Case(
+        "POST",
+        "/api/v1/schedules",
+        _JOB_RUNNERS,
+        body={
+            "name": "matrix-schedule",
+            "job_type": "collect_and_assess",
+            "scope": {"device_ids": ["00000000-0000-0000-0000-000000000000"]},
+            "cron": "0 2 * * *",
+        },
+    ),
+    Case("PATCH", "/api/v1/schedules/{schedule_id}", _JOB_RUNNERS, body={"enabled": False}),
+    Case("DELETE", "/api/v1/schedules/{schedule_id}", _JOB_RUNNERS),
     # ── Snapshots, diff and baselines (FR-DRIFT) ────────────────────────────
     Case("GET", "/api/v1/devices/{device_id}/snapshots", _DEVICE_READERS),
     Case("GET", "/api/v1/devices/{device_id}/drift", _DEVICE_READERS),
@@ -295,6 +313,9 @@ MATRIX: list[Case] = [
         _DEVICE_READERS,
         body={"source": "10.0.0.1", "destination": "10.20.0.10", "protocol": "tcp", "port": 443},
     ),
+    # Whether the CPE product names are backed by imported advisories. A read of the
+    # advisory corpus, so it sits with the other vulnerability reads.
+    Case("GET", "/api/v1/vulnerabilities/cpe-coverage", _VULN_READERS),
     # ── Topology and path analysis (Phase 8, FR-TOPO) ───────────────────────
     # The same placement as the rulebase query above, and for the same reason: a path
     # answer is assembled entirely out of stored configuration, so anyone who may read

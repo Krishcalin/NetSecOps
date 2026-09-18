@@ -29,22 +29,30 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.core.errors import ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Principal
 from netsecops.db.models.audit import AuditAction, AuditOutcome
-from netsecops.db.models.vulnerability import EolRecordRow, FeedSync, VulnAdvisory, VulnCve
+from netsecops.db.models.vulnerability import (
+    EolRecordRow,
+    FeedSync,
+    KevEntry,
+    VulnAdvisory,
+    VulnCve,
+)
 from netsecops.services.audit import AuditService
 from netsecops.vuln.advisory import Advisory
 from netsecops.vuln.csaf import parse_csaf
 from netsecops.vuln.eol import parse_endoflife_date
+from netsecops.vuln.epss import decompress, looks_like_epss_csv, looks_like_epss_json, read_epss
+from netsecops.vuln.kev import looks_like_kev, parse_kev_catalogue
 from netsecops.vuln.nvd import parse_nvd_feed
 
 log = get_logger(__name__)
@@ -61,6 +69,10 @@ class BundleKind(StrEnum):
     CSAF = "csaf"
     NVD = "nvd"
     EOL = "eol"
+    #: CISA Known Exploited Vulnerabilities (FR-VUL-06).
+    KEV = "kev"
+    #: FIRST Exploit Prediction Scoring System (FR-VUL-06).
+    EPSS = "epss"
 
 
 @dataclass(slots=True)
@@ -71,6 +83,16 @@ class ImportResult:
     advisories: int = 0
     cves: int = 0
     eol_records: int = 0
+    #: Catalogue entries stored, and CVE rows an EPSS bundle scored. Separate from
+    #: `cves`, which counts rows an advisory feed created.
+    kev_entries: int = 0
+    epss_scores: int = 0
+    #: How many CVEs the KEV import set to `False` — "checked, not listed". Worth
+    #: reporting on its own: it is the number that turns the flag from unusable into a
+    #: filter, and it should be roughly the size of the CVE table.
+    kev_cleared: int = 0
+    #: The feed's own stamp, as opposed to when the import ran.
+    source_version: str | None = None
     rejected: int = 0
     #: Which format the bundle was read as. Reported because `detect_kind` orders its
     #: tests deliberately — a CSAF document also carries a `vulnerabilities` key — and
@@ -86,21 +108,33 @@ class ImportResult:
 def detect_kind(payload: Any) -> BundleKind:
     """Work out which feed format a bundle is.
 
-    Order matters. A CSAF document also has a top-level ``vulnerabilities`` key, so
-    checking for ``document`` first is what stops a vendor advisory being read as an NVD
-    feed — which would silently find no records in it and report a clean, empty import.
+    **Order matters, and the cost of getting it wrong is silence.** Three of the five
+    formats carry a top-level ``vulnerabilities`` key — a CSAF advisory, an NVD 2.0
+    response and a CISA KEV catalogue — so each is distinguished by something only it
+    has, tested before the generic key is reached. Read as the wrong format, a bundle
+    does not raise: the parser finds nothing it recognises and reports a clean, empty
+    import.
+
+    For KEV that failure is worse than empty. A catalogue read as an NVD feed imports
+    nothing, so `kev` stays NULL everywhere and the operator believes the catalogue is
+    loaded — which is the state this whole feed exists to end.
     """
     if isinstance(payload, list):
         return BundleKind.EOL
     if isinstance(payload, dict):
         if "document" in payload:
             return BundleKind.CSAF
+        if looks_like_kev(payload):
+            return BundleKind.KEV
+        if looks_like_epss_json(payload):
+            return BundleKind.EPSS
         if "vulnerabilities" in payload:
             return BundleKind.NVD
     raise ValidationProblem(
         "This file is not a bundle NetSecOps recognises. Expected a CSAF advisory "
-        "(with a `document` key), an NVD 2.0 response (with `vulnerabilities`), or an "
-        "endoflife.date list of release cycles."
+        "(with a `document` key), an NVD 2.0 response (with `vulnerabilities`), a CISA "
+        "KEV catalogue (with `catalogVersion`), a FIRST EPSS export (CSV or JSON), or "
+        "an endoflife.date list of release cycles."
     )
 
 
@@ -184,12 +218,20 @@ class FeedImportService:
                     "hide a vulnerability affecting the whole estate."
                 )
 
+        # Four of the five formats are JSON; FIRST publishes EPSS as gzipped CSV, which
+        # is what an operator actually downloads. So a bundle that is not JSON is offered
+        # to the CSV reader before being refused, rather than the whole importer assuming
+        # its input parses.
+        payload: Any = None
         try:
-            payload = json.loads(raw.decode("utf-8"))
+            payload = json.loads(decompress(raw).decode("utf-8"))
         except (UnicodeDecodeError, ValueError) as exc:
-            raise ValidationProblem(f"This bundle is not readable JSON: {exc}") from exc
+            if not looks_like_epss_csv(raw):
+                raise ValidationProblem(
+                    f"This bundle is neither readable JSON nor a FIRST EPSS CSV: {exc}"
+                ) from exc
 
-        kind = detect_kind(payload)
+        kind = detect_kind(payload) if payload is not None else BundleKind.EPSS
         result = ImportResult(sync=sync, kind=kind)
 
         match kind:
@@ -199,10 +241,17 @@ class FeedImportService:
                 await self._ingest_nvd(payload, sync.feed, result)
             case BundleKind.EOL:
                 await self._ingest_eol(payload, vendor, product, result)
+            case BundleKind.KEV:
+                await self._ingest_kev(payload, sync, result)
+            case BundleKind.EPSS:
+                await self._ingest_epss(raw, payload, sync, result)
 
         sync.advisories_ingested = result.advisories
         sync.cves_ingested = result.cves
         sync.eol_records_ingested = result.eol_records
+        sync.kev_entries_ingested = result.kev_entries
+        sync.epss_scores_ingested = result.epss_scores
+        sync.source_version = result.source_version
         sync.records_rejected = result.rejected
         sync.status = (
             SyncStatus.PARTIAL.value if result.rejected else SyncStatus.SUCCEEDED.value
@@ -243,6 +292,119 @@ class FeedImportService:
         for advisory in advisories:
             await self._store_advisory(advisory, result)
             await self._store_cve(advisory, result)
+
+    async def _ingest_kev(self, payload: Any, sync: FeedSync, result: ImportResult) -> None:
+        """Store the catalogue, then apply it to every CVE on record (FR-VUL-06).
+
+        **The second half is what makes the flag mean anything.** Setting `kev = True` on
+        the listed CVEs and stopping would leave every other CVE at NULL, which reads as
+        "the catalogue was never imported" — so the filter would still match nothing and
+        the estate would still look unchecked. Applying the catalogue means writing
+        `False` onto everything it does *not* list. That is the whole difference between
+        three states and two.
+
+        Done as two bulk statements rather than per row: the CVE table runs to hundreds
+        of thousands of rows on a real estate, and a per-row update would make importing
+        the catalogue the slowest thing the product does.
+        """
+        catalogue = parse_kev_catalogue(payload)
+        result.rejected += catalogue.rejected
+        result.source_version = catalogue.catalog_version or catalogue.released
+
+        listed = {record.cve_id for record in catalogue.records}
+
+        for record in catalogue.records:
+            existing = (
+                await self.session.execute(
+                    select(KevEntry).where(
+                        KevEntry.org_id == self.org_id, KevEntry.cve_id == record.cve_id
+                    )
+                )
+            ).scalar_one_or_none()
+
+            row = existing or KevEntry(org_id=self.org_id, cve_id=record.cve_id)
+            row.date_added = record.date_added
+            row.due_date = record.due_date
+            row.known_ransomware = record.known_ransomware
+            row.vendor_project = record.vendor_project
+            row.product = record.product
+            row.vulnerability_name = record.vulnerability_name
+            row.required_action = record.required_action
+            row.catalog_version = catalogue.catalog_version
+
+            if existing is None:
+                self.session.add(row)
+            result.kev_entries += 1
+
+        await self.session.flush()
+
+        # Everything we hold that the catalogue does not list: checked, not listed.
+        cleared = await self.session.execute(
+            update(VulnCve)
+            .where(VulnCve.org_id == self.org_id, VulnCve.cve_id.notin_(listed))
+            .values(kev=False, kev_due_date=None)
+        )
+        # `rowcount` is on CursorResult, which is what an UPDATE returns at runtime; the
+        # declared return type is the wider Result, which does not carry it.
+        result.kev_cleared = getattr(cleared, "rowcount", 0) or 0
+
+        # Everything it does list, with CISA's deadline attached.
+        for record in catalogue.records:
+            await self.session.execute(
+                update(VulnCve)
+                .where(VulnCve.org_id == self.org_id, VulnCve.cve_id == record.cve_id)
+                .values(kev=True, kev_due_date=record.due_date)
+            )
+
+        await self.session.flush()
+
+        log.info(
+            "vuln.kev_applied",
+            entries=result.kev_entries,
+            cleared=result.kev_cleared,
+            catalog_version=catalogue.catalog_version,
+        )
+
+    async def _ingest_epss(
+        self, raw: bytes, payload: Any, sync: FeedSync, result: ImportResult
+    ) -> None:
+        """Score the CVEs we hold (FR-VUL-06).
+
+        Only the CVEs already on record are scored. The bulk feed covers every published
+        CVE — a quarter of a million of them — and storing scores for advisories that
+        reach no device in the estate would be a large table answering a question nobody
+        asks.
+
+        A CVE the feed does not mention keeps a NULL score. It is *unscored*, which is
+        not the same as scored zero: zero says "almost certainly not exploited", and for
+        a CVE too new to have been modelled that is precisely backwards.
+        """
+        scores = read_epss(raw, payload)
+        result.rejected += scores.rejected
+        result.source_version = scores.score_date or scores.model_version
+
+        rows = (
+            (await self.session.execute(select(VulnCve).where(VulnCve.org_id == self.org_id)))
+            .scalars()
+            .all()
+        )
+
+        for row in rows:
+            score = scores.scores.get(row.cve_id.upper())
+            if score is None:
+                continue
+            row.epss = score
+            result.epss_scores += 1
+
+        await self.session.flush()
+
+        log.info(
+            "vuln.epss_applied",
+            offered=len(scores),
+            scored=result.epss_scores,
+            known_cves=len(rows),
+            score_date=scores.score_date,
+        )
 
     async def _ingest_eol(
         self, payload: Any, vendor: str | None, product: str | None, result: ImportResult
@@ -348,6 +510,33 @@ class FeedImportService:
         result.advisories += 1
         await self.session.flush()
 
+    async def _kev_state(self, cve_id: str) -> tuple[bool, date | None] | None:
+        """This CVE's KEV standing, or None if no catalogue has ever been imported.
+
+        Consulted when a CVE row is created or refreshed, which is what makes the flag
+        independent of import order. Without it, importing the catalogue and *then* an
+        NVD bundle leaves the newly-created CVEs at NULL — reading as "never checked"
+        while an entry for them sits in `vuln_kev_entries`, and quietly re-opening the
+        hole this feed was built to close.
+        """
+        imported = (
+            await self.session.execute(
+                select(KevEntry.id).where(KevEntry.org_id == self.org_id).limit(1)
+            )
+        ).scalar_one_or_none()
+        if imported is None:
+            return None
+
+        entry = (
+            await self.session.execute(
+                select(KevEntry).where(
+                    KevEntry.org_id == self.org_id, KevEntry.cve_id == cve_id.upper()
+                )
+            )
+        ).scalar_one_or_none()
+
+        return (True, entry.due_date) if entry else (False, None)
+
     async def _store_cve(self, advisory: Advisory, result: ImportResult) -> None:
         """Record per-CVE scoring for an NVD advisory."""
         for cve_id in advisory.cve_ids:
@@ -374,8 +563,17 @@ class FeedImportService:
                 elif score.version.startswith("4."):
                     row.cvss40 = payload
 
-            # epss and kev are deliberately untouched. They come from other feeds, and
-            # writing a default here would turn "never imported" into "checked, zero".
+            # `epss` is deliberately untouched: it comes from another feed entirely, and
+            # writing a default here would turn "unscored" into "scored zero".
+            #
+            # `kev` *is* set, from the stored catalogue rather than from a default. The
+            # distinction matters: this is not inventing a value, it is answering a
+            # question the database can already answer. Leaving it NULL would make a
+            # CVE's flag depend on whether its advisory happened to arrive before or
+            # after the catalogue, which no operator could be expected to reason about.
+            if (kev_state := await self._kev_state(cve_id)) is not None:
+                row.kev, row.kev_due_date = kev_state
+
             if existing is None:
                 self.session.add(row)
             result.cves += 1
