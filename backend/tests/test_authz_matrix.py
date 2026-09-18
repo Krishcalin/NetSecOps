@@ -295,6 +295,9 @@ MATRIX: list[Case] = [
         _DEVICE_READERS,
         body={"source": "10.0.0.1", "destination": "10.20.0.10", "protocol": "tcp", "port": 443},
     ),
+    # Whether the CPE product names are backed by imported advisories. A read of the
+    # advisory corpus, so it sits with the other vulnerability reads.
+    Case("GET", "/api/v1/vulnerabilities/cpe-coverage", _VULN_READERS),
     # ── Topology and path analysis (Phase 8, FR-TOPO) ───────────────────────
     # The same placement as the rulebase query above, and for the same reason: a path
     # answer is assembled entirely out of stored configuration, so anyone who may read

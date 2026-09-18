@@ -118,10 +118,14 @@ Still owed, and each one changes what an answer means:
   confident-looking clean answer, so this matters more than its size suggests. The feed
   table now reports the data's *own* date beside the import time, which makes staleness
   visible without fixing it.
-- **CPE product names are unverified.** `unverified_products()` exists precisely to
-  check them against a real NVD CPE dictionary, there is none in the repository, and it
-  has never been run — see the CPE note below for why a wrong name is dangerous rather
-  than merely wrong.
+- **CPE product names are checked, against evidence rather than a dictionary.**
+  `GET /vulnerabilities/cpe-coverage` compares the platform-to-CPE table against the CPE
+  strings imported advisories actually use — no NVD dictionary needed, because every
+  advisory carries NVD's own spelling. A name is *corroborated*, *contradicted* (the same
+  name under different punctuation appears instead — `nx-os` against NVD's `nx_os`), or
+  *no evidence*. Deliberately not string similarity: `ios_xe` and `ios_xr` are 0.8
+  similar and are different operating systems. Against the repository's fixtures: 2
+  corroborated, 0 contradicted, 11 unconfirmed for want of advisories.
 - **No upgrade-path view (FR-VUL-10).** Fixed versions are carried on each match, but
   nothing yet answers "what would upgrading to 17.9.4 actually eliminate".
 

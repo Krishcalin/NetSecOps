@@ -24,7 +24,7 @@ one lock between them.
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 
@@ -39,6 +39,7 @@ from netsecops.schemas.vulnerability import (
     PaginatedVulnerabilities,
     VulnerabilitySummary,
 )
+from netsecops.services.cpe_coverage import CpeCoverageService, as_dict
 from netsecops.services.feeds import FeedImportService
 from netsecops.services.vuln_view import VulnViewService
 
@@ -187,6 +188,27 @@ async def import_feed_bundle(
         source_version=result.source_version,
         errors=[result.sync.error_message] if result.sync.error_message else [],
     )
+
+
+@router.get(
+    "/vulnerabilities/cpe-coverage",
+    dependencies=[Depends(require(Permission.VULN_READ))],
+    summary="Whether the CPE product names are backed by imported advisories (FR-VUL-02)",
+)
+async def cpe_coverage(session: SessionDep) -> dict[str, Any]:
+    """Check the platform-to-CPE table against the CPEs real advisories use.
+
+    A wrong product name is the most dangerous defect the matcher can have, because it
+    fails **silently**: it produces no error and no unparsed record, just a device that
+    matches nothing — which is indistinguishable from a device with no vulnerabilities.
+
+    Three outcomes, and the third is why this is worth reading carefully. *Corroborated*
+    means an imported advisory uses this exact vendor and product. *Contradicted* means
+    advisories for that vendor exist and none of them does — the name is probably wrong.
+    *No evidence* means no advisory for that vendor has been imported at all, which says
+    nothing either way and must not be chased as a fault.
+    """
+    return as_dict(await CpeCoverageService(session).build())
 
 
 @router.get(
