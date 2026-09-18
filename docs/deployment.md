@@ -80,6 +80,40 @@ builds the images, starts the stack, runs migrations, and prints the URL.
 
 ---
 
+## Discovery and the ICMP capability
+
+Discovery sends four of the five probes FR-DISC-02 permits: an ICMP echo, a TCP connect
+to each of the scope's ports, an SSH banner read and an HTTPS certificate-and-header
+fetch. Only the first needs a Linux capability, and the worker container drops every
+capability by default.
+
+**Nothing breaks without it.** Liveness falls back to TCP connect, and each run records
+on itself that echo was unavailable, so a sparse result is attributable rather than
+mysterious. The cost is specific: a device that is up but has **none** of the scope's TCP
+ports open is not found at all.
+
+To trade that back, uncomment `cap_add: [NET_RAW]` on the `worker` service in
+`deploy/docker-compose.yml`, or on Kubernetes add it to the worker's
+`securityContext.capabilities.add`. Weigh it honestly — the worker holds every stored
+device credential, and `NET_RAW` lets a process that gets inside the container forge and
+sniff packets on its network. On a typical management VLAN the other four probes find
+everything the fifth would, so the default is to leave it dropped.
+
+Two further limits are worth setting expectations about, because both make discovery
+find *less*, never more:
+
+- **SNMP is not read.** A scope can be flagged for it, but no SNMP credential can be
+  stored against a scope yet. sysObjectID is the heaviest fingerprint signal there is, so
+  more hosts will arrive in the review queue unidentified than eventually will.
+- **Runs are started by a person.** Scheduling is not built; there is no cron behind the
+  `schedules` table yet.
+
+Each scope's rate limit defaults to 50 hosts a second (FR-DISC-05). It is a ceiling, not
+a target — a scope full of unused addresses runs slower than its limit because probes
+time out, which is normal and is reported as such.
+
+---
+
 ## Key management
 
 NetSecOps holds two independent keys. They do different jobs and have different

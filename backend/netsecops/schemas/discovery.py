@@ -90,6 +90,40 @@ class DiscoveryRunRead(BaseModel):
     #: separately because they are the ones a human has to look at.
     hosts_unidentified: int = 0
     error_message: str | None = None
+    #: What the run could not do, which is not what went wrong. A run that sent no echo
+    #: request because the container lacks CAP_NET_RAW, or read no sysObjectID because no
+    #: SNMP credential can be stored yet, succeeded and still saw less than it looks like.
+    #: Read these next to the counters: "0 hosts found" means two different things.
+    notes: list[str] = Field(default_factory=list)
+
+
+class DiscoveryRunRequest(BaseModel):
+    """Options when starting a run.
+
+    Everything that decides *what* is probed lives on the scope, not here. A per-run
+    override of the targets, the ports or the rate would make the stored scope stop being
+    the record of what the product is permitted to contact — and that record is what an
+    operator reviews, and what the audit trail points at afterwards.
+    """
+
+    #: Repeat-safe start. A retried POST returns the job the first one created rather
+    #: than probing the whole scope a second time.
+    idempotency_key: str | None = Field(default=None, max_length=128)
+
+
+class DiscoveryRunStart(BaseModel):
+    """What a queued run hands back.
+
+    A job id rather than a run id: the ``discovery_runs`` row does not exist yet when the
+    request returns, because the executor writes it as its first act. The address count
+    and rate are echoed so the operator can see what they have just set in motion, and how
+    long it will take, without opening the scope again.
+    """
+
+    job_id: uuid.UUID
+    scope_id: uuid.UUID
+    address_count: int
+    rate_limit_per_second: int
 
 
 class DiscoveredHostRead(BaseModel):
@@ -154,6 +188,8 @@ __all__ = [
     "MAX_SCOPE_PORTS",
     "DiscoveredHostRead",
     "DiscoveryRunRead",
+    "DiscoveryRunRequest",
+    "DiscoveryRunStart",
     "DiscoveryScopeCreate",
     "DiscoveryScopeRead",
     "HostApproval",

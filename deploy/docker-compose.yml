@@ -103,6 +103,19 @@ services:
       - no-new-privileges:true
     cap_drop:
       - ALL
+    # Discovery's ICMP echo probe (FR-DISC-02) needs NET_RAW, and it is dropped here
+    # deliberately. Every other probe — TCP connect, the SSH banner read, the HTTPS
+    # certificate fetch — works without it, and a run records that echo was unavailable
+    # rather than reporting the hosts as down. The cost is real and bounded: a device
+    # that is up but has none of the scope's TCP ports open is missed.
+    #
+    # Uncomment to trade that back, and note what is being traded. This is a read-only
+    # assessment product whose worker holds device credentials; NET_RAW lets a process
+    # that gets inside the container forge and sniff packets on its network. On most
+    # estates the four remaining probes find everything the fifth would.
+    #
+    # cap_add:
+    #   - NET_RAW
     restart: unless-stopped
 
   frontend:

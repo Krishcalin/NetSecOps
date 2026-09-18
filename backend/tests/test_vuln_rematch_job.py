@@ -156,13 +156,20 @@ class TestDiscoveryJobsAreRefused:
     async def test_a_discovery_job_does_not_fall_through_to_a_device_session(
         self, session: AsyncSession, principal: Principal
     ) -> None:
-        """Without the branch this resolved credentials and opened an SSH session —
-        the opposite of what a discovery job is for."""
+        """Without this guard, the lines below it resolve credentials and open a session.
+
+        The guard's meaning changed when the executor landed. It used to say "discovery
+        is not built yet"; now discovery is built, runs above this loop, and creates no
+        ``job_devices`` rows at all — so reaching here means something wrote one, and the
+        next few lines would authenticate to a host nobody has approved. That is what
+        FR-DISC-04 exists to prevent, which is why an unreachable branch still earns a
+        test: an unexercised guard is one nobody notices has stopped working.
+        """
         device = await make_device(session, principal, ip="10.90.0.4")
         job, job_device = await make_job(session, device, JobType.DISCOVERY)
 
         outcome = await _run_one_device(session, job, job_device)
 
         assert outcome.succeeded is False
-        assert "No probe was sent" in (outcome.error_message or "")
-        assert "FR-DISC-05" in (outcome.error_message or "")
+        assert "never authenticates" in (outcome.error_message or "")
+        assert "no session was opened" in (outcome.error_message or "").lower()

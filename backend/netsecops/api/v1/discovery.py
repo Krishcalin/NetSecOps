@@ -3,13 +3,16 @@
 Phase 7 built the scope model, the probe allow-list, the fingerprinter and the review
 queue, and registered no router, so none of it could be reached. This is that surface.
 
-What is deliberately *not* here is a way to start a run. FR-DISC-05 — rate limiting and
-scheduling — is unbuilt, and there is no run executor: `discovery/` is four components
-with nothing driving them. An endpoint that accepted "go" and then probed as fast as the
-event loop allowed would be the port sweep SRS §1.2 forbids, so the run resource is
-read-only until the pacing loop it depends on exists. `GET /discovery/runs` returns what
-is recorded, which today is nothing; that is honest, and it is better than a button that
-does something unbounded.
+Runs can now be started, which they could not before. The reason they could not was never
+this module: it was that an endpoint accepting "go" would have probed as fast as the event
+loop allowed, and that is the port sweep SRS §1.2 forbids. What changed is FR-DISC-05 —
+`discovery/pacing.py` meters host starts and `discovery/transport.py` holds the meter, so
+there is no route from this handler to a socket that is not paced. The button is safe
+because of what is underneath it, not because of what it validates.
+
+Scheduling, the other half of FR-DISC-05, is still unbuilt: a run is started by a person.
+The `schedules` table exists and has no service behind it, and that gap is shared with
+FR-JOB-02 and FR-RPT-04 rather than being discovery's alone.
 
 Creating a scope validates through `build_scope`, which subtracts exclusions from the
 address space before counting and refuses a scope that resolves to more addresses than
@@ -25,8 +28,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy import select
 
-from netsecops.api.deps import PrincipalDep, SessionDep, require
-from netsecops.core.errors import NotFoundError
+from netsecops.api.deps import PrincipalDep, SessionDep, require, verify_csrf
+from netsecops.core.errors import NotFoundError, ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
 from netsecops.db.models.discovery import DiscoveryRun, DiscoveryScope
@@ -35,6 +38,8 @@ from netsecops.discovery.scopes import build_scope
 from netsecops.schemas.discovery import (
     DiscoveredHostRead,
     DiscoveryRunRead,
+    DiscoveryRunRequest,
+    DiscoveryRunStart,
     DiscoveryScopeCreate,
     DiscoveryScopeRead,
     HostApproval,
@@ -168,6 +173,93 @@ async def delete_scope(scope_id: uuid.UUID, session: SessionDep) -> None:
 # ── runs ─────────────────────────────────────────────────────────────────────
 
 
+@router.post(
+    "/discovery/scopes/{scope_id}/runs",
+    response_model=DiscoveryRunStart,
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require(Permission.DISCOVERY_WRITE)), Depends(verify_csrf)],
+    summary="Probe every address in a scope (FR-DISC-05)",
+)
+async def start_run(
+    scope_id: uuid.UUID,
+    session: SessionDep,
+    principal: PrincipalDep,
+    payload: DiscoveryRunRequest | None = None,
+) -> DiscoveryRunStart:
+    """Queue a run of this scope.
+
+    202 rather than 201, and a job id rather than a run: probing even a small scope
+    outlives an HTTP request, so the work is handed to the queue and the caller polls.
+    The ``discovery_runs`` row does not exist yet when this returns — the executor writes
+    it as its first act — which is why what comes back is the job to watch.
+
+    **This is the endpoint that was deliberately missing.** It could not be written
+    before FR-DISC-05, because an endpoint that accepted "go" and probed as fast as the
+    event loop allowed would be the port sweep SRS §1.2 forbids. What makes it writable
+    now is not this handler but :class:`~netsecops.discovery.pacing.HostPacer` and the
+    fact that :class:`~netsecops.discovery.transport.HostProber` holds one: there is no
+    path from here to a socket that is not paced, so "go" cannot mean "as fast as
+    possible" even if a future caller wants it to.
+
+    The scope is re-validated on the way through. It was checked when it was created, but
+    the ceiling and the parsing rules can tighten between releases, and a scope stored
+    under the old rules must be refused *before* it is probed rather than after.
+    """
+    from netsecops.services.jobs import JobService
+    from netsecops.workers.queue import get_queue
+
+    scope_row = (
+        await session.execute(select(DiscoveryScope).where(DiscoveryScope.id == scope_id))
+    ).scalar_one_or_none()
+    if scope_row is None:
+        raise NotFoundError(f"No discovery scope {scope_id}.")
+
+    if not scope_row.enabled:
+        raise ValidationProblem(
+            f"Discovery scope '{scope_row.name}' is disabled. Enable it before running "
+            "it, so that the decision to send packets to these addresses is explicit."
+        )
+
+    # Raises with the reason if the stored scope no longer resolves — a mistyped prefix
+    # must be refused here, not discovered 16 million probes into a run.
+    resolved = build_scope(
+        scope_row.name,
+        scope_row.targets,
+        exclusions=scope_row.exclusions,
+        tcp_ports=scope_row.tcp_ports or None,
+        snmp_configured=scope_row.snmp_configured,
+        auto_onboard=scope_row.auto_onboard,
+    )
+
+    jobs = JobService(session)
+    job = await jobs.create_discovery(
+        discovery_scope_id=scope_row.id,
+        actor=principal,
+        idempotency_key=(payload.idempotency_key if payload else None),
+    )
+
+    # Committed before the worker can see it: enqueueing an id the worker could read
+    # before the row is visible is the classic queue race.
+    await session.commit()
+    await get_queue().enqueue_job(job.id, correlation_id=job.correlation_id)
+
+    log.info(
+        "discovery.run_queued",
+        scope=scope_row.name,
+        job_id=str(job.id),
+        addresses=resolved.size,
+        rate_per_second=scope_row.rate_limit_per_second,
+        actor=principal.username,
+    )
+
+    return DiscoveryRunStart(
+        job_id=job.id,
+        scope_id=scope_row.id,
+        address_count=resolved.size,
+        rate_limit_per_second=scope_row.rate_limit_per_second,
+    )
+
+
 @router.get(
     "/discovery/runs",
     response_model=list[DiscoveryRunRead],
@@ -179,11 +271,11 @@ async def list_runs(
     scope_id: uuid.UUID | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> list[DiscoveryRunRead]:
-    """Runs that have happened.
+    """Runs that have happened, newest first.
 
-    Empty until FR-DISC-05 lands: there is no run executor yet, so nothing writes rows
-    here. Reading empty is the truth about the subsystem rather than a bug in this
-    handler.
+    A run carries ``notes`` as well as counters, and they are worth reading together:
+    "0 hosts found" means one thing on its own and another beside "no echo request could
+    be sent". The counters alone would make an undetectable estate look like a quiet one.
     """
     stmt = select(DiscoveryRun).order_by(DiscoveryRun.started_at.desc()).limit(limit)
     if scope_id is not None:

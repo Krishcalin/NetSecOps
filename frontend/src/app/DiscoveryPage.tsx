@@ -8,10 +8,16 @@
  * exactly the entries that need a person. Sorting the other way puts the easy ones on
  * page one and the genuinely unknown devices where nobody scrolls.
  *
- * **There is no button that starts a run.** FR-DISC-05's rate limiting has not been
- * built and there is no run executor, so an unpaced run would be the port sweep SRS §1.2
- * forbids. The page says so where someone would look for the button, rather than leaving
- * them to conclude the feature is broken.
+ * **The Run button says what it is about to do before it does it.** It sits in the scope
+ * row next to the resolved address count and the rate, so the two numbers that decide how
+ * long this takes and how loud it is are the ones under the operator's cursor. Starting a
+ * run is the most outward-facing thing this read-only product does — packets to somebody
+ * else's network — and it is confirmed rather than fired on a single click.
+ *
+ * **A run's caveats are shown beside its counters, never instead of them.** "0 hosts
+ * found" and "0 hosts found, and no echo request could be sent" are different answers. A
+ * runs table that showed only the numbers would make an estate nobody could detect read
+ * exactly like a quiet one.
  */
 
 import { useState } from 'react';
@@ -205,7 +211,65 @@ function ReviewPanel({ host, onDone }: { host: DiscoveredHost; onDone: () => voi
   );
 }
 
-function ScopeTable({ scopes }: { scopes: DiscoveryScope[] }) {
+function RunButton({ scope }: { scope: DiscoveryScope }) {
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const start = useMutation({
+    mutationFn: () => api.post(`/discovery/scopes/${scope.id}/runs`, {}),
+    onSuccess: () => {
+      setConfirming(false);
+      void queryClient.invalidateQueries({ queryKey: ['discovery-runs'] });
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.problem.detail : 'The run could not be started.'),
+  });
+
+  if (!scope.enabled) {
+    return <span className="pill pill--info">disabled</span>;
+  }
+
+  if (error) {
+    return (
+      <span className="alert alert--error" role="alert">
+        {error}
+      </span>
+    );
+  }
+
+  if (!confirming) {
+    return (
+      <button className="button button--ghost button--small" onClick={() => setConfirming(true)}>
+        Run
+      </button>
+    );
+  }
+
+  // Confirmed rather than fired on one click, and the confirmation states the two numbers
+  // that matter: how many addresses will be contacted, and how fast. An operator who has
+  // mistyped a prefix length finds out here rather than from the customer.
+  return (
+    <div className="finding__actions">
+      <span className="finding__note">
+        Probe {scope.address_count?.toLocaleString() ?? 'an unresolvable number of'} addresses at up
+        to {scope.rate_limit_per_second}/s?
+      </span>
+      <button
+        className="button button--small"
+        disabled={start.isPending}
+        onClick={() => start.mutate()}
+      >
+        {start.isPending ? 'Starting…' : 'Start'}
+      </button>
+      <button className="button button--ghost button--small" onClick={() => setConfirming(false)}>
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+function ScopeTable({ scopes, canRun }: { scopes: DiscoveryScope[]; canRun: boolean }) {
   if (scopes.length === 0) {
     return (
       <p className="empty">
@@ -225,8 +289,10 @@ function ScopeTable({ scopes }: { scopes: DiscoveryScope[] }) {
             <th>Excluded</th>
             <th>Addresses</th>
             <th>TCP ports</th>
+            <th>Rate</th>
             <th>SNMP</th>
             <th>Auto-onboard</th>
+            {canRun && <th />}
           </tr>
         </thead>
         <tbody>
@@ -243,7 +309,10 @@ function ScopeTable({ scopes }: { scopes: DiscoveryScope[] }) {
                 {scope.address_count?.toLocaleString() ?? 'not resolvable'}
               </td>
               <td className="mono">{scope.tcp_ports.join(', ')}</td>
-              <td>{scope.snmp_configured ? 'configured' : 'not probed'}</td>
+              <td>{scope.rate_limit_per_second}/s</td>
+              {/* "configured" no longer means "read": the flag is honoured by the probe
+                  allow-list, but no SNMP credential can be stored against a scope yet. */}
+              <td>{scope.snmp_configured ? 'requested, not read' : 'not probed'}</td>
               <td>
                 {scope.auto_onboard ? (
                   <span className="pill pill--medium">on</span>
@@ -251,6 +320,11 @@ function ScopeTable({ scopes }: { scopes: DiscoveryScope[] }) {
                   <span className="pill pill--info">review first</span>
                 )}
               </td>
+              {canRun && (
+                <td>
+                  <RunButton scope={scope} />
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
@@ -293,10 +367,11 @@ export function DiscoveryPage() {
       </header>
 
       <div className="alert alert--info" role="note">
-        Discovery runs cannot be started yet. The rate limiting they depend on (FR-DISC-05) has not
-        been built, and a run that probed as fast as it could would be the port sweep this product
-        refuses to do. Scopes can be defined and the review queue works; the runs below stay empty
-        until the pacing is in place.
+        Every run is paced (FR-DISC-05). A scope's rate is a ceiling on how often a host is
+        contacted, not a target — 50 a second by default — and it is what keeps a run
+        distinguishable from a port scan. SNMP is not yet read: no SNMP credential can be stored
+        against a scope, so hosts will score lower than they otherwise would and more of them will
+        need a person. Runs say so individually.
       </div>
 
       <section className="card">
@@ -306,7 +381,7 @@ export function DiscoveryPage() {
         {scopes.isLoading ? (
           <p className="page-loading">Loading…</p>
         ) : (
-          <ScopeTable scopes={scopes.data ?? []} />
+          <ScopeTable scopes={scopes.data ?? []} canRun={can('discovery:write')} />
         )}
       </section>
 
@@ -390,10 +465,7 @@ export function DiscoveryPage() {
         {runs.isLoading ? (
           <p className="page-loading">Loading…</p>
         ) : (runs.data ?? []).length === 0 ? (
-          <p className="empty">
-            No runs have happened. That is the state of the subsystem rather than a failure to load
-            — see the note at the top of this page.
-          </p>
+          <p className="empty">No runs have happened yet. Start one from a scope above.</p>
         ) : (
           <div className="table-wrap">
             <table className="table">
@@ -404,6 +476,7 @@ export function DiscoveryPage() {
                   <th>Probed</th>
                   <th>Found</th>
                   <th>Unidentified</th>
+                  <th>Caveats</th>
                 </tr>
               </thead>
               <tbody>
@@ -414,6 +487,20 @@ export function DiscoveryPage() {
                     <td>{run.addresses_probed.toLocaleString()}</td>
                     <td>{run.hosts_found.toLocaleString()}</td>
                     <td>{run.hosts_unidentified.toLocaleString()}</td>
+                    {/* Beside the counters, never instead of them. A run that found
+                        nothing because it could not ask must not print like a run that
+                        found nothing because there was nothing there. */}
+                    <td>
+                      {(run.notes ?? []).length === 0 ? (
+                        '—'
+                      ) : (
+                        <ul className="finding__note">
+                          {(run.notes ?? []).map((note) => (
+                            <li key={note}>{note}</li>
+                          ))}
+                        </ul>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

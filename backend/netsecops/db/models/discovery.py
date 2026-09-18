@@ -109,6 +109,12 @@ class DiscoveryRun(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     scope_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("discovery_scopes.id", ondelete="CASCADE"), nullable=False
     )
+    #: The job that executed this run (FR-DISC-05). Nullable because the run row is the
+    #: domain record and outlives the job: job history is prunable operational data,
+    #: and losing it must not erase the evidence that these addresses were probed.
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("jobs.id", ondelete="SET NULL")
+    )
     status: Mapped[str] = mapped_column(String(24), nullable=False)
 
     started_at: Mapped[datetime] = mapped_column(
@@ -123,6 +129,13 @@ class DiscoveryRun(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     #: from one that found forty switches, and the summary should not read the same.
     hosts_unidentified: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
+
+    #: What the run could not do, as distinct from what went wrong. ICMP unavailable for
+    #: want of a capability, SNMP unread for want of a credential: neither is an error,
+    #: both change what "found 0 hosts" means. Kept out of ``error_message`` because a
+    #: successful run has no error and would otherwise have nowhere to say this — and an
+    #: empty estate that nobody could have detected must not print like a quiet one.
+    notes: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
 
 
 class DiscoveredHost(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):

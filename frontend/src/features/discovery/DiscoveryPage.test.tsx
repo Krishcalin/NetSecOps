@@ -7,10 +7,14 @@
  * could not tell, and those entries are the ones needing a person. The obvious fix —
  * "sort best matches first" — buries them.
  *
- * **There is no button that starts a run.** FR-DISC-05's rate limiting is unbuilt and
- * there is no run executor, so an unpaced run would be the port sweep SRS §1.2 forbids.
- * The page has to say that, or the feature reads as broken rather than deliberately
- * incomplete.
+ * **Starting a run is confirmed, and the confirmation names the numbers.** It is the most
+ * outward-facing action in a read-only product — packets to somebody else's network — and
+ * the count and rate are what an operator needs in front of them to notice a mistyped
+ * prefix length. A single-click Run would be the easy design and the wrong one.
+ *
+ * **A run's caveats appear beside its counters.** A run that found nothing because it
+ * could not ask must not print like a run that found nothing because there was nothing
+ * there.
  */
 
 import { render, screen, waitFor, within } from '@testing-library/react';
@@ -149,19 +153,110 @@ describe('DiscoveryPage', () => {
     });
   });
 
-  describe('runs cannot be started yet', () => {
-    it('explains why rather than offering a button', async () => {
-      renderPage();
+  describe('starting a run', () => {
+    /** Only the calls that actually start a run, never the page's own runs listing. */
+    const startCalls = () =>
+      fetchMock.mock.calls.filter(([url]) => String(url).includes('/discovery/scopes/s1/runs'));
 
-      expect(await screen.findByText(/cannot be started yet/i)).toBeInTheDocument();
-      expect(screen.getByText(/port sweep this product refuses to do/i)).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /start|run now|scan/i })).toBeNull();
+    it('asks before sending anything, naming the count and the rate', async () => {
+      // The two numbers that decide how long this takes and how loud it is. An operator
+      // who has mistyped a prefix length should find out here, not from the customer.
+      renderPage();
+      await screen.findByText('branch-edge');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+
+      expect(screen.getByText(/Probe 126 addresses at up to 50\/s\?/)).toBeInTheDocument();
+      // Narrowed to the start path: the page also polls `GET /discovery/runs`, and a
+      // filter on `/runs` alone would match that and pass whatever the button did.
+      expect(startCalls()).toHaveLength(0);
     });
 
-    it('says an empty run list is the state of the subsystem, not a load failure', async () => {
+    it('posts to the scope once confirmed', async () => {
+      renderPage();
+      await screen.findByText('branch-edge');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Start' }));
+
+      await waitFor(() => {
+        expect(startCalls()).toHaveLength(1);
+        expect(startCalls()[0][1]).toMatchObject({ method: 'POST' });
+      });
+    });
+
+    it('backs out without sending anything', async () => {
+      renderPage();
+      await screen.findByText('branch-edge');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Run' }));
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(screen.getByRole('button', { name: 'Run' })).toBeInTheDocument();
+      expect(startCalls()).toHaveLength(0);
+    });
+
+    it('offers no button to someone who may only read', async () => {
+      // Sending packets to a customer's network is not a read. An Auditor may see what
+      // discovery found and may not go looking for more.
+      fetchMock.mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/auth/me')) {
+          return Promise.resolve(
+            jsonResponse({ ...ME, roles: ['auditor'], permissions: ['discovery:read'] }),
+          );
+        }
+        if (url.includes('/discovery/scopes')) return Promise.resolve(jsonResponse([SCOPE]));
+        if (url.includes('/discovery/runs')) return Promise.resolve(jsonResponse([]));
+        if (url.includes('/discovery/pending')) {
+          return Promise.resolve(jsonResponse({ data: [], meta: { count: 0, limit: 200 } }));
+        }
+        return Promise.resolve(jsonResponse({}, 404));
+      });
+
+      renderPage();
+      await screen.findByText('branch-edge');
+
+      expect(screen.queryByRole('button', { name: 'Run' })).toBeNull();
+    });
+  });
+
+  describe('what a run could not do', () => {
+    it('shows caveats beside the counters rather than instead of them', async () => {
+      // "0 hosts found" and "0 hosts found, and no echo request could be sent" are
+      // different answers. Showing only the numbers makes an undetectable estate read
+      // exactly like a quiet one.
+      fetchMock.mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/auth/me')) return Promise.resolve(jsonResponse(ME));
+        if (url.includes('/discovery/scopes')) return Promise.resolve(jsonResponse([SCOPE]));
+        if (url.includes('/discovery/runs')) {
+          return Promise.resolve(
+            jsonResponse([
+              {
+                id: 'r1',
+                scope_id: 's1',
+                status: 'succeeded',
+                started_at: '2026-09-17T09:00:00Z',
+                finished_at: '2026-09-17T09:04:00Z',
+                addresses_probed: 126,
+                hosts_found: 0,
+                hosts_unidentified: 0,
+                error_message: null,
+                notes: ['No echo request could be sent.'],
+              },
+            ]),
+          );
+        }
+        if (url.includes('/discovery/pending')) {
+          return Promise.resolve(jsonResponse({ data: [], meta: { count: 0, limit: 200 } }));
+        }
+        return Promise.resolve(jsonResponse({}, 404));
+      });
+
       renderPage();
 
-      expect(await screen.findByText(/state of the subsystem rather than a/i)).toBeInTheDocument();
+      expect(await screen.findByText('No echo request could be sent.')).toBeInTheDocument();
     });
   });
 

@@ -138,26 +138,40 @@ Still owed, and each one changes what an answer means:
 report's content is assembled once, hashed, and never recomputed: re-reading March's
 report in September returns March's numbers, including findings that have since been
 fixed. That is what lets it answer "what did you know on 31 March", which no live view
-can. Three of the nine catalogued templates assemble — executive summary, exceptions
-register and trend — and the other six are refused rather than returned empty, because
-an empty compliance report reads exactly like a compliant estate.
+can. All nine catalogued templates assemble, in four formats — JSON, CSV, XLSX and PDF —
+and every format of one report carries the same content hash, because they render the
+same frozen content. A template with no single table is refused for CSV and XLSX rather
+than emitting a blank grid that reads as "no findings".
 
-**Discovery can describe and review, but cannot yet probe.** Scopes, the FR-DISC-02
-probe allow-list, fingerprinting with confidence scoring and the pending-review queue
-are all built and tested. Nothing sends a probe: there is no executor, and the worker
-refuses the job type in as many words. The review queue is therefore empty in a real
-deployment, and that is the state of the subsystem rather than a fault.
+**Discovery probes, and every run is paced.** Scopes, the FR-DISC-02 probe allow-list,
+fingerprinting with confidence scoring and the pending-review queue were built first and
+had nothing driving them; FR-DISC-05 supplies the rest. A run is a job: it is queued,
+cancellable between batches, and recorded as a `discovery_runs` row that outlives the
+job history. Four of the five permitted probes are sent — ICMP echo, TCP connect to the
+scope's ports, an SSH banner read and an HTTPS certificate-and-header fetch.
 
-The reason is FR-DISC-05. Rate limiting is not built, and an unpaced run across a
-discovery scope is the port sweep [SRS §1.2](docs/SRS.md) forbids — so the executor
-waits on the limiter rather than shipping ahead of it. The console says so where an
-operator would look for the button.
+The rate limit is the reason this could ship at all. An unpaced run across a scope is
+the port sweep [SRS §1.2](docs/SRS.md) forbids, whatever the allow-list says about the
+individual packets, so the prober *holds* the limiter and there is no code path from the
+endpoint to a socket that skips it. The default is FR-DISC-05's 50 hosts a second,
+configurable per scope up to a ceiling — "configurable" with no ceiling would make the
+requirement unenforceable.
 
-Still owed: rate limiting and the run executor (FR-DISC-05), the six remaining report
-templates, XLSX and PDF output plus scheduled delivery (FR-RPT-03/04), and the whole of
-integrations (FR-INT-01/02/03) — syslog to a SIEM, webhooks and ServiceNow/Jira
-ticketing are not started. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part
-of that group already in place.
+Two things a run cannot do are recorded on the run itself rather than left to look like
+a quiet network. **SNMP is not read**: FR-DISC-02 permits it, but no SNMP credential can
+be stored against a scope yet, and sysObjectID is the heaviest fingerprint signal there
+is — so hosts score lower and more of them need a person. **ICMP needs `CAP_NET_RAW`**,
+which containers withhold by default; without it liveness falls back to TCP and a device
+with no open port on the list is missed. Both appear beside the counters in the console,
+because "0 hosts found" and "0 hosts found, and nothing could be asked" are different
+answers.
+
+Still owed: scheduling — the other half of FR-DISC-05, and shared with FR-JOB-02 and
+FR-RPT-04's scheduled delivery, since the `schedules` table has no service behind it;
+SNMP discovery, which needs credential storage on a scope; and the whole of integrations
+(FR-INT-01/02/03) — syslog to a SIEM, webhooks and ServiceNow/Jira ticketing are not
+started. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part of that group
+already in place.
 
 #### What is built
 
@@ -168,7 +182,8 @@ of that group already in place.
   each defensible alone and a port scanner in sum. A scope may name at most eight TCP
   ports, since "configurable list" otherwise permits a sweep assembled entirely from
   permitted probes. SNMP is refused outright without a configured credential: probing
-  anyway means trying `public`, which is a credential guess.
+  anyway means trying `public`, which is a credential guess. No scope can supply one
+  yet, so in practice the executor sends the other four probes and says so on the run.
 - **Scopes that refuse a mistyped prefix.** `10.0.0.0/8` is one character from
   `10.0.0.0/18` and sixteen million probes from what the operator meant. The ceiling is
   counted from network sizes without expanding anything, exclusions are *subtracted*
@@ -183,6 +198,14 @@ of that group already in place.
   fingerprinter could not tell, and those are the entries that need a person.
 - **A review queue that onboards nothing by itself.** An approval carries the operator's
   corrections, a rejection carries a note, and neither deletes anything.
+- **A paced run executor (FR-DISC-05).** The limiter's unit is hosts, because the
+  requirement's unit is hosts: one slot is taken when a host's probing begins, and that
+  host's probes then run in sequence, so the packet rate stays proportional instead of
+  multiplying by the port count. Concurrency is separate from the rate and answers a
+  different question — how many hosts may be in flight while the slow ones time out —
+  without which a scope of mostly-dead addresses runs at one host per timeout and the
+  rate limit never binds at all. A cancel is honoured between batches, and the run keeps
+  what it had already found rather than discarding it.
 - **Managers as an inventory source (FR-DISC-06).** Panorama, FortiManager and Check
   Point management enumerate their children. Preview and import are separate calls,
   children land in pending review rather than the inventory, and nothing is ever
@@ -407,7 +430,8 @@ netsecops/
 │  │  ├─ core/         # config, logging, crypto, security, RBAC, errors
 │  │  ├─ db/           # declarative base, session, models, Alembic migrations
 │  │  ├─ checks/       # the check engine, its YAML library and policy packs
-│  │  ├─ discovery/    # probe allow-list, scopes, fingerprinting (Phase 7)
+│  │  ├─ discovery/    # probe allow-list, scopes, fingerprinting, pacing, the
+│  │  │                #   probe transport and the run executor (Phase 7)
 │  │  ├─ firewall/     # rulebase model, relationship analysis, NAT, hygiene
 │  │  ├─ ncm/          # the Normalised Config Model (NCM v1)
 │  │  ├─ parsers/      # vendor config parsers, one package per vendor

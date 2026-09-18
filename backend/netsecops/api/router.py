@@ -64,10 +64,11 @@ api_v1_router.include_router(aaa.router)
 # correspondingly harder to notice.
 api_v1_router.include_router(vulnerabilities.router)
 
-# Phase 7 — discovery scopes and the review queue. Every path here is literal, so there
-# is no shadowing order to preserve. Note there is no route that *starts* a run: the
-# pacing loop FR-DISC-05 calls for does not exist yet, and an unpaced run is the port
-# sweep SRS §1.2 forbids. `discovery.py` says so where someone would look for it.
+# Phase 7 — discovery scopes, runs and the review queue. Every path here is literal, so
+# there is no shadowing order to preserve. Runs are started by POST to a scope's `/runs`
+# sub-resource rather than to a top-level `/discovery/runs`, which is deliberate: a run
+# cannot exist without the scope that says which addresses may be contacted, and nesting
+# it makes a request that omits the scope unroutable rather than merely invalid.
 api_v1_router.include_router(discovery.router)
 
 # Phase 7 — reports. /reports/templates is a literal sibling of /reports/{report_id},

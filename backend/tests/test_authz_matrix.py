@@ -361,6 +361,11 @@ MATRIX: list[Case] = [
         body={"name": "matrix-scope", "targets": ["198.51.100.0/30"]},
     ),
     Case("DELETE", "/api/v1/discovery/scopes/{scope_id}", _DEVICE_WRITERS),
+    # Starting a run sends packets to a customer's network. It is the most outward-facing
+    # thing this read-only product does, so it sits with the writers rather than with
+    # everyone who may read the queue — an Auditor may see what was found and may not go
+    # looking.
+    Case("POST", "/api/v1/discovery/scopes/{scope_id}/runs", _DEVICE_WRITERS, body={}),
     # Approving is how a discovered address becomes a device the product will collect
     # from, under a platform that selects its command allow-list. Same writers.
     Case(
