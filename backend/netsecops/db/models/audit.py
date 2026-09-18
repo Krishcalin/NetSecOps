@@ -74,6 +74,14 @@ class AuditAction(StrEnum):
     JOB_CANCELLED = "job.cancelled"
     JOB_COMPLETED = "job.completed"
 
+    # Schedules (FR-JOB-02). Separate from job events: a schedule decides that something
+    # will touch the estate repeatedly and unattended, which is a different decision from
+    # running it once, and the audit trail should be able to answer "who set this up"
+    # without inferring it from the first job it produced.
+    SCHEDULE_CREATED = "schedule.created"
+    SCHEDULE_UPDATED = "schedule.updated"
+    SCHEDULE_DELETED = "schedule.deleted"
+
     # Baselines (Phase 2). Pinning decides what "drift" means for a device, so it is an
     # operator decision worth naming separately rather than folding into device.updated.
     BASELINE_PINNED = "baseline.pinned"

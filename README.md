@@ -74,7 +74,7 @@ that most of the other gaps identified collapse into it.
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
 | 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — acceptance met; no scheduled sync |
-| 7 | Discovery, reporting, integrations, hardening | **In progress** — nothing is scheduled, integrations not started |
+| 7 | Discovery, reporting, integrations, hardening | **In progress** — integrations not started |
 | 8 | Topology and path analysis | **In progress** — graph, path query and missing-device report built; dynamic routes not collected |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
@@ -189,12 +189,25 @@ with no open port on the list is missed. Both appear beside the counters in the 
 because "0 hosts found" and "0 hosts found, and nothing could be asked" are different
 answers.
 
-Still owed: scheduling — the other half of FR-DISC-05, and shared with FR-JOB-02 and
-FR-RPT-04's scheduled delivery, since the `schedules` table has no service behind it;
-SNMP discovery, which needs credential storage on a scope; and the whole of integrations
-(FR-INT-01/02/03) — syslog to a SIEM, webhooks and ServiceNow/Jira ticketing are not
-started. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part of that group
-already in place.
+**Scheduling is built** (FR-JOB-02, and FR-DISC-05's second half). `netsecops-cli
+scheduler` is a separate process that fires due schedules and enqueues them through the
+same path the API uses, so a scheduled collection and a manual one are the same job. Four
+behaviours are where the obvious implementation is the wrong one: a scheduler down for a
+day fires each schedule **once**, not once per missed occurrence; a blackout window
+**skips** rather than defers, because deferring stacks every skipped schedule onto one
+minute; two schedulers never fire the same schedule (`FOR UPDATE SKIP LOCKED`); and a
+schedule with no possible slot is **disabled with a reason** rather than silently never
+running. Cron is read in the schedule's own time zone — `0 2 * * *` in `Asia/Kolkata` is
+not 02:00 UTC.
+
+Still owed: **scheduled feed sync**, which is not a scheduler gap — it needs outbound
+internet access to NVD, CISA and FIRST, and C-7 requires the product to run air-gapped,
+so it is a deliberate open decision rather than missing work. SNMP discovery, which needs
+credential storage on a scope. And the whole of integrations (FR-INT-01/02/03) — syslog
+to a SIEM, webhooks and ServiceNow/Jira ticketing are not started; FR-RPT-04's scheduled
+*delivery* waits on the mail transport there, though scheduled report *generation* works
+today. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part of that group already
+in place.
 
 #### What is built
 

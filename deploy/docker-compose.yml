@@ -118,6 +118,35 @@ services:
     #   - NET_RAW
     restart: unless-stopped
 
+  # Recurring assessments (FR-JOB-02). Its own process, not a background task inside the
+  # API: an asyncio loop in the API server would fire every schedule once per replica,
+  # and a host crontab would put the schedule in two places with only one of them
+  # editable in the console.
+  #
+  # Running two is safe — due schedules are claimed with `FOR UPDATE SKIP LOCKED` — and
+  # running none means schedules simply do not fire, which shows in the console as a
+  # next-run time in the past.
+  scheduler:
+    profiles: ["workers"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.backend
+    command: ["netsecops-cli", "scheduler"]
+    environment:
+      <<: *common-env
+    depends_on:
+      db:
+        condition: service_healthy
+    user: "10001:10001"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    restart: unless-stopped
+
   frontend:
     build:
       context: ..
