@@ -142,6 +142,11 @@ async def execute_job(
         # addresses nobody has approved, and must never authenticate to one.
         return await _run_discovery(session, job, jobs)
 
+    if JobType(job.job_type) is JobType.FEED_SYNC:
+        # Branched here for the same reason, and more strongly: this job touches no
+        # customer equipment at all. It talks to CISA, FIRST and NVD.
+        return await _run_feed_sync(session, job, jobs)
+
     while True:
         # A cancel is honoured between devices, never mid-session (FR-JOB-03).
         await session.refresh(job)
@@ -329,6 +334,85 @@ async def _fail_discovery(session: AsyncSession, job: Job, jobs: JobService, mes
     completed.error_message = message[:2000]
     await session.flush()
     return completed
+
+
+async def _run_feed_sync(session: AsyncSession, job: Job, jobs: JobService) -> Job:
+    """Execute a vulnerability feed sync (FR-VUL-07).
+
+    **One source failing does not fail the others.** CISA, FIRST and NVD are three
+    unrelated services with independent outages and independent rate limits, and the KEV
+    catalogue being unreachable is no reason to skip EPSS. The job ends PARTIAL when some
+    succeeded, FAILED only when none did — so the status distinguishes "the internet is
+    gone" from "one publisher is having a morning".
+
+    Each source's detail lives on its own `feed_syncs` row, which is where the feed page
+    reads it from. The job carries the tally, because the person looking at `/jobs`
+    wants to know whether tonight's sync worked, not to reconstruct it from five rows.
+    """
+    from netsecops.core.config import get_settings
+    from netsecops.services.feeds import FeedImportService
+    from netsecops.vuln.fetch import DEFAULT_SOURCES
+
+    settings = get_settings()
+    sources = [str(name) for name in (job.scope or {}).get("feed_sources") or []]
+    if not sources:
+        sources = sorted(DEFAULT_SOURCES)
+
+    feeds = FeedImportService(session, org_id=job.org_id)
+    actor = _system_principal(job)
+    synced = failed = ingested = 0
+    failures: list[str] = []
+
+    for name in sources:
+        if await _cancel_requested(session, job):
+            log.info("job.cancel_observed", job_id=str(job.id))
+            break
+        try:
+            result = await feeds.sync_online(name, actor=actor, settings=settings)
+        # Broad on purpose: three unrelated publishers with independent outages, and one
+        # of them raising something unforeseen must not cost the other two their sync.
+        except Exception as exc:
+            _, message = classify_error(exc)
+            failed += 1
+            failures.append(f"{name}: {message}")
+            log.warning("job.feed_sync_failed", job_id=str(job.id), feed=name, error=message)
+            continue
+
+        synced += 1
+        ingested += result.cves + result.advisories + result.kev_entries + result.epss_scores
+
+    if synced == 0 and failed:
+        completed = await jobs.complete(job, status_override=JobStatus.FAILED)
+    elif failed:
+        completed = await jobs.complete(job, status_override=JobStatus.PARTIAL)
+    else:
+        completed = await jobs.complete(job, status_override=JobStatus.SUCCEEDED)
+
+    # After `complete`, for the same reason discovery writes its summary last: the merge
+    # of per-device counts would otherwise overwrite these with zeroes.
+    completed.stats = {
+        **completed.stats,
+        "feeds_synced": synced,
+        "feeds_failed": failed,
+        "records_ingested": ingested,
+    }
+    if failures:
+        completed.error_message = "; ".join(failures)[:2000]
+    await session.flush()
+
+    log.info(
+        "job.finished",
+        job_id=str(job.id),
+        status=completed.status,
+        feeds_synced=synced,
+        feeds_failed=failed,
+    )
+    return completed
+
+
+async def _cancel_requested(session: AsyncSession, job: Job) -> bool:
+    await session.refresh(job)
+    return job.cancel_requested_at is not None
 
 
 async def _try_credentials(

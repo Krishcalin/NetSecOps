@@ -11,9 +11,15 @@ sees that group's exposure and the totals agree with the rows. There is exactly 
 write: an offline bundle import for air-gapped deployments (FR-VUL-08, constraint C-7).
 It does not touch a device; the whole subsystem is a read of data we already hold.
 
-There is no scheduled or network feed sync (FR-VUL-07). Imports are offline and by hand,
-which matters because a stale feed produces a confident-looking clean answer rather than
-an obviously broken one.
+Network sync arrived later (FR-VUL-07) and is deliberately the *second* path: the offline
+importer is the one air-gapped deployments depend on, so it stays primary and the online
+route reuses its ingest wholesale rather than growing one of its own. `POST
+/vulnerabilities/feeds/sync` queues a job; `feeds_offline_mode` makes it refuse.
+
+Staleness is the risk either way, because a stale feed produces a confident-looking clean
+answer rather than an obviously broken one — which is why the feed list reports each
+source's own data date beside the import time, and why a sync that could not cover the
+whole gap it was asked for comes back partial rather than succeeded.
 
 State changes on a vulnerability finding — Risk Accepted, False Positive and the rest of
 FR-VUL-09 — go through `PATCH /findings/{id}`, which already enforces the lifecycle and
@@ -32,6 +38,7 @@ from netsecops.api.deps import PrincipalDep, SessionDep, require, verify_csrf
 from netsecops.core.errors import NotFoundError, ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
+from netsecops.schemas.jobs import JobRead
 from netsecops.schemas.vulnerability import (
     CveDetailRead,
     FeedImportRead,
@@ -41,7 +48,9 @@ from netsecops.schemas.vulnerability import (
 )
 from netsecops.services.cpe_coverage import CpeCoverageService, as_dict
 from netsecops.services.feeds import FeedImportService
+from netsecops.services.jobs import JobService
 from netsecops.services.vuln_view import VulnViewService
+from netsecops.vuln.fetch import DEFAULT_SOURCES
 
 log = get_logger(__name__)
 router = APIRouter(tags=["vulnerabilities"])
@@ -188,6 +197,44 @@ async def import_feed_bundle(
         source_version=result.source_version,
         errors=[result.sync.error_message] if result.sync.error_message else [],
     )
+
+
+@router.post(
+    "/vulnerabilities/feeds/sync",
+    response_model=JobRead,
+    status_code=202,
+    dependencies=[Depends(require(Permission.VULN_WRITE)), Depends(verify_csrf)],
+    summary="Queue a feed sync from the publishers (FR-VUL-07)",
+)
+async def sync_feeds(
+    session: SessionDep,
+    principal: PrincipalDep,
+    sources: Annotated[list[str] | None, Query()] = None,
+) -> JobRead:
+    """Fetch the configured feeds now, rather than waiting for the schedule.
+
+    Returns a queued job rather than doing the work in the request. NVD's incremental
+    window can run to tens of thousands of records and three publishers are contacted in
+    sequence; holding an HTTP connection open for that would time out at whatever proxy
+    sits in front, and the operator would have no way to tell a slow sync from a stuck
+    one. As a job it has a status, a cancel, an audit record and a history.
+
+    With no ``sources`` every configured feed is synced. Naming them is for the estate
+    that mirrors one and fetches the rest.
+
+    This is refused in offline mode (C-7) — by the fetcher rather than here, so that the
+    refusal is recorded against the run and an operator can see that it was attempted.
+    """
+    known = sorted(DEFAULT_SOURCES)
+    chosen = list(sources or known)
+    unknown = [s for s in chosen if s not in DEFAULT_SOURCES]
+    if unknown:
+        raise ValidationProblem(
+            f"Unknown feed source(s): {', '.join(unknown)}. Known sources: {', '.join(known)}."
+        )
+
+    job = await JobService(session).create_feed_sync(sources=chosen, actor=principal)
+    return JobRead.model_validate(job)
 
 
 @router.get(

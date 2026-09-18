@@ -50,6 +50,7 @@ from netsecops.db.models.audit import AuditAction
 from netsecops.db.models.jobs import Job, JobType, Schedule
 from netsecops.services.audit import AuditService
 from netsecops.services.jobs import JobScope, JobService
+from netsecops.vuln.fetch import DEFAULT_SOURCES
 
 log = get_logger(__name__)
 
@@ -384,6 +385,18 @@ class ScheduleService:
                 )
             return await jobs.create_discovery(
                 discovery_scope_id=uuid.UUID(str(raw)),
+                actor=_scheduler_principal(schedule),
+                schedule_id=schedule.id,
+                org_id=self.org_id,
+            )
+
+        if job_type is JobType.FEED_SYNC:
+            # An empty or absent list means every known source, which is what a schedule
+            # called "nightly feed sync" is asking for. Naming sources stays possible for
+            # the estate that mirrors one feed and fetches the rest.
+            sources = (schedule.scope or {}).get("feed_sources") or sorted(DEFAULT_SOURCES)
+            return await jobs.create_feed_sync(
+                sources=[str(name) for name in sources],
                 actor=_scheduler_principal(schedule),
                 schedule_id=schedule.id,
                 org_id=self.org_id,

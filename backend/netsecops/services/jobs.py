@@ -219,6 +219,60 @@ class JobService:
         )
         return job
 
+    async def create_feed_sync(
+        self,
+        *,
+        sources: Sequence[str],
+        actor: Principal,
+        schedule_id: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        org_id: int = 1,
+    ) -> Job:
+        """Queue a vulnerability feed sync (FR-VUL-07).
+
+        Device-less for the same reason discovery is, and more so: this job never opens a
+        session to customer equipment at all, it talks to CISA, FIRST and NVD. Routing it
+        through :meth:`create` would resolve a device scope it has no use for and write
+        ``job_devices`` rows that ``_run_one_device`` would then have to refuse.
+
+        It is a *job* rather than a background coroutine in the API so that it inherits
+        what jobs already have and operators already know how to read: a queue position,
+        a status, cancellation, an audit record, and a history that survives the process.
+        """
+        if idempotency_key:
+            existing = (
+                await self.session.execute(
+                    select(Job).where(Job.idempotency_key == idempotency_key)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
+
+        job = Job(
+            org_id=org_id,
+            job_type=JobType.FEED_SYNC.value,
+            status=JobStatus.QUEUED.value,
+            scope={"feed_sources": list(sources)},
+            requested_by_id=actor.id,
+            schedule_id=schedule_id,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id.get(),
+            stats={"feeds_synced": 0, "feeds_failed": 0, "records_ingested": 0},
+        )
+        self.session.add(job)
+        await self.session.flush()
+
+        await self.audit.record(
+            AuditAction.JOB_STARTED,
+            actor_id=actor.id,
+            actor_username=actor.username,
+            object_type="job",
+            object_id=job.id,
+            details={"job_type": JobType.FEED_SYNC.value, "feed_sources": list(sources)},
+            org_id=org_id,
+        )
+        return job
+
     async def resolve_scope(
         self, scope: JobScope, principal_scope: Scope, *, org_id: int = 1
     ) -> Sequence[Device]:

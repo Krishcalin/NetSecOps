@@ -378,6 +378,11 @@ MATRIX: list[Case] = [
         _VULN_IMPORTERS,
         files=True,
     ),
+    # Fetching from the publishers lands the same data by a different road, so it sits
+    # behind the same permission as importing it. The reasoning above holds either way:
+    # what changes is which advisories the product asserts about every device, and the
+    # Network Engineer operating those devices is not who should decide it.
+    Case("POST", "/api/v1/vulnerabilities/feeds/sync", _VULN_IMPORTERS),
     # ── Discovery (Phase 7) ─────────────────────────────────────────────────────
     # Reading the queue is a device read by another name — "what is on my network that
     # I did not put there" — so the Network Engineer and the Auditor both get it.

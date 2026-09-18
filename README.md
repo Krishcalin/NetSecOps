@@ -117,10 +117,24 @@ The parts that shape the answer:
 
 Still owed, and each one changes what an answer means:
 
-- **No scheduled sync.** Import is offline and by hand. A stale feed produces a
-  confident-looking clean answer, so this matters more than its size suggests. The feed
-  table now reports the data's *own* date beside the import time, which makes staleness
-  visible without fixing it.
+- **Scheduled sync is built** (FR-VUL-07). `POST /vulnerabilities/feeds/sync` queues a
+  job, and the scheduler fires one nightly. Three design points carry it. The online
+  route **reuses the offline importer wholesale** rather than growing its own ingest —
+  otherwise the code air-gapped customers depend on is not the code anyone exercises
+  daily, and only the run's recorded `mode` distinguishes them. NVD is fetched
+  **incrementally** by last-modified date, because a CVE whose score or affected ranges
+  were revised is exactly when a device's status changes without the device changing, and
+  a "new CVEs only" design misses it. And **offline mode refuses out loud**: a scheduled
+  sync that appears configured, never runs and reports no error is the
+  stale-feed-that-looks-current failure this whole subsystem exists to prevent.
+
+  A gap wider than NVD will answer — it caps a query at 120 days — comes back **partial
+  with the uncovered stretch named**, not succeeded. A sync claiming currency over three
+  months it never asked about is the same confident-wrong answer in a smaller box.
+
+  Vendor PSIRT feeds are not fetched: Cisco's openVuln API needs an OAuth client
+  credential and the others publish CSAF at per-advisory URLs that must be walked from an
+  index. Both already have a working offline path.
 - **CPE product names are checked, against evidence rather than a dictionary.**
   `GET /vulnerabilities/cpe-coverage` compares the platform-to-CPE table against the CPE
   strings imported advisories actually use — no NVD dictionary needed, because every

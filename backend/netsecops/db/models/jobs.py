@@ -33,6 +33,9 @@ class JobType(StrEnum):
     VULN_REMATCH = "vuln_rematch"
     CREDENTIAL_TEST = "credential_test"
     DISCOVERY = "discovery"
+    #: Pull vulnerability feeds from their publishers (FR-VUL-07). Like DISCOVERY, this
+    #: targets no devices — it touches no customer equipment at all.
+    FEED_SYNC = "feed_sync"
 
 
 class JobStatus(StrEnum):

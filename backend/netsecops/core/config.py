@@ -134,7 +134,32 @@ class Settings(BaseSettings):
     verify_device_tls: bool = False
 
     # ── Vulnerability feeds (FR-VUL-07/08, used from Phase 6) ───────────────
+    #: Refuse every outbound feed fetch. The C-7 guarantee, as a switch.
+    #:
+    #: Fetching *refuses* under this rather than quietly doing nothing, because a
+    #: scheduled sync that appears configured, never runs and reports no error is the
+    #: stale-feed-that-looks-current failure the whole subsystem exists to prevent.
     feeds_offline_mode: bool = False
+
+    #: How often a scheduled feed sync runs, as cron. FR-VUL-07's "default daily".
+    #:
+    #: 04:17 rather than midnight: every scheduler in the world fires on the hour, and
+    #: CISA and FIRST publish to the same public endpoints for everyone.
+    feeds_sync_cron: str = "17 4 * * *"
+
+    #: Outbound proxy for feed fetches only (FR-ADM-01).
+    #:
+    #: Feed-specific rather than global on purpose. The hosts this product talks to fall
+    #: into two groups with opposite routing in most estates — customer equipment on
+    #: internal networks, and public feed endpoints — and a single proxy setting would
+    #: send device traffic through it too. Unset, httpx still honours the standard
+    #: HTTPS_PROXY environment variable.
+    feeds_proxy_url: str | None = None
+
+    #: Override for the NVD API endpoint, so an internal mirror can serve it. The
+    #: deployments that most need current vulnerability data are often the ones whose
+    #: workers have no direct egress.
+    nvd_api_url: str | None = None
 
     # Appendix C names these without the NETSECOPS_ prefix, so each needs the same
     # AliasChoices treatment as DATABASE_URL and SECRET_KEY — with the field name kept

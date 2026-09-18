@@ -33,9 +33,11 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Any
 
+import httpx
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netsecops.core.config import Settings
 from netsecops.core.errors import ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Principal
@@ -52,6 +54,7 @@ from netsecops.vuln.advisory import Advisory
 from netsecops.vuln.csaf import parse_csaf
 from netsecops.vuln.eol import parse_endoflife_date
 from netsecops.vuln.epss import decompress, looks_like_epss_csv, looks_like_epss_json, read_epss
+from netsecops.vuln.fetch import DEFAULT_SOURCES, MAX_NVD_WINDOW, fetch_nvd, fetch_simple
 from netsecops.vuln.kev import looks_like_kev, parse_kev_catalogue
 from netsecops.vuln.nvd import parse_nvd_feed
 
@@ -196,6 +199,80 @@ class FeedImportService:
 
         await self._audit(sync, actor)
         return result
+
+    async def sync_online(
+        self,
+        source_name: str,
+        *,
+        actor: Principal,
+        settings: Settings,
+        client: httpx.AsyncClient | None = None,
+    ) -> ImportResult:
+        """Fetch one feed and import it (FR-VUL-07).
+
+        Thin on purpose. Everything after the bytes arrive is `import_bundle`, unchanged
+        and unbranched, so an online sync and a hand-uploaded bundle are ingested by the
+        same code and differ only in the `mode` recorded against the run. The alternative
+        — an online path with its own ingest — means the code air-gapped customers depend
+        on is not the code anyone exercises day to day.
+        """
+        source = DEFAULT_SOURCES.get(source_name)
+        if source is None:
+            raise ValidationProblem(
+                f"There is no feed source called {source_name!r}. "
+                f"Known sources: {', '.join(sorted(DEFAULT_SOURCES))}."
+            )
+
+        gap_note: str | None = None
+        if source_name == "nvd":
+            since = await self._last_success_at("nvd")
+            now = datetime.now(UTC)
+            if since is not None and now - since > MAX_NVD_WINDOW:
+                # NVD will not answer a window wider than 120 days, so the fetch clamps
+                # it — which means CVEs changed in the uncovered stretch are not in this
+                # import. Recorded on the run, because a sync that reports success while
+                # having skipped three months of revisions is the exact
+                # confident-but-wrong answer the feed subsystem exists to prevent.
+                gap_note = (
+                    f"NVD only answers a 120-day window. The last successful sync was "
+                    f"{(now - since).days} days ago, so changes before "
+                    f"{(now - MAX_NVD_WINDOW).date()} were not fetched — import an NVD "
+                    f"bundle to close the gap, or run this sync again to walk forward."
+                )
+            raw = await fetch_nvd(settings, since=since, now=now, client=client)
+        else:
+            raw = await fetch_simple(source, settings, client=client)
+
+        result = await self.import_bundle(raw, feed=source_name, actor=actor, mode="online")
+
+        if gap_note:
+            result.sync.error_message = gap_note
+            if result.sync.status == SyncStatus.SUCCEEDED.value:
+                result.sync.status = SyncStatus.PARTIAL.value
+            await self.session.flush()
+
+        return result
+
+    async def _last_success_at(self, feed: str) -> datetime | None:
+        """When this feed last brought data in.
+
+        Partial counts. A run that imported 9,000 of 10,000 records still advanced the
+        watermark for the 9,000, and treating it as no progress would re-fetch the same
+        window every night for as long as one record stayed unreadable.
+        """
+        row = (
+            await self.session.execute(
+                select(FeedSync.started_at)
+                .where(
+                    FeedSync.org_id == self.org_id,
+                    FeedSync.feed == feed,
+                    FeedSync.status.in_([SyncStatus.SUCCEEDED.value, SyncStatus.PARTIAL.value]),
+                )
+                .order_by(FeedSync.started_at.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        return row
 
     async def _ingest(
         self,
