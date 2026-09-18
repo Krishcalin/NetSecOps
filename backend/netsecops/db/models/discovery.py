@@ -104,7 +104,14 @@ class DiscoveryRun(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     """One execution of a scope."""
 
     __tablename__ = "discovery_runs"
-    __table_args__ = (Index("ix_discovery_runs_scope", "org_id", "scope_id", "started_at"),)
+    __table_args__ = (
+        Index("ix_discovery_runs_scope", "org_id", "scope_id", "started_at"),
+        # Declared here as well as created in migration 0010. `alembic check` compares
+        # the models against the database and fails the build on any difference, so an
+        # index that exists in one and not the other is drift even when the database is
+        # the one that is right.
+        Index("ix_discovery_runs_job", "job_id"),
+    )
 
     scope_id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("discovery_scopes.id", ondelete="CASCADE"), nullable=False
@@ -135,7 +142,13 @@ class DiscoveryRun(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     #: both change what "found 0 hosts" means. Kept out of ``error_message`` because a
     #: successful run has no error and would otherwise have nowhere to say this — and an
     #: empty estate that nobody could have detected must not print like a quiet one.
-    notes: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+    #:
+    #: `server_default` as well as `default`, matching migration 0010: the Python default
+    #: covers rows this application writes, the server default covers every other writer,
+    #: and `alembic check` fails if the model omits what the table actually has.
+    notes: Mapped[list[str]] = mapped_column(
+        JSONB, default=list, server_default=text("'[]'::jsonb"), nullable=False
+    )
 
 
 class DiscoveredHost(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
