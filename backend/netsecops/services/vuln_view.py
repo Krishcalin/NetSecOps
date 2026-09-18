@@ -24,7 +24,7 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import Select, case, func, select
+from sqlalchemy import Select, any_, case, func, literal, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.core.rbac import Scope
@@ -275,7 +275,10 @@ class VulnViewService:
                 await self.session.execute(
                     select(VulnAdvisory).where(
                         VulnAdvisory.org_id == self.org_id,
-                        VulnAdvisory.cve_ids.any(cve_id),
+                        # `literal(x) == any_(col)` rather than `col.any(x)`: both emit
+                        # `x = ANY (col)`, but the attribute form resolves to the
+                        # relationship comparator in type-checking and fails strict mypy.
+                        literal(cve_id) == any_(VulnAdvisory.cve_ids),
                     )
                 )
             )
@@ -286,16 +289,21 @@ class VulnViewService:
         if cve is None and not advisories:
             return None
 
-        matches = (
+        rows = (
             await self.session.execute(
                 select(VulnMatch, Device)
                 .join(Device, Device.id == VulnMatch.device_id)
                 .where(
                     VulnMatch.org_id == self.org_id,
-                    VulnMatch.cve_ids.any(cve_id),
+                    literal(cve_id) == any_(VulnMatch.cve_ids),
                 )
             )
         ).all()
+
+        # Materialised as tuples rather than filtering the Row sequence in place: a Row
+        # and a plain tuple are different types, and reassigning one to the other is what
+        # the type checker objected to.
+        matches: list[tuple[VulnMatch, Device]] = [(row[0], row[1]) for row in rows]
 
         if not scope.unrestricted:
             from netsecops.services.inventory import InventoryService

@@ -81,6 +81,11 @@ dev = [
     "schemathesis>=3.38",
     "types-passlib",
     "types-defusedxml",
+    # Real stubs rather than an `ignore_missing_imports` override, which was the cheaper
+    # fix and the worse one: these caught `Workbook.active` being Optional in the XLSX
+    # renderer, which the override would have hidden along with everything else openpyxl
+    # has to say.
+    "types-openpyxl",
 ]
 
 [project.scripts]

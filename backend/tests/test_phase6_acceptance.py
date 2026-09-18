@@ -1,14 +1,14 @@
-"""Phase 6 acceptance (SRS Â§12).
+"""Phase 6 acceptance (SRS §12).
 
     known-vulnerable fixture versions produce expected CVEs with correct confidence
 
 Written as one continuous path, because the criterion is that the chain connects:
-import a feed bundle â†’ collect a device whose version is known to be in an affected
-range â†’ assess it â†’ get a vulnerability finding naming the right CVE at the right
-confidence â†’ upgrade the device â†’ watch the finding resolve itself.
+import a feed bundle → collect a device whose version is known to be in an affected
+range → assess it → get a vulnerability finding naming the right CVE at the right
+confidence → upgrade the device → watch the finding resolve itself.
 
 Every link has unit tests elsewhere. This asserts they join up, and that the two
-questions an operator actually asks â€” *am I affected* and *what do I upgrade to* â€” both
+questions an operator actually asks — *am I affected* and *what do I upgrade to* — both
 come out of the far end.
 
 **The confidences are asserted individually and deliberately.** "Produces expected CVEs"
@@ -54,7 +54,7 @@ NVD_BUNDLE = (FEEDS / "nvd" / "cisco_asa_cves.json").read_bytes()
 EOL_BUNDLE = (FEEDS / "eol" / "cisco_asa.json").read_bytes()
 
 #: The ASA fixture reports 9.18(2) from its configuration. CVE-2024-20353 names
-#: `>=9.18.0 <9.18.4` as affected, so this device is inside the range â€” checked against
+#: `>=9.18.0 <9.18.4` as affected, so this device is inside the range — checked against
 #: the fixture by hand, not read off a run of the matcher.
 AFFECTED_CVE = "CVE-2024-20353"
 #: The release that closes it, per the same NVD record.
@@ -85,7 +85,7 @@ async def collect(
 
     The version is substituted into the *configuration*, not into the `show version`
     artefact. An ASA states its own image version on the third line of its running
-    config, and the artefact supplies only the chassis model and serial â€” so editing the
+    config, and the artefact supplies only the chassis model and serial — so editing the
     artefact changes nothing about which advisories match. Worth stating because the
     first version of this test did exactly that and quietly kept asserting against an
     unchanged 9.18(2).
@@ -106,7 +106,7 @@ class TestPhase6Acceptance:
         feeds = FeedImportService(session)
         assessments = VulnAssessmentService(session)
 
-        # â”€â”€ 1. import a feed bundle, integrity checked â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── 1. import a feed bundle, integrity checked ───────────────────
         imported = await feeds.import_bundle(
             NVD_BUNDLE,
             feed="nvd",
@@ -116,21 +116,21 @@ class TestPhase6Acceptance:
         assert imported.advisories == 4
         assert imported.sync.status == "succeeded"
 
-        # â”€â”€ 2. a device whose version is in a known-affected range â”€â”€â”€â”€â”€â”€â”€
+        # ── 2. a device whose version is in a known-affected range ───────
         device = await onboard(session, actor, ip="198.51.100.40", hostname="edge-fw-01")
         snapshot = await collect(session, vault, device)
         assert snapshot.ncm["device"]["version"] == "9.18(2)"
 
-        # â”€â”€ 3. assess â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── 3. assess ────────────────────────────────────────────────────
         outcome = await assessments.assess_device(device)
 
-        # â”€â”€ 4. the expected CVE, at the expected confidence â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── 4. the expected CVE, at the expected confidence ──────────────
         confirmed = [m for m in outcome.matches if m.confidence is Confidence.CONFIRMED]
         assert [m.advisory_id for m in confirmed] == [AFFECTED_CVE], (
             "9.18(2) is inside >=9.18.0 <9.18.4 and outside every other range in the bundle"
         )
 
-        # â”€â”€ 5. and a finding somebody can act on â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── 5. and a finding somebody can act on ─────────────────────────
         finding = (
             await session.execute(
                 select(Finding).where(
@@ -147,7 +147,7 @@ class TestPhase6Acceptance:
         assert finding.description, "FR-VUL-03 requires an explanation"
         assert "9.18(2)" in finding.description
 
-        # â”€â”€ 6. what to upgrade to (FR-VUL-10) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── 6. what to upgrade to (FR-VUL-10) ────────────────────────────
         match_row = (
             await session.execute(
                 select(VulnMatch).where(
@@ -160,7 +160,7 @@ class TestPhase6Acceptance:
             "a verdict must name the configuration it was computed against"
         )
 
-        # â”€â”€ 7. upgrade the device; the finding closes itself â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        # ── 7. upgrade the device; the finding closes itself ─────────────
         await collect(session, vault, device, version=FIXED_VERSION)
         after = await assessments.assess_device(device)
 
@@ -205,7 +205,7 @@ class TestTheCriterionIsNotMetByFlaggingEverything:
         """The distinction the whole phase is built around.
 
         No `show version` artefact means the ASA's own config line still gives 9.18(2)
-        â€” so to make the version genuinely unreadable the snapshot carries a version
+        — so to make the version genuinely unreadable the snapshot carries a version
         this system cannot parse. That device is not patched; it is unassessable, and
         must be reported as a coverage gap rather than filed with the clean ones.
         """
@@ -240,7 +240,7 @@ class TestBecomingUnassessableDoesNotCureADevice:
         "No confirmed match this run" happens both when a device is patched and when it
         stops being readable. They are indistinguishable in the data and opposite in
         meaning. Resolving on the second would mean an estate that lost its
-        `show version` collection reports itself progressively cured â€” every device
+        `show version` collection reports itself progressively cured — every device
         going quiet at once, and the findings list emptying to applause.
         """
         await FeedImportService(session).import_bundle(NVD_BUNDLE, feed="nvd", actor=actor)
@@ -286,7 +286,7 @@ class TestEndOfLife:
         """FR-VUL-05, through the same chain.
 
         The ASA fixture is on 9.18, whose security maintenance ended 2025-11-30 in the
-        bundle â€” so as of any run after that date this is an end-of-support device.
+        bundle — so as of any run after that date this is an end-of-support device.
         """
         await FeedImportService(session).import_bundle(
             EOL_BUNDLE, feed="endoflife.date", actor=actor, vendor="cisco", product="asa"

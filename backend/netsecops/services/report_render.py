@@ -283,7 +283,13 @@ def _xlsx_bytes(report: Report) -> bytes:
     content = report.content or {}
 
     book = Workbook()
+    # `active` is Optional on a Workbook in general — a book whose sheets have all been
+    # removed has none. A freshly constructed one always does, so this is a guard against
+    # a future edit rather than against openpyxl, and it raises instead of asserting so
+    # the check survives `python -O`.
     sheet = book.active
+    if sheet is None:  # pragma: no cover — unreachable for a new Workbook
+        raise RuntimeError("openpyxl created a workbook with no active sheet.")
     sheet.title = "Report"
     header_font = Font(bold=True)
 

@@ -18,7 +18,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from netsecops.api.deps import SessionDep, require
+from netsecops.api.deps import SessionDep, require, verify_csrf
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
 from netsecops.schemas.topology import (
@@ -44,7 +44,11 @@ ServiceDep = Annotated[TopologyService, Depends(topology_service)]
 @router.post(
     "/topology/path",
     response_model=PathResponse,
-    dependencies=[Depends(require(Permission.SNAPSHOT_READ))],
+    # A path query changes nothing, and still carries the CSRF check. The rule is easier
+    # to keep absolute than with a "this POST is read-only" carve-out — which is exactly
+    # the kind of exception that made discovery's four state-changing routes drift out of
+    # coverage unnoticed. The SPA sends the header on every request, so it costs nothing.
+    dependencies=[Depends(require(Permission.SNAPSHOT_READ)), Depends(verify_csrf)],
     summary="Can this host reach that one, and what decides (FR-TOPO-03)",
 )
 async def query_path(request: PathRequest, topology: ServiceDep) -> PathResponse:

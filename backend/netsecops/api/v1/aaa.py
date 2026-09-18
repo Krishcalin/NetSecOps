@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends
 
-from netsecops.api.deps import PrincipalDep, SessionDep, require
+from netsecops.api.deps import PrincipalDep, SessionDep, require, verify_csrf
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
 from netsecops.schemas.aaa import AaaPostureRead, CorrelationRead
@@ -175,7 +175,7 @@ async def read_correlation(session: SessionDep, principal: PrincipalDep) -> Corr
 @router.post(
     "/assess",
     response_model=CorrelationRead,
-    dependencies=[Depends(require(Permission.FINDING_WRITE))],
+    dependencies=[Depends(require(Permission.FINDING_WRITE)), Depends(verify_csrf)],
     summary="Store the AAA correlation as per-device findings (FR-AAA-06)",
 )
 async def assess(session: SessionDep, principal: PrincipalDep) -> CorrelationRead:

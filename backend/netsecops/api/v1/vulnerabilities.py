@@ -28,7 +28,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 
-from netsecops.api.deps import PrincipalDep, SessionDep, require
+from netsecops.api.deps import PrincipalDep, SessionDep, require, verify_csrf
 from netsecops.core.errors import NotFoundError, ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
@@ -132,7 +132,7 @@ async def list_feeds(
 @router.post(
     "/vulnerabilities/feeds/import",
     response_model=FeedImportRead,
-    dependencies=[Depends(require(Permission.VULN_WRITE))],
+    dependencies=[Depends(require(Permission.VULN_WRITE)), Depends(verify_csrf)],
     summary="Import an offline NVD/CSAF/EoL bundle (FR-VUL-08)",
 )
 async def import_feed_bundle(

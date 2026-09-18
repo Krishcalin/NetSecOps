@@ -493,8 +493,12 @@ class ReportingService:
         previous = earlier.content or {}
 
         def severity_delta(name: str) -> int:
-            before = (previous.get("by_severity") or {}).get(name, 0)
-            return current["by_severity"].get(name, 0) - before
+            # Both sides come out of JSONB, so both are Any as far as the type checker is
+            # concerned. Coerced rather than cast: a stored count that is not a number is
+            # a corrupt report, and int() saying so is better than a delta that silently
+            # concatenates strings.
+            before = int((previous.get("by_severity") or {}).get(name, 0) or 0)
+            return int(current["by_severity"].get(name, 0) or 0) - before
 
         return {
             "compared_to": {

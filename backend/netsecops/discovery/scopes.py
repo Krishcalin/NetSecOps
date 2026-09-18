@@ -6,7 +6,7 @@
 Straightforward until you consider what a typo does. `10.0.0.0/8` is one character away
 from `10.0.0.0/18` and sixteen million addresses away from what the operator meant. A
 scope that quietly expands to sixteen million probes against a customer's production
-network is the single worst thing this package could do â€” worse than a missed device,
+network is the single worst thing this package could do — worse than a missed device,
 because it is active, it is attributable, and it does not stop when someone notices.
 
 So three properties hold here, and none is optional:
@@ -45,8 +45,8 @@ IpAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
 #: The most addresses one scope may cover.
 #:
 #: 65,536 is a /16, which is the largest block anyone plausibly runs a flat management
-#: network on. Above that the operator is either scanning the estate â€” which this is not
-#: for â€” or has mistyped a prefix length. Both deserve a refusal rather than a best
+#: network on. Above that the operator is either scanning the estate — which this is not
+#: for — or has mistyped a prefix length. Both deserve a refusal rather than a best
 #: effort, and the error says which of the two it thinks happened.
 MAX_SCOPE_HOSTS: Final[int] = 65_536
 
@@ -159,7 +159,7 @@ def build_scope(
     """Validate and assemble a scope (FR-DISC-01).
 
     The ceiling is checked here, after exclusions are applied, so that a legitimately
-    large block with most of it excluded is allowed â€” `10.0.0.0/8` minus everything but
+    large block with most of it excluded is allowed — `10.0.0.0/8` minus everything but
     a /24 is 254 addresses and there is no reason to refuse it.
     """
     if not targets:
@@ -187,7 +187,7 @@ def build_scope(
         raise ValidationProblem(
             f"Scope '{name}' covers {size:,} addresses, over the {max_hosts:,} limit. "
             "Discovery sends probes to every address in scope, so this is usually a "
-            "mistyped prefix length â€” check the CIDR, or narrow it with exclusions."
+            "mistyped prefix length — check the CIDR, or narrow it with exclusions."
         )
     if size == 0:
         # Not an error worth raising, but worth saying: a scope whose exclusions cancel

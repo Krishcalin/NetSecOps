@@ -2,7 +2,7 @@
 
 Findings travel further than any other object in this system: into exports, emails,
 tickets and screenshots. Everything here therefore carries only what Phase 2 already
-redacted â€” provenance excerpts and observed values drawn from the NCM â€” and never the
+redacted — provenance excerpts and observed values drawn from the NCM — and never the
 original configuration.
 """
 
@@ -26,7 +26,7 @@ class CheckSummary(BaseModel):
     severity: Severity
     description: str
     tags: list[str] = Field(default_factory=list)
-    #: `ncm`, `regex` or `python` â€” shown so an operator knows which they can edit.
+    #: `ncm`, `regex` or `python` — shown so an operator knows which they can edit.
     logic_type: str
     vendors: list[str] = Field(default_factory=list)
     platforms: list[str] = Field(default_factory=list)
@@ -149,7 +149,7 @@ class FindingRead(BaseModel):
 
 
 class FindingDetail(FindingRead):
-    """FR-FIND-04 â€” everything needed to act on a finding without leaving the page."""
+    """FR-FIND-04 — everything needed to act on a finding without leaving the page."""
 
     evidence: dict[str, Any]
     remediation: str | None
@@ -159,7 +159,7 @@ class FindingDetail(FindingRead):
 
 
 class FindingUpdate(BaseModel):
-    """FR-FIND-02 â€” triage fields an analyst sets."""
+    """FR-FIND-02 — triage fields an analyst sets."""
 
     status: str | None = None
     assignee_id: uuid.UUID | None = None
@@ -203,7 +203,7 @@ class RiskRead(BaseModel):
 
     device_id: uuid.UUID
     score: int | None
-    #: Passes as a share of what was actually decided â€” Not Applicable and Not
+    #: Passes as a share of what was actually decided — Not Applicable and Not
     #: Evaluated are in neither half.
     compliance_percent: int | None
     #: How much of the policy produced a verdict at all.

@@ -31,7 +31,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Response, status
 
-from netsecops.api.deps import PrincipalDep, SessionDep, require
+from netsecops.api.deps import PrincipalDep, SessionDep, require, verify_csrf
 from netsecops.core.errors import ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
@@ -128,7 +128,7 @@ async def list_reports(
     "/reports",
     response_model=ReportDetail,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require(Permission.REPORT_GENERATE))],
+    dependencies=[Depends(require(Permission.REPORT_GENERATE)), Depends(verify_csrf)],
     summary="Generate a report and freeze it (FR-RPT-02)",
 )
 async def create_report(

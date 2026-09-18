@@ -2,7 +2,7 @@
 
 The Dockerfile installs the application with `pip install .` and nothing else, so
 `pyproject.toml` is the complete list of what the image contains. A module imported by
-`netsecops/` and missing from that list produces an image that cannot start â€” while
+`netsecops/` and missing from that list produces an image that cannot start — while
 every test keeps passing, because the development venv has the package from somewhere
 else and never consults pyproject.
 
@@ -32,13 +32,13 @@ def _normalise(name: str) -> str:
     """PEP 503 normalisation.
 
     `pydantic-settings` is imported as `pydantic_settings`, and comparing the two
-    without this reports a declared dependency as missing â€” which would train whoever
+    without this reports a declared dependency as missing — which would train whoever
     hits it to add an exemption and blunt the check.
     """
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
-#: Import name â†’ distribution name, where a package installs under a different name
+#: Import name → distribution name, where a package installs under a different name
 #: from the one it is imported by.
 DISTRIBUTION_NAMES = {
     "argon2": "argon2-cffi",
@@ -56,7 +56,7 @@ DISTRIBUTION_NAMES = {
 #:
 #: Each of these is a judgement that the transitive dependency is stable enough to rely
 #: on. They are listed rather than silently skipped so the judgement is visible and can
-#: be revisited â€” a FastAPI major version that swapped out Starlette would break the
+#: be revisited — a FastAPI major version that swapped out Starlette would break the
 #: middleware, and this is where somebody would look.
 ACCEPTED_TRANSITIVE = {
     "starlette": "ships with fastapi; the ASGI types the middleware is built on",
@@ -107,7 +107,7 @@ class TestTheImageCanImportTheApplication:
             "these modules are imported but not declared in pyproject.toml, so the "
             "container image will not start:\n"
             + "\n".join(
-                f"  {name} â€” imported by {', '.join(paths)}" for name, paths in undeclared.items()
+                f"  {name} — imported by {', '.join(paths)}" for name, paths in undeclared.items()
             )
         )
 

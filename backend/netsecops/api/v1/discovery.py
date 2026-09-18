@@ -107,7 +107,7 @@ async def list_scopes(session: SessionDep) -> list[DiscoveryScopeRead]:
     "/discovery/scopes",
     response_model=DiscoveryScopeRead,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require(Permission.DISCOVERY_WRITE))],
+    dependencies=[Depends(require(Permission.DISCOVERY_WRITE)), Depends(verify_csrf)],
     summary="Define what may be probed (FR-DISC-01)",
 )
 async def create_scope(
@@ -157,7 +157,7 @@ async def create_scope(
 @router.delete(
     "/discovery/scopes/{scope_id}",
     status_code=status.HTTP_204_NO_CONTENT,
-    dependencies=[Depends(require(Permission.DISCOVERY_WRITE))],
+    dependencies=[Depends(require(Permission.DISCOVERY_WRITE)), Depends(verify_csrf)],
     summary="Remove a discovery scope",
 )
 async def delete_scope(scope_id: uuid.UUID, session: SessionDep) -> None:
@@ -322,7 +322,7 @@ async def get_host(host_id: uuid.UUID, reviews: ReviewDep) -> DiscoveredHostRead
 @router.post(
     "/discovery/pending/{host_id}/approve",
     response_model=DeviceRead,
-    dependencies=[Depends(require(Permission.DISCOVERY_WRITE))],
+    dependencies=[Depends(require(Permission.DISCOVERY_WRITE)), Depends(verify_csrf)],
     summary="Onboard a discovered host as a device (FR-DISC-04)",
 )
 async def approve_host(
@@ -353,7 +353,7 @@ async def approve_host(
 @router.post(
     "/discovery/pending/{host_id}/reject",
     response_model=DiscoveredHostRead,
-    dependencies=[Depends(require(Permission.DISCOVERY_WRITE))],
+    dependencies=[Depends(require(Permission.DISCOVERY_WRITE)), Depends(verify_csrf)],
     summary="Mark a discovered host as deliberately not ours (FR-DISC-04)",
 )
 async def reject_host(
