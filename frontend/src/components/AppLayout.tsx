@@ -42,7 +42,11 @@ const NAV_ITEMS: NavItem[] = [
   // Below Compliance because it is the archive of what the pages above said, and reads
   // oddly as an entry point: someone arriving with a question wants the live page first.
   { label: 'Reports', to: '/reports', permission: 'report:read' },
-  { label: 'Integrations', phase: 'Phase 7' },
+  // Notification channels, delivery history and platform settings. Behind
+  // `settings:read` rather than a device permission: a channel's configuration decides
+  // where security alerts go, and that belongs with the platform owner rather than with
+  // the people operating the devices being reported on.
+  { label: 'Settings', to: '/settings', permission: 'settings:read' },
   { label: 'Audit Log', to: '/audit', permission: 'audit:read' },
 ];
 

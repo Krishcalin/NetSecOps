@@ -81,9 +81,16 @@ services:
       start_period: 20s
     restart: unless-stopped
 
-  # Worker and scheduler are defined from Phase 1, when the job engine exists.
-  # They are declared here behind a profile so the compose file is already shaped
-  # for them and `make up` stays unchanged when they arrive.
+  # The job worker (FR-JOB-05). Claims queued jobs and runs them: collections,
+  # assessments, discovery runs, feed syncs, notification dispatch, SIEM forwarding and
+  # reports.
+  #
+  # This service referenced a `netsecops-cli worker` command that did not exist from
+  # Phase 1 until 2026-09-18, so the `workers` profile could not start. It mattered
+  # little while every job came from an API request, which runs in-process — and stopped
+  # being harmless with the scheduler, which creates job rows and enqueues nothing.
+  #
+  # Running several is safe: jobs are claimed with `FOR UPDATE SKIP LOCKED`.
   worker:
     profiles: ["workers"]
     build:

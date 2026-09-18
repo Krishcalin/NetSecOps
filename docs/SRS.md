@@ -710,6 +710,20 @@ NVD/CSAF/PSIRT/EoL ingestion (online + offline import), CPE builder, feature-awa
 **Phase 7 — Discovery, reporting, integrations, hardening (week 22–25)**
 Discovery & fingerprinting; PDF/XLSX reports & scheduling; dashboards; SMTP/webhook/Slack/Teams/syslog-CEF; ServiceNow/Jira (S); Helm chart; performance harness; ASVS review; docs. *Acceptance:* TEST-08.
 
+> **Status, 2026-09-18.** Every **M** requirement in this phase is built: discovery
+> including the optional SNMP probe (FR-DISC-02), reporting with scheduled e-mail
+> delivery and retention (FR-RPT-04), notifications over SMTP/webhook/Slack/Teams
+> (FR-INT-01), syslog CEF and JSON forwarding (FR-INT-02), and platform settings
+> (FR-ADM-01). FR-INT-03 (ServiceNow/Jira) is priority **S** and is not started.
+>
+> **The phase nonetheless cannot be accepted from a development environment.** TEST-08
+> requires a lab holding at least one real device per platform in §1.3 completing
+> Collect+Assess with zero read-only violations and zero configuration changes verified
+> by pre/post configuration hash *on the device*. That is physical Cisco, PAN-OS,
+> FortiGate and Check Point hardware. No amount of further code closes it, and recording
+> the criterion as met without that lab would be exactly the kind of confident-but-unfounded
+> answer the rest of this specification is written to avoid.
+
 **Phase 8 — Topology and path analysis (added 2026-09-18)**
 Forwarding-table normalisation into the NCM; the layer-3 graph; path query with the
 two-axis result; the ranked missing-device report; API and console surface. Covers

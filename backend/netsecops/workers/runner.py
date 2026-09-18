@@ -153,6 +153,9 @@ async def execute_job(
     if JobType(job.job_type) is JobType.NOTIFY:
         return await _run_notify(session, job, jobs, vault)
 
+    if JobType(job.job_type) is JobType.REPORT:
+        return await _run_report(session, job, jobs)
+
     while True:
         # A cancel is honoured between devices, never mid-session (FR-JOB-03).
         await session.refresh(job)
@@ -512,6 +515,79 @@ async def _run_notify(
         sent=result.sent,
         failed=result.failed,
         dead=result.dead,
+    )
+    return completed
+
+
+async def _run_report(session: AsyncSession, job: Job, jobs: JobService) -> Job:
+    """Generate a scheduled report, deliver it, and retire expired ones (FR-RPT-04).
+
+    **A delivery failure does not discard the report.** The document is generated, frozen
+    and stored before any mail is attempted, so a broken SMTP server costs the e-mail and
+    not the evidence — the report is in the console either way, and the job carries the
+    reason the message did not arrive.
+
+    Retention runs here rather than in a separate sweep, because a report is dated
+    evidence and its deletion should be somewhere audited and testable rather than in a
+    `find -mtime` somebody wrote once.
+    """
+    from netsecops.db.models.reporting import ReportFormat, ReportTemplate
+    from netsecops.services.report_delivery import ReportDeliveryService
+    from netsecops.services.reporting import ReportingService
+
+    scope = job.scope or {}
+    template = scope.get("template")
+    actor = _system_principal(job)
+
+    try:
+        report = await ReportingService(session, org_id=job.org_id).generate(
+            ReportTemplate(str(template)), actor=actor
+        )
+    except Exception as exc:
+        _, message = classify_error(exc)
+        completed = await jobs.complete(job, status_override=JobStatus.FAILED)
+        completed.error_message = message[:2000]
+        await session.flush()
+        log.warning("job.report_failed", job_id=str(job.id), error=message)
+        return completed
+
+    delivery = ReportDeliveryService(session, org_id=job.org_id)
+    delivered_to = 0
+    error: str | None = None
+
+    if channel := scope.get("deliver_to"):
+        outcome = await delivery.deliver(
+            report,
+            channel_name=str(channel),
+            fmt=ReportFormat(str(scope.get("format") or "pdf")),
+        )
+        delivered_to = outcome.delivered_to
+        error = outcome.error
+
+    retired = await delivery.retire_expired()
+
+    # Partial, not failed: the report exists and is readable in the console. Calling the
+    # whole run a failure would hide that, and somebody would re-run it and generate a
+    # second copy of evidence that is already there.
+    status = JobStatus.PARTIAL if error else JobStatus.SUCCEEDED
+    completed = await jobs.complete(job, status_override=status)
+    completed.stats = {
+        **completed.stats,
+        "generated": 1,
+        "delivered_to": delivered_to,
+        "retired": retired,
+    }
+    if error:
+        completed.error_message = error[:2000]
+    await session.flush()
+
+    log.info(
+        "job.finished",
+        job_id=str(job.id),
+        status=completed.status,
+        report_id=str(report.id),
+        delivered_to=delivered_to,
+        retired=retired,
     )
     return completed
 

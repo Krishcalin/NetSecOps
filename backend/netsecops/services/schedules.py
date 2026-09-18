@@ -390,6 +390,22 @@ class ScheduleService:
                 org_id=self.org_id,
             )
 
+        if job_type is JobType.REPORT:
+            scope = schedule.scope or {}
+            template = scope.get("template")
+            if not template:
+                raise ValidationProblem(
+                    f"Schedule {schedule.name!r} generates a report but names no template."
+                )
+            return await jobs.create_report(
+                template=str(template),
+                deliver_to=scope.get("deliver_to"),
+                fmt=str(scope.get("format") or "pdf"),
+                actor=_scheduler_principal(schedule),
+                schedule_id=schedule.id,
+                org_id=self.org_id,
+            )
+
         if job_type is JobType.NOTIFY:
             return await jobs.create_notify(
                 actor=_scheduler_principal(schedule),

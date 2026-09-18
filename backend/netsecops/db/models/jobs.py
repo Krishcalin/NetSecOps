@@ -41,6 +41,9 @@ class JobType(StrEnum):
     SIEM_FORWARD = "siem_forward"
     #: Send queued notifications (FR-INT-01). Device-less for the same reason.
     NOTIFY = "notify"
+    #: Generate a report, optionally e-mail it, and retire expired ones (FR-RPT-04).
+    #: Device-less: a report is assembled from stored evidence and touches nothing.
+    REPORT = "report"
 
 
 class JobStatus(StrEnum):

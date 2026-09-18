@@ -77,7 +77,7 @@ that most of the other gaps identified collapse into it.
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
 | **6** | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **Complete** — acceptance met |
-| 7 | Discovery, reporting, integrations, hardening | **In progress** — SIEM forwarding built; notifications and SNMP discovery outstanding |
+| 7 | Discovery, reporting, integrations, hardening | **In progress** — every M requirement built; TEST-08 needs a physical device lab |
 | **8** | Topology and path analysis | **Complete** — acceptance met |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
@@ -261,11 +261,58 @@ Nothing leaves unscrubbed: findings quote configuration, and configuration carri
 community strings and pre-shared keys, so the redaction that protects the database
 protects the wire too.
 
-Still owed: **notifications** (FR-INT-01) — e-mail, webhooks and Slack/Teams are not
-started, and FR-RPT-04's scheduled report *delivery* waits on the mail transport there,
-though scheduled report *generation* works today. **ServiceNow/Jira** (FR-INT-03,
-priority S) is not started. **SNMP discovery**, which needs credential storage on a scope.
-FR-INT-04, the RBAC'd REST API with OpenAPI, was already in place.
+**Notifications are built** (FR-INT-01). E-mail over SMTP/TLS, HMAC-signed webhooks, and
+Slack and Teams incoming webhooks, with subscriptions filtering by event kind *and*
+severity — both, because "everything critical" and "every KEV match however it is scored"
+are different subscriptions a real operator wants.
+
+Raising and sending are separate on purpose. `raise_event` writes a delivery row and
+returns; it runs inside whatever transaction produced the event, so a slow SMTP server
+cannot slow the assessment that found the problem and a dead one cannot roll it back.
+Sending happens in a worker job against a **durable** queue, because the notifications
+that matter most are raised when something is badly wrong — which is exactly when a
+process is most likely to be restarted.
+
+Retry is bounded and ends somewhere visible. Retrying forever turns one receiver's outage
+into an unbounded queue; dropping after the last attempt loses the alert, which is worse.
+Attempts back off over roughly half an hour and then land in `dead`, kept and re-queueable.
+
+Eight triggers, four call sites: four of them are already findings, so they are *derived*
+by scanning new findings and mapping the finding kind onto an event kind — which means a
+service that starts writing findings tomorrow gets notifications for free. Channel secrets
+follow the credential vault's contract exactly, and no read schema has a field through
+which one could come back out: a Slack incoming-webhook URL is a bearer credential.
+
+**Platform settings have a console** (FR-ADM-01) at `/settings`, behind `settings:read`
+rather than any device permission — a channel's configuration decides where security
+alerts go, and a settings key decides how long evidence is kept. It lists deliveries that
+*succeeded* as well as those that failed, because "was anybody actually told?" is asked
+after an incident and a list of failures alone cannot answer it, and it surfaces any
+notification that gave up so an alert nobody received is visible rather than buried. The
+forwarding watermarks are shown but refused for write: editing one by hand silently skips
+or repeats part of the stream.
+
+**Scheduled report delivery is built** (FR-RPT-04). A report is generated, frozen, and
+e-mailed as an attachment rather than a link — the people a compliance report is scheduled
+for are frequently the ones without a console login. The password-protected option is
+AES-256 and is **refused rather than downgraded** if the crypto backend is unavailable:
+the standard library can read an encrypted ZIP and cannot write one, so the obvious
+implementation ships an ordinary archive while reporting success, and the operator
+believes a document containing every finding in the estate is protected while it crosses
+two mail systems in the clear. Retention runs in the same job, and only deletes reports
+carrying an explicit expiry — the default for dated evidence is to keep it.
+
+**SNMP discovery is built** (FR-DISC-02). sysObjectID is the heaviest fingerprint signal
+there is, so a host that answers it usually needs no human at all. The community lives in
+the vault as a credential attached to the scope, never in a column: `public` is a
+credential too, and trying it is a credential guess whatever its reputation — so the probe
+runs only where an operator supplied one, and a scope that asks for SNMP without a usable
+credential records a caveat rather than failing. SNMPv2c only; v3's User Security Model
+needs a username and two keys *per device*, which nobody has for a host they have not yet
+identified.
+
+Still owed: **ServiceNow/Jira** (FR-INT-03, priority S) is not started. FR-INT-04, the
+RBAC'd REST API with OpenAPI, was already in place.
 
 #### What is built
 
@@ -276,8 +323,10 @@ FR-INT-04, the RBAC'd REST API with OpenAPI, was already in place.
   each defensible alone and a port scanner in sum. A scope may name at most eight TCP
   ports, since "configurable list" otherwise permits a sweep assembled entirely from
   permitted probes. SNMP is refused outright without a configured credential: probing
-  anyway means trying `public`, which is a credential guess. No scope can supply one
-  yet, so in practice the executor sends the other four probes and says so on the run.
+  anyway means trying `public`, which is a credential guess. The SNMP GET is
+  hand-written rather than pulled from a library — two OIDs from one request is about a
+  hundred lines of BER, against a dependency carrying an async engine, a MIB compiler and
+  a transport stack that none of this uses.
 - **Scopes that refuse a mistyped prefix.** `10.0.0.0/8` is one character from
   `10.0.0.0/18` and sixteen million probes from what the operator meant. The ceiling is
   counted from network sizes without expanding anything, exclusions are *subtracted*
@@ -715,15 +764,21 @@ netsecops-cli show-config            # effective configuration, secrets masked
 netsecops-cli version                # build version
 ```
 
-One command is not a utility but a long-running process:
+Two commands are not utilities but long-running processes:
 
 ```bash
 netsecops-cli scheduler              # fire due schedules (FR-JOB-02)
+netsecops-cli worker                 # execute queued jobs (FR-JOB-05)
 ```
 
-It runs as its own container under the `workers` compose profile. Running two is safe —
-due schedules are claimed with `FOR UPDATE SKIP LOCKED` — and running none means
-schedules simply never fire, which shows in the console as a next-run time in the past.
+Both run as their own containers under the `workers` compose profile, and running several
+of either is safe — schedules and jobs are both claimed with `FOR UPDATE SKIP LOCKED`, so
+a second process passes over what the first holds.
+
+They are a pair, and the pairing is easy to miss. The scheduler *creates* job rows; it
+does not run them. Without a worker, a scheduled collection, feed sync, notification
+dispatch or report sits `queued` for ever — which the console shows as a job that never
+starts rather than as an error.
 
 ### Locked out of MFA?
 

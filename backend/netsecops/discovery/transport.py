@@ -470,13 +470,19 @@ class HostProber:
         *,
         tcp_ports: tuple[int, ...],
         snmp_configured: bool = False,
+        snmp_community: str | None = None,
         timeout: float = DEFAULT_PROBE_TIMEOUT,
         icmp_available: bool = True,
         follow_up: dict[int, ProbeKind] | None = None,
     ) -> None:
         self.pacer = pacer
         self.tcp_ports = tcp_ports
+        # Both, and the community is what actually gates the probe. The flag says the
+        # operator intends SNMP; the community is the only thing that makes it possible,
+        # and there is deliberately no default — `public` is a credential, and trying it
+        # is a credential guess whatever its reputation.
         self.snmp_configured = snmp_configured
+        self.snmp_community = snmp_community
         self.timeout = timeout
         self.icmp_available = icmp_available
         self.follow_up = DEFAULT_FOLLOW_UP if follow_up is None else follow_up
@@ -526,6 +532,12 @@ class HostProber:
                     # liveness — the host answered — it just contributes no evidence.
                     pass
 
+        # SNMP last, and only with a credential. It is the strongest fingerprint signal
+        # there is — sysObjectID names the exact hardware model — so a host that answers
+        # it usually needs no human at all (FR-DISC-02, FR-DISC-03).
+        if self.snmp_configured and self.snmp_community:
+            await self._read_snmp(address, result, notes)
+
         result.notes = tuple(notes)
         return result
 
@@ -537,6 +549,34 @@ class HostProber:
         result.probes_sent += 1
         if outcome.payload:
             result.evidence.append(read_text(Signal.SSH_BANNER, outcome.payload))
+
+    async def _read_snmp(self, address: str, result: HostResult, notes: list[str]) -> None:
+        """GET sysDescr and sysObjectID (FR-DISC-02).
+
+        `authorise` is consulted exactly as it is for every other probe — it is what
+        refuses any OID beyond those two, and refuses the probe entirely when no
+        credential is configured. Calling the SNMP module directly would route around the
+        one control that keeps discovery inside its allow-list.
+
+        A non-answer is not a failure. Most hosts do not run SNMP, or do not accept this
+        community, and recording that as an error would fill every run's notes with noise
+        about the ordinary case.
+        """
+        from netsecops.discovery.snmp import SnmpError, get_system_facts
+
+        authorise(ProbeKind.SNMP_SYSDESCR, address, snmp_configured=self.snmp_configured)
+        result.probes_sent += 1
+
+        try:
+            facts = await get_system_facts(address, self.snmp_community or "", timeout=self.timeout)
+        except SnmpError:
+            return
+
+        result.responded |= not facts.empty
+        if facts.sys_object_id:
+            result.evidence.append(read_text(Signal.SNMP_SYSOBJECTID, facts.sys_object_id))
+        if facts.sys_descr:
+            result.evidence.append(read_text(Signal.SNMP_SYSDESCR, facts.sys_descr))
 
     async def _read_certificate(self, address: str, port: int, result: HostResult) -> None:
         outcome = await send_https_certificate(

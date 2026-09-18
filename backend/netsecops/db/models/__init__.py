@@ -95,6 +95,7 @@ from netsecops.db.models.vulnerability import (
 )
 
 __all__ = [
+    "GENESIS_HASH",
     "ApiToken",
     "Artifact",
     "ArtifactKind",
@@ -132,7 +133,6 @@ __all__ = [
     "FindingKind",
     "FindingSeverity",
     "FindingStatus",
-    "GENESIS_HASH",
     "Job",
     "JobDevice",
     "JobStatus",

@@ -92,6 +92,19 @@ class DiscoveryScope(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     snmp_configured: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+
+    #: The SNMP credential this scope probes with (FR-DISC-02, FR-CRED-01).
+    #:
+    #: A reference rather than a community string in a column: the community *is* a
+    #: credential, and one stored here would be readable by every API that returns a
+    #: scope. It lives in the vault with the rest, sealed.
+    #:
+    #: `SET NULL` on delete, not cascade. Removing a credential must not silently delete
+    #: the record of which addresses consent was given for; the scope survives with SNMP
+    #: switched off, which is visible on the next run.
+    snmp_credential_id: Mapped[uuid.UUID | None] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("credentials.id", ondelete="SET NULL")
+    )
     #: FR-DISC-04's escape hatch. False by default and deliberately hard to set: it is
     #: the difference between finding a device and connecting to one.
     auto_onboard: Mapped[bool] = mapped_column(

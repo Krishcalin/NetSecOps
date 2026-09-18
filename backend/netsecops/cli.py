@@ -403,6 +403,38 @@ def cmd_scheduler(
         console.print("Stopped.")
 
 
+@app.command("worker")
+def cmd_worker(
+    idle: Annotated[
+        float, typer.Option(help="Seconds to wait when there is nothing queued.")
+    ] = 5.0,
+) -> None:
+    """Run the job worker (FR-JOB-05).
+
+    Long-running. It claims queued jobs and executes them — collections, assessments,
+    discovery runs, feed syncs, notification dispatch, SIEM forwarding and reports.
+
+    `deploy/docker-compose.yml` has referenced this command since Phase 1 and it did not
+    exist, so the `workers` profile could not start. That was survivable while every job
+    came from an API request, which runs in-process; it stopped being survivable with the
+    scheduler, which creates job rows and enqueues nothing — without a worker, every
+    scheduled job sits queued for ever.
+
+    Safe to run more than one: jobs are claimed with `FOR UPDATE SKIP LOCKED`, so a second
+    process passes over what the first holds. Running none means queued jobs do not
+    execute, which the console shows as a job that never leaves `queued`.
+    """
+    import asyncio
+
+    from netsecops.workers.worker import run
+
+    console.print(f"Worker running, polling every {idle:g}s when idle. Ctrl-C to stop.")
+    try:
+        asyncio.run(run(idle_seconds=idle))
+    except KeyboardInterrupt:
+        console.print("Stopped.")
+
+
 @app.command("version")
 def cmd_version() -> None:
     from netsecops import __version__

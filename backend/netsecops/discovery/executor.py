@@ -21,13 +21,13 @@ to do nothing. Hosts are probed a batch at a time and the batch's results are wr
 together, which keeps every database write on the one session that owns it: an
 ``AsyncSession`` used from several tasks at once corrupts quietly rather than failing.
 
-**A run reports what it could not do.** Two things are unbuilt and both would otherwise
-look like an empty network. SNMP is permitted by FR-DISC-02 but no credential can be
-stored against a scope yet, so a scope flagged ``snmp_configured`` gets a caveat rather
-than a sysObjectID — the single heaviest fingerprint signal, whose absence is why an
-entry sits low in the queue. ICMP needs a capability containers withhold by default. Both
-land in :attr:`DiscoveryRun.notes`, because "found 0 hosts" and "found 0 hosts and could
-not send a single echo request" are different answers and must not print the same.
+**A run reports what it could not do.** Two things can be unavailable and both would
+otherwise look like an empty network. SNMP needs an SNMPv2c credential attached to the
+scope; without one a flagged scope gets a caveat rather than a sysObjectID — the single
+heaviest fingerprint signal, whose absence is why an entry sits low in the queue. ICMP
+needs a capability containers withhold by default. Both land in
+:attr:`DiscoveryRun.notes`, because "found 0 hosts" and "found 0 hosts and could not send
+a single echo request" are different answers and must not print the same.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ from typing import Any, Final
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netsecops.core.crypto import SecretVault
 from netsecops.core.errors import ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Principal
@@ -69,12 +70,17 @@ log = get_logger(__name__)
 #: every host — it only stops slow addresses from being the constraint.
 DEFAULT_CONCURRENCY: Final[int] = 32
 
-#: Caveat recorded when a scope asks for SNMP, which is permitted but not yet wired.
+#: Caveat recorded when a scope asks for SNMP and no usable credential is available.
+#:
+#: Recorded rather than fatal: SNMP is optional (FR-DISC-02), so the run still sends the
+#: other four probes. But the operator has to be told, because the difference this makes
+#: is every host's fingerprint confidence — and a queue full of low-confidence entries
+#: looks like a hard-to-identify estate rather than a missing credential.
 SNMP_UNAVAILABLE_NOTE: Final[str] = (
-    "This scope is flagged for SNMP, but no SNMP credential can be stored against a "
-    "scope yet, so sysDescr and sysObjectID were not read. That is the heaviest "
-    "fingerprint signal there is, so hosts here will score lower and sit further up the "
-    "review queue than they would with SNMP available (FR-DISC-02)."
+    "This scope is flagged for SNMP, but no usable SNMPv2c credential is attached to it, "
+    "so sysDescr and sysObjectID were not read. That is the heaviest fingerprint signal "
+    "there is, so hosts here score lower and sit further up the review queue than they "
+    "would with SNMP available (FR-DISC-02). Attach an SNMPv2c credential to the scope."
 )
 
 #: Called between batches; returning True stops the run and marks it partial.
@@ -124,8 +130,10 @@ class DiscoveryExecutor:
         concurrency: int = DEFAULT_CONCURRENCY,
         timeout: float = DEFAULT_PROBE_TIMEOUT,
         probe_host: ProbeHost | None = None,
+        vault: SecretVault | None = None,
     ) -> None:
         self.session = session
+        self.vault = vault
         self.org_id = org_id
         self.concurrency = max(1, concurrency)
         self.timeout = timeout
@@ -168,7 +176,12 @@ class DiscoveryExecutor:
         icmp_note = icmp_capability()
         if icmp_note:
             notes.append(icmp_note)
-        if scope_row.snmp_configured:
+
+        # Resolved *before* the run row is written, because the row takes a copy of
+        # `notes` and anything appended afterwards is never persisted. A caveat that does
+        # not reach the run is the same as no caveat at all.
+        community = await self._snmp_community(scope_row)
+        if scope_row.snmp_configured and community is None:
             notes.append(SNMP_UNAVAILABLE_NOTE)
 
         run = DiscoveryRun(
@@ -185,10 +198,12 @@ class DiscoveryExecutor:
         summary = RunSummary(run_id=run.id, status=DiscoveryRunStatus.RUNNING.value, notes=notes)
 
         pacer = HostPacer(scope_row.rate_limit_per_second)
+
         prober = HostProber(
             pacer,
             tcp_ports=resolved.tcp_ports,
-            snmp_configured=scope_row.snmp_configured,
+            snmp_configured=scope_row.snmp_configured and community is not None,
+            snmp_community=community,
             timeout=self.timeout,
             icmp_available=icmp_note is None,
         )
@@ -257,6 +272,55 @@ class DiscoveryExecutor:
             hosts_unidentified=summary.hosts_unidentified,
         )
         return summary
+
+    async def _snmp_community(self, scope_row: DiscoveryScope) -> str | None:
+        """Open the scope's SNMP credential, or None if it cannot be used.
+
+        Returns None rather than raising for every ordinary reason — no credential set,
+        the credential deleted, the wrong type, an unreadable blob — because SNMP is
+        optional (FR-DISC-02) and the scope should still send the other four probes. The
+        caller records a note, so the gap is visible rather than silent: the difference it
+        makes is every host's fingerprint confidence.
+
+        SNMPv3 is refused here rather than attempted. Its User Security Model needs a
+        username and two keys *per device*, which nobody has for a host they have not yet
+        identified, so a v3 attempt against an unknown host is a guess — exactly what
+        FR-DISC-02 rules out.
+        """
+        import json
+
+        from sqlalchemy import select
+
+        from netsecops.db.models.inventory import Credential, CredentialType
+
+        if scope_row.snmp_credential_id is None or self.vault is None:
+            return None
+
+        credential = (
+            await self.session.execute(
+                select(Credential).where(Credential.id == scope_row.snmp_credential_id)
+            )
+        ).scalar_one_or_none()
+        if credential is None:
+            return None
+
+        if credential.credential_type != CredentialType.SNMP_V2C.value:
+            log.info(
+                "discovery.snmp_credential_unusable",
+                scope=str(scope_row.id),
+                credential_type=credential.credential_type,
+            )
+            return None
+
+        try:
+            opened = self.vault.open(credential.encrypted_blob, aad=str(credential.id))
+            secret = json.loads(opened)
+        except Exception:
+            log.warning("discovery.snmp_credential_unreadable", scope=str(scope_row.id))
+            return None
+
+        community = secret.get("community") or secret.get("password")
+        return str(community) if community else None
 
     async def _probe_batch(self, probe_host: ProbeHost, batch: list[str]) -> list[HostResult]:
         """Probe a batch concurrently, and let a violation through.

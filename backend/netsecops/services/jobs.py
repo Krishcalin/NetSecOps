@@ -351,6 +351,48 @@ class JobService:
         await self.session.flush()
         return job
 
+    async def create_report(
+        self,
+        *,
+        template: str,
+        actor: Principal,
+        deliver_to: str | None = None,
+        fmt: str = "pdf",
+        schedule_id: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        org_id: int = 1,
+    ) -> Job:
+        """Queue a scheduled report (FR-RPT-04).
+
+        Device-less: a report is assembled from evidence already stored and opens no
+        session to anything. ``deliver_to`` names an e-mail notification channel; omitted,
+        the report is generated and left in the console, which is what a schedule whose
+        audience already has logins wants.
+        """
+        if idempotency_key:
+            existing = (
+                await self.session.execute(
+                    select(Job).where(Job.idempotency_key == idempotency_key)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
+
+        job = Job(
+            org_id=org_id,
+            job_type=JobType.REPORT.value,
+            status=JobStatus.QUEUED.value,
+            scope={"template": template, "deliver_to": deliver_to, "format": fmt},
+            requested_by_id=actor.id,
+            schedule_id=schedule_id,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id.get(),
+            stats={"generated": 0, "delivered_to": 0, "retired": 0},
+        )
+        self.session.add(job)
+        await self.session.flush()
+        return job
+
     async def resolve_scope(
         self, scope: JobScope, principal_scope: Scope, *, org_id: int = 1
     ) -> Sequence[Device]:

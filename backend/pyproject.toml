@@ -61,6 +61,13 @@ dependencies = [
     # drag GTK, cairo and pango into the image for one PDF a week. fpdf2 is used with
     # core fonts only, so no font file ships and no glyph licence question arises.
     "openpyxl>=3.1",
+    # AES-256 ZIP for FR-RPT-04's password-protected delivery. The standard library can
+    # *read* an encrypted archive and cannot write one, so without this the honest
+    # options are to refuse the option or to send an ordinary ZIP while reporting
+    # success — and the second puts every finding in the estate through two mail systems
+    # in the clear with the operator believing otherwise. It pulls pycryptodomex, which
+    # is a compiled dependency and the real cost of this decision.
+    "pyzipper>=0.3",
     "fpdf2>=2.8",
     # Recurring assessments (FR-JOB-02). Cron has more edge cases than it looks — the
     # day-of-month/day-of-week OR rule, month lengths, DST transitions in a named zone —
@@ -145,7 +152,13 @@ plugins = ["pydantic.mypy"]
 exclude = ["netsecops/db/migrations/versions/"]
 
 [[tool.mypy.overrides]]
-module = ["pyotp.*", "qrcode.*", "factory.*", "ciscoconfparse2.*"]
+# Libraries that ship neither inline types nor stubs on PyPI. The override is a list of
+# named modules rather than a global switch, so a package that *does* have stubs is never
+# silently un-checked: openpyxl and croniter are typed above for exactly that reason.
+#
+# `pyzipper` is here because no stubs exist for it anywhere. It is used in one function,
+# for AES archive writing, and its surface there is three calls.
+module = ["pyotp.*", "qrcode.*", "factory.*", "ciscoconfparse2.*", "pyzipper.*"]
 ignore_missing_imports = true
 
 # ─────────────────────────── pytest ─────────────────────────
