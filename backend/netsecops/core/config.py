@@ -161,6 +161,23 @@ class Settings(BaseSettings):
     #: workers have no direct egress.
     nvd_api_url: str | None = None
 
+    # ── SIEM forwarding (FR-INT-02, FR-ADM-01) ──────────────────────────────
+    #: Unset means forwarding is off. There is no separate enable flag: two switches for
+    #: one decision is how a deployment ends up configured-but-disabled and nobody
+    #: notices for a quarter.
+    siem_syslog_host: str | None = None
+    #: 6514 is the IANA port for syslog over TLS. 514 is the cleartext one, and the
+    #: default here is deliberately not that.
+    siem_syslog_port: int = 6514
+    #: `cef` for ArcSight-lineage collectors, `json` for everything newer.
+    siem_syslog_format: str = "cef"
+    siem_syslog_tls: bool = True
+    #: Verifying the collector's certificate. Findings and the audit trail are being
+    #: shipped to whatever answers on that address, so turning this off is a decision an
+    #: operator makes explicitly and one the forwarder logs a warning about every run.
+    siem_syslog_verify: bool = True
+    siem_syslog_ca_file: str | None = None
+
     # Appendix C names these without the NETSECOPS_ prefix, so each needs the same
     # AliasChoices treatment as DATABASE_URL and SECRET_KEY — with the field name kept
     # as the first choice, or constructing Settings(...) directly stops working.

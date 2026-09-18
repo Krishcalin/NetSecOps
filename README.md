@@ -77,7 +77,7 @@ that most of the other gaps identified collapse into it.
 | **4** | Palo Alto, Fortinet, Check Point + firewall rulebase analysis | **Complete** |
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
 | **6** | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **Complete** — acceptance met |
-| 7 | Discovery, reporting, integrations, hardening | **In progress** — integrations not started |
+| 7 | Discovery, reporting, integrations, hardening | **In progress** — SIEM forwarding built; notifications and SNMP discovery outstanding |
 | **8** | Topology and path analysis | **Complete** — acceptance met |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
@@ -234,14 +234,38 @@ schedule with no possible slot is **disabled with a reason** rather than silentl
 running. Cron is read in the schedule's own time zone — `0 2 * * *` in `Asia/Kolkata` is
 not 02:00 UTC.
 
-Still owed: **scheduled feed sync**, which is not a scheduler gap — it needs outbound
-internet access to NVD, CISA and FIRST, and C-7 requires the product to run air-gapped,
-so it is a deliberate open decision rather than missing work. SNMP discovery, which needs
-credential storage on a scope. And the whole of integrations (FR-INT-01/02/03) — syslog
-to a SIEM, webhooks and ServiceNow/Jira ticketing are not started; FR-RPT-04's scheduled
-*delivery* waits on the mail transport there, though scheduled report *generation* works
-today. FR-INT-04, the RBAC'd REST API with OpenAPI, is the one part of that group already
-in place.
+**SIEM forwarding is built** (FR-INT-02). Findings and audit records go to a collector as
+RFC 5424 syslog over TLS, in CEF or JSON. It is batch-and-watermark rather than
+send-on-write: emitting from every write path would put a network call inside the
+transaction that created the finding, so a dead collector would slow or fail the
+assessment that found it — inverting the priority, since the assessment is the product
+and the forwarding is a copy.
+
+The two streams have different hazards. Audit records carry a monotonic id, so the
+watermark is exact. Findings are UUID-keyed, so theirs is a timestamp — and a row whose
+`created_at` is T can commit *after* a batch already advanced past T, and would then never
+be sent, with nothing anywhere looking wrong. The finding stream therefore stays thirty
+seconds behind the present, trading a little latency for not losing events silently. A
+failed send does not advance either watermark, so a collector outage delays delivery
+rather than dropping it.
+
+Two details that are easy to get backwards and invisible when you do. Syslog severity runs
+0 (emergency) to 7 (debug) — *inverted* relative to CEF's 0–10 — so a table written by
+analogy sends critical events as `debug`, where the first relay filtering on severity
+drops them while the integration looks healthy. And TLS framing is octet-counted, not
+newline-delimited, because a JSON body can legally contain a newline and framing on one
+splits records into fragments the collector cannot parse while the transport reports every
+byte delivered.
+
+Nothing leaves unscrubbed: findings quote configuration, and configuration carries
+community strings and pre-shared keys, so the redaction that protects the database
+protects the wire too.
+
+Still owed: **notifications** (FR-INT-01) — e-mail, webhooks and Slack/Teams are not
+started, and FR-RPT-04's scheduled report *delivery* waits on the mail transport there,
+though scheduled report *generation* works today. **ServiceNow/Jira** (FR-INT-03,
+priority S) is not started. **SNMP discovery**, which needs credential storage on a scope.
+FR-INT-04, the RBAC'd REST API with OpenAPI, was already in place.
 
 #### What is built
 

@@ -147,6 +147,9 @@ async def execute_job(
         # customer equipment at all. It talks to CISA, FIRST and NVD.
         return await _run_feed_sync(session, job, jobs)
 
+    if JobType(job.job_type) is JobType.SIEM_FORWARD:
+        return await _run_siem_forward(session, job, jobs)
+
     while True:
         # A cancel is honoured between devices, never mid-session (FR-JOB-03).
         await session.refresh(job)
@@ -406,6 +409,45 @@ async def _run_feed_sync(session: AsyncSession, job: Job, jobs: JobService) -> J
         status=completed.status,
         feeds_synced=synced,
         feeds_failed=failed,
+    )
+    return completed
+
+
+async def _run_siem_forward(session: AsyncSession, job: Job, jobs: JobService) -> Job:
+    """Execute a SIEM forwarding run (FR-INT-02).
+
+    A collector that is down produces a *failed job*, not a lost event: the watermarks do
+    not advance, the records stay in the database, and the next run resumes from the same
+    place. That is the whole reason this is batch-and-watermark rather than send-on-write.
+
+    With no collector configured the job succeeds having done nothing, and says so in its
+    stats. Failing would fill the job history with red for a feature the deployment has
+    deliberately not turned on.
+    """
+    from netsecops.core.config import get_settings
+    from netsecops.integrations.forwarding import SiemForwardingService
+
+    service = SiemForwardingService(session, org_id=job.org_id)
+    result = await service.forward(settings=get_settings())
+
+    status = JobStatus.FAILED if result.error else JobStatus.SUCCEEDED
+    completed = await jobs.complete(job, status_override=status)
+    completed.stats = {
+        **completed.stats,
+        "audit_forwarded": result.audit_forwarded,
+        "findings_forwarded": result.findings_forwarded,
+        "disabled": result.disabled,
+    }
+    if result.error:
+        completed.error_message = result.error[:2000]
+    await session.flush()
+
+    log.info(
+        "job.finished",
+        job_id=str(job.id),
+        status=completed.status,
+        forwarded=result.total,
+        disabled=result.disabled,
     )
     return completed
 

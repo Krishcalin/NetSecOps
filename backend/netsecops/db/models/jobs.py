@@ -36,6 +36,9 @@ class JobType(StrEnum):
     #: Pull vulnerability feeds from their publishers (FR-VUL-07). Like DISCOVERY, this
     #: targets no devices — it touches no customer equipment at all.
     FEED_SYNC = "feed_sync"
+    #: Push findings and audit records to a SIEM (FR-INT-02). Also device-less, and the
+    #: only job type whose traffic leaves the estate rather than staying inside it.
+    SIEM_FORWARD = "siem_forward"
 
 
 class JobStatus(StrEnum):

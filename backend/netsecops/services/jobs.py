@@ -273,6 +273,46 @@ class JobService:
         )
         return job
 
+    async def create_siem_forward(
+        self,
+        *,
+        actor: Principal,
+        schedule_id: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        org_id: int = 1,
+    ) -> Job:
+        """Queue a SIEM forwarding run (FR-INT-02).
+
+        Device-less like the feed sync, and for the same structural reason: it has no
+        device scope to resolve and no `job_devices` rows to claim. It is a job rather
+        than a loop inside the API because forwarding must survive a restart knowing how
+        far it reached, and because a collector outage should show up somewhere an
+        operator already looks.
+        """
+        if idempotency_key:
+            existing = (
+                await self.session.execute(
+                    select(Job).where(Job.idempotency_key == idempotency_key)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
+
+        job = Job(
+            org_id=org_id,
+            job_type=JobType.SIEM_FORWARD.value,
+            status=JobStatus.QUEUED.value,
+            scope={},
+            requested_by_id=actor.id,
+            schedule_id=schedule_id,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id.get(),
+            stats={"audit_forwarded": 0, "findings_forwarded": 0},
+        )
+        self.session.add(job)
+        await self.session.flush()
+        return job
+
     async def resolve_scope(
         self, scope: JobScope, principal_scope: Scope, *, org_id: int = 1
     ) -> Sequence[Device]:

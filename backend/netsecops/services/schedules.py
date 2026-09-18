@@ -390,6 +390,13 @@ class ScheduleService:
                 org_id=self.org_id,
             )
 
+        if job_type is JobType.SIEM_FORWARD:
+            return await jobs.create_siem_forward(
+                actor=_scheduler_principal(schedule),
+                schedule_id=schedule.id,
+                org_id=self.org_id,
+            )
+
         if job_type is JobType.FEED_SYNC:
             # An empty or absent list means every known source, which is what a schedule
             # called "nightly feed sync" is asking for. Naming sources stays possible for
