@@ -30,6 +30,11 @@ const NAV_ITEMS: NavItem[] = [
   // A rulebase is configuration, so this sits behind the same permission as the config
   // viewer rather than behind a findings permission.
   { label: 'Firewall Analysis', to: '/firewall', permission: 'snapshot:read' },
+  // Directly below the rulebase viewer, because it is the same question asked across
+  // devices instead of one: that viewer answers "which rule matches here", this answers
+  // "which firewalls are even in the way". Same permission, for the same reason — both
+  // are assembled entirely out of stored configuration.
+  { label: 'Path Analysis', to: '/topology', permission: 'snapshot:read' },
   // A conclusion about the estate rather than configuration, so it sits behind the
   // findings permission — unlike the rulebase viewer directly above it.
   { label: 'AAA Posture', to: '/aaa', permission: 'finding:read' },

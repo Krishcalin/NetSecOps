@@ -1345,6 +1345,43 @@ code {
   margin-bottom: 12px;
 }
 
+/* Path analysis: routing confidence and policy verdict, side by side (FR-TOPO-04).
+
+   Deliberately two equal columns rather than a headline and a subtitle. The two axes
+   fail independently and neither is subordinate — a layout that made policy the big
+   number would reproduce, visually, exactly the collapse the data model refuses. */
+.verdict-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.verdict__heading {
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* The meaning sits with the badge rather than in a tooltip: "partially allowed" is not
+   self-explanatory, and a caveat behind a hover is a caveat nobody reads. */
+.verdict .finding__note {
+  margin: 0;
+}
+
 .alert--info {
   background: var(--surface-muted);
   border-color: var(--border);

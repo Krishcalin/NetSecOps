@@ -75,7 +75,7 @@ that most of the other gaps identified collapse into it.
 | **5** | Wireless (WLC/9800) + AAA: ISE, FortiAuthenticator, FreeRADIUS, tac_plus | **Complete** |
 | 6 | Vulnerability assessment: NVD, CSAF, PSIRT, EoL, KEV/EPSS | **In progress** — no KEV/EPSS feed, no scheduled sync |
 | 7 | Discovery, reporting, integrations, hardening | **In progress** — nothing is scheduled, integrations not started |
-| 8 | Topology and path analysis | **Started** — forwarding tables parsed; no graph yet |
+| 8 | Topology and path analysis | **In progress** — graph, path query and missing-device report built; dynamic routes not collected |
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
 
@@ -241,11 +241,45 @@ only `show ip route summary` is even allow-listed. So a graph built on this is p
 construction, and every route records the protocol that installed it so the graph can say
 so rather than implying completeness.
 
-Still owed: the graph itself (FR-TOPO-02), the path walk that evaluates each traversed
-device's rulebase (FR-TOPO-03), the two-axis result keeping routing confidence separate
-from policy verdict (FR-TOPO-04/05), and the ranked missing-device report (FR-TOPO-06).
-Dynamic routes need a deliberate decision to collect `show ip route`, which changes what
-the product sends to devices — a policy change rather than a parser change.
+**A path can now be traced across devices, and the answer has two axes.** Give it a
+source, a destination, a protocol and a port, and it finds the devices in between and asks
+each of their rulebases — the FR-FW-06 rule query, run once per hop. Devices are joined by
+*interface address*: a route's next hop either is an address configured on another
+inventoried device or it is not, and matching on subnet instead would invent adjacencies
+on any shared transit link.
+
+The two axes are the point, and they never collapse into one verdict:
+
+> Every firewall I found permits this, but I lost the path at `0.0.0.0/0` because
+> `203.0.113.1` belongs to no device in the inventory.
+
+That is `routing: partially-routed`, `policy: partially-allowed` — and `allowed` is only
+ever produced alongside `routed`. A permit speaks for the devices actually consulted, and
+an untraced remainder may hold another firewall; somebody opens a firewall on the strength
+of these answers. A block is the asymmetric case and stands on its own: the packet dies at
+the first denial, so what lies beyond it cannot change the result.
+
+Three other distinctions the model keeps that a simpler one would lose. A router with no
+rulebase reports **no decision** rather than "allow", because a device that inspected
+nothing is not a control that was checked. A route in a VRF is never followed as if it
+were global — which VRF a packet is in depends on the ingress interface, and no parser
+records that binding, so the answer is `unknown` naming the VRF rather than `unreachable`.
+And a device whose snapshot predates route parsing, or whose table was truncated, cannot
+produce a negative answer at all.
+
+**The ranked missing-device report** names the unmanaged next hops that terminate path
+analysis, ordered by how much reachability each conceals — a default route counts for far
+more than one specific prefix, and a next hop nine devices share counts for more than one.
+It is computed from the routes themselves rather than by running every path, which is
+quadratic in the estate and measures the queries somebody happened to ask instead of the
+gap itself. The addresses are evidence, not a work queue: an unmanaged next hop may be an
+ISP router, a customer handoff, or a virtual address no single box owns.
+
+Still owed: dynamic routes, which need a deliberate decision to collect `show ip route` —
+that changes what the product sends to devices, a policy change rather than a parser
+change. Until then a graph is built from static and connected routes, which is complete
+for an edge or DMZ estate and partial in a routed core; the two-axis result is what makes
+that partiality visible instead of wrong.
 
 ### What Phase 5 delivers
 
@@ -465,6 +499,8 @@ netsecops/
 │  │  ├─ checks/       # the check engine, its YAML library and policy packs
 │  │  ├─ discovery/    # probe allow-list, scopes, fingerprinting, pacing, the
 │  │  │                #   probe transport and the run executor (Phase 7)
+│  │  ├─ topology/     # the layer-3 graph, the path walk and the ranked
+│  │  │                #   missing-device report (Phase 8)
 │  │  ├─ firewall/     # rulebase model, relationship analysis, NAT, hygiene
 │  │  ├─ ncm/          # the Normalised Config Model (NCM v1)
 │  │  ├─ parsers/      # vendor config parsers, one package per vendor

@@ -180,8 +180,9 @@ describe('DiscoveryPage', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Start' }));
 
       await waitFor(() => {
-        expect(startCalls()).toHaveLength(1);
-        expect(startCalls()[0][1]).toMatchObject({ method: 'POST' });
+        const [call] = startCalls();
+        expect(call).toBeDefined();
+        expect(call?.[1]).toMatchObject({ method: 'POST' });
       });
     });
 

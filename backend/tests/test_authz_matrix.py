@@ -295,6 +295,19 @@ MATRIX: list[Case] = [
         _DEVICE_READERS,
         body={"source": "10.0.0.1", "destination": "10.20.0.10", "protocol": "tcp", "port": 443},
     ),
+    # ── Topology and path analysis (Phase 8, FR-TOPO) ───────────────────────
+    # The same placement as the rulebase query above, and for the same reason: a path
+    # answer is assembled entirely out of stored configuration, so anyone who may read
+    # the configuration may ask what it implies. It sends nothing, so there is no
+    # outward-facing action to protect — unlike starting a discovery run, which does.
+    Case(
+        "POST",
+        "/api/v1/topology/path",
+        _DEVICE_READERS,
+        body={"source": "10.10.0.5", "destination": "10.20.0.5", "protocol": "tcp", "port": 443},
+    ),
+    Case("GET", "/api/v1/topology/missing-devices", _DEVICE_READERS),
+    Case("GET", "/api/v1/topology/summary", _DEVICE_READERS),
     # ── Manager child enumeration (FR-INV-04, FR-DISC-06) ───────────────────
     # Previewing reads and writes nothing — a POST only because a manager's device list
     # does not fit in a URL — so it sits with the other device reads.

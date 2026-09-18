@@ -23,6 +23,7 @@ import { VulnerabilitiesPage } from './VulnerabilitiesPage';
 import { DiscoveryPage } from './DiscoveryPage';
 import { CompliancePage } from './CompliancePage';
 import { ReportsPage } from './ReportsPage';
+import { TopologyPage } from './TopologyPage';
 import { JobsPage } from './JobsPage';
 import { AuditLogPage } from './AuditLogPage';
 import { ProfilePage } from './ProfilePage';
@@ -94,6 +95,9 @@ export function App() {
                   offers a picker, while a link from a device goes straight to its rules. */}
               <Route path="inventory/:deviceId/firewall" element={<FirewallPage />} />
               <Route path="firewall" element={<FirewallPage />} />
+              {/* Estate-wide by nature: the question is which devices are between two
+                  hosts, which cannot be asked of one device. */}
+              <Route path="topology" element={<TopologyPage />} />
               {/* Estate-wide rather than per-device: the whole subject is what the
                   devices and the AAA servers disagree about. */}
               <Route path="aaa" element={<AaaPage />} />

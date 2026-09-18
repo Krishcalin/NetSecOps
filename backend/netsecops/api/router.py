@@ -17,6 +17,7 @@ from netsecops.api.v1 import (
     managers,
     reports,
     snapshots,
+    topology,
     users,
     vulnerabilities,
 )
@@ -75,6 +76,12 @@ api_v1_router.include_router(discovery.router)
 # which takes a UUID, so a mis-ordered declaration would 422 rather than 404 — louder
 # than the CVE case above, but the literal still goes first inside the module.
 api_v1_router.include_router(reports.router)
+
+# Phase 8 — the layer-3 graph and path analysis. Every path here is literal, so there is
+# no shadowing order to preserve. `/topology/path` is a POST that changes nothing: it
+# takes a body because a packet is four correlated fields, and reads far better in an
+# audit log as an object than as a query string.
+api_v1_router.include_router(topology.router)
 
 # Routers added in later phases:
 #   Phase 7 — integrations, settings
