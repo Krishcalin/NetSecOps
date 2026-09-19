@@ -88,6 +88,14 @@ Vulnerability assessment **produces findings now**. A device is assessed against
 ingested advisories and end-of-life data, and the result is a finding on that device
 with its own lifecycle, visible in the console at `/vulnerabilities`.
 
+It runs on two triggers, and both are needed because they answer different halves of one
+question. A **collect-and-assess** job weighs the catalogue against the configuration it
+just collected — *this device changed, is it exposed?* A **vuln-rematch** job, created by
+a feed import, re-weighs the estate against its stored snapshots without contacting
+anything — *the catalogue changed, is anything newly exposed?* An advisory published on
+Tuesday can make Monday's unmoved software exploitable, and finding that out should not
+require a collection window across five hundred devices.
+
 The parts that shape the answer:
 
 - **Four outcomes, not two.** The matcher returns *confirmed*, *likely*, *not affected*
@@ -204,8 +212,9 @@ than emitting a blank grid that reads as "no findings".
 fingerprinting with confidence scoring and the pending-review queue were built first and
 had nothing driving them; FR-DISC-05 supplies the rest. A run is a job: it is queued,
 cancellable between batches, and recorded as a `discovery_runs` row that outlives the
-job history. Four of the five permitted probes are sent — ICMP echo, TCP connect to the
-scope's ports, an SSH banner read and an HTTPS certificate-and-header fetch.
+job history. All five permitted probes are sent — ICMP echo, TCP connect to the scope's
+ports, an SSH banner read, an HTTPS certificate-and-header fetch, and an SNMP read of
+sysObjectID and sysDescr.
 
 The rate limit is the reason this could ship at all. An unpaced run across a scope is
 the port sweep [SRS §1.2](docs/SRS.md) forbids, whatever the allow-list says about the
@@ -214,14 +223,22 @@ endpoint to a socket that skips it. The default is FR-DISC-05's 50 hosts a secon
 configurable per scope up to a ceiling — "configurable" with no ceiling would make the
 requirement unenforceable.
 
-Two things a run cannot do are recorded on the run itself rather than left to look like
-a quiet network. **SNMP is not read**: FR-DISC-02 permits it, but no SNMP credential can
-be stored against a scope yet, and sysObjectID is the heaviest fingerprint signal there
-is — so hosts score lower and more of them need a person. **ICMP needs `CAP_NET_RAW`**,
-which containers withhold by default; without it liveness falls back to TCP and a device
-with no open port on the list is missed. Both appear beside the counters in the console,
-because "0 hosts found" and "0 hosts found, and nothing could be asked" are different
-answers.
+**SNMP is read, and its community is a credential.** sysObjectID names the exact hardware
+model from a vendor-assigned tree where an SSH banner says "Cisco" at best, so a host that
+answers it usually needs no human at all. The community string is stored against the scope
+and sealed in the vault rather than kept in a column: `public` is a credential too, and
+trying it is a credential guess whatever its reputation. **v2c only** — SNMPv3's User
+Security Model needs a username and two keys *per device*, which nobody has for a host
+they have not yet identified.
+
+Two things a run cannot do are recorded on the run itself rather than left to look like a
+quiet network. **A scope that asks for SNMP without a usable credential** still sends the
+other four probes and records a caveat; the cost is every host's fingerprint confidence,
+and a queue full of low-confidence entries otherwise looks like a hard-to-identify estate
+rather than a missing credential. **ICMP needs `CAP_NET_RAW`**, which containers withhold
+by default; without it liveness falls back to TCP and a device with no open port on the
+list is missed. Both appear beside the counters in the console, because "0 hosts found"
+and "0 hosts found, and nothing could be asked" are different answers.
 
 **Scheduling is built** (FR-JOB-02, and FR-DISC-05's second half). `netsecops-cli
 scheduler` is a separate process that fires due schedules and enqueues them through the
@@ -817,10 +834,18 @@ and deletes it afterwards, so it never alters the account it signs in with.
 | [docs/SRS.md](docs/SRS.md) | Full software requirements specification — the baseline |
 | [docs/device-accounts.md](docs/device-accounts.md) | Recommended read-only accounts per platform |
 | [docs/deployment.md](docs/deployment.md) | Deployment, sizing, backup and key management |
+| [docs/api-reachability.md](docs/api-reachability.md) | Which API operations the console can reach, and which need a surface |
 | [docs/adr/](docs/adr/) | Architecture decision records |
 
 The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at
 `/api/v1/docs` outside production.
+
+**The console does not yet reach all of it.** 138 operations are published and the
+console requests 65; the rest — user, credential, policy, schedule, token and exception
+administration among them — are API-only for now. That is measured rather than estimated
+(`scripts/api_reachability.py`) and tracked in
+[docs/api-reachability.md](docs/api-reachability.md), because capability nobody can reach
+is indistinguishable from capability that does not exist.
 
 ---
 
