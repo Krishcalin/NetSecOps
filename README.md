@@ -840,8 +840,8 @@ and deletes it afterwards, so it never alters the account it signs in with.
 The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at
 `/api/v1/docs` outside production.
 
-**The console does not yet reach all of it.** 138 operations are published and the
-console requests 69; the rest — user, credential, policy, schedule, token and exception
+**The console does not yet reach all of it.** 139 operations are published and the
+console requests 78; the rest — user, policy, schedule, token and exception
 administration among them — are API-only for now. That is measured rather than estimated
 (`scripts/api_reachability.py`) and tracked in
 [docs/api-reachability.md](docs/api-reachability.md), because capability nobody can reach

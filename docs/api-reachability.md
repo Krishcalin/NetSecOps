@@ -1,12 +1,12 @@
 # API reachability
 
-**138 operations are published. The console requests 69 of them. 69 it never requests.**
-
-Last measured 2026-09-19, after the first four gaps were closed: job cancel, re-run
-failed, feed import and feed sync.
+**139 operations are published. The console requests 78 of them. 61 it never requests.**
 
 Measured 2026-09-19 against the OpenAPI schema `create_app()` produces and every `.ts`
-and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed.
+and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed —
+after job cancel, re-run failed, feed import, feed sync and the whole credential vault
+were closed. The count of operations rose by one because closing the vault required
+adding a read path for assignments; see below.
 
 This exists because unreachable capability is indistinguishable from absent capability.
 The vulnerability engine made the point: it was built, unit-tested, and wired only to a
@@ -15,7 +15,7 @@ job type nothing created, so for three phases it never ran. Nobody noticed, beca
 
 The audit is deliberately generous — a path assembled from fragments counts as a call.
 A false *reachable* costs a missed finding; a false *unreachable* costs a minute. The
-error is cheaper in that direction, so the 69 below is a floor, not a ceiling.
+error is cheaper in that direction, so the 61 below is a floor, not a ceiling.
 
 It took four passes to get there, and every error inflated the count: the matcher first
 missed template literals containing ternaries, then failed to strip query strings, then —
@@ -28,11 +28,10 @@ constant (`` `${DELIVERIES}/${id}/requeue` ``). If you extend it, check a handfu
 
 ## The finding
 
-**NetSecOps cannot be administered from its own console.** Forty operations belong to
-areas with no page at all. There is no way, through the UI, to:
+**NetSecOps cannot be fully administered from its own console.** Thirty-two operations
+belong to areas with no page at all. There is no way, through the UI, to:
 
 - create a user, set their roles, scope or password (`/users`, 8 operations)
-- store a credential or assign one to a device (`/credentials`, 8)
 - define a policy, set its checks, or make it the default (`/policies`, 6)
 - browse the check library or preview a check (`/checks`, 4)
 - create or edit a schedule (`/schedules`, 4)
@@ -45,7 +44,19 @@ client. Three of them — the exception register, the check library and policy a
 are capabilities the AlgoSec and FireMon dossiers cite as advantages over the incumbents.
 An advantage nobody can reach is not one.
 
-Only **two** of the 69 are correctly machine-only: `GET /metrics` and `GET /readyz`.
+Only **two** of the 61 are correctly machine-only: `GET /metrics` and `GET /readyz`.
+
+### One endpoint was added rather than surfaced
+
+Closing the credential vault needed `GET /credentials/{id}/assignments`, which did not
+exist. `DELETE /credentials/assignments/{id}` takes an assignment id and nothing emitted
+one except the response to the POST that created it — so a binding made last month could
+not be withdrawn at all, from any client. For a credential vault that is the wrong way
+round: granting access is recoverable, being unable to withdraw it is not.
+
+Worth noting as a pattern. An operation being unreachable from the console is sometimes a
+missing page, and sometimes a gap in the API that no page could paper over. This triage
+does not distinguish the two until someone tries to build the surface.
 
 ---
 
@@ -62,12 +73,11 @@ capability, and the gap is entirely missing UI.
 | `GET /metrics` | Prometheus scrape target. |
 | `GET /readyz` | Container readiness probe. |
 
-### No console page exists — 40 · `surface`
+### No console page exists — 32 · `surface`
 
 | Area | Ops | Note |
 |---|---:|---|
 | `/users` | 8 | Roles, scope and password administration. |
-| `/credentials` | 8 | Including `POST /credentials/{id}/test`, which is the only way to find out a credential works before a job depends on it. |
 | `/policies` | 6 | Policy authoring and assignment. |
 | `/checks` | 4 | The 103-check library is not browsable; `POST /checks/{id}/preview` is how an author sees a check's verdict before assigning it. |
 | `/schedules` | 4 | Schedules can be created only by API, though the scheduler process that fires them ships. |
@@ -83,6 +93,7 @@ capability, and the gap is entirely missing UI.
 | `POST /jobs/{id}/rerun-failed` | Re-run failed on the same row, when a device failed. |
 | `POST /vulnerabilities/feeds/import` | Bundle upload in the feed panel, with digest, vendor and product. |
 | `POST /vulnerabilities/feeds/sync` | Sync from publishers, in the same panel. |
+| The 8 `/credentials` operations, plus a new `GET …/assignments` | A Credentials page: store, list, assign to a device or group, revoke, test against a chosen device, delete. |
 
 ### A page exists but does not use the operation — 27 · `surface`
 
@@ -111,8 +122,8 @@ Ordered by how much the absence costs.
 1. ~~`POST /jobs/{id}/cancel` — a safety control with no control.~~ **Done.**
 2. ~~Feed import and sync — without them the vulnerability engine has nothing to
    weigh.~~ **Done.**
-3. **Credentials** — `POST /credentials/{id}/test` in particular; a credential that fails
-   is currently discovered by a job failing against a live device.
+3. ~~Credentials — a credential that fails is currently discovered by a job failing
+   against a live device.~~ **Done.**
 4. **Users and API tokens** — first-run administration.
 5. **Exceptions, checks and policies** — the differentiators.
 6. Everything else.
@@ -126,5 +137,5 @@ checkout of the frontend beside it:
 cd backend && python ../scripts/api_reachability.py
 ```
 
-It writes `reachability.json` next to itself for diffing between runs. Treat a rise in
-the unreferenced count on a PR the way you would treat a drop in coverage.
+Give it a path to also write the full result as JSON, for diffing between runs. Treat a
+rise in the unreferenced count on a PR the way you would treat a drop in coverage.

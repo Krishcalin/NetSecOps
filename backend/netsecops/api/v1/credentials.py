@@ -151,6 +151,28 @@ async def assign_credential(
     return CredentialAssignmentRead.model_validate(assignment)
 
 
+@router.get(
+    "/{credential_id}/assignments",
+    response_model=list[CredentialAssignmentRead],
+    dependencies=[Depends(require(Permission.CREDENTIAL_READ))],
+    summary="Where this credential is bound (FR-CRED-04)",
+)
+async def list_assignments(
+    credential_id: uuid.UUID, credentials: CredentialDep
+) -> list[CredentialAssignmentRead]:
+    """Read the bindings, so they can be audited and revoked.
+
+    Without this the DELETE below is unreachable outside the response to the POST that
+    created the assignment: nothing else emits an assignment id, so a binding made last
+    month could not be removed at all. For a credential vault that is the wrong way for
+    an omission to fail — granting access is recoverable, being unable to withdraw it is
+    not.
+    """
+    credential = await credentials.get(credential_id)
+    rows = await credentials.assignments(credential)
+    return [CredentialAssignmentRead.model_validate(row) for row in rows]
+
+
 @router.delete(
     "/assignments/{assignment_id}",
     status_code=status.HTTP_204_NO_CONTENT,

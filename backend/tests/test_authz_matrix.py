@@ -202,6 +202,7 @@ MATRIX: list[Case] = [
         _CREDENTIAL_USERS,
         body={"device_id": None, "group_id": None, "priority": 100},
     ),
+    Case("GET", "/api/v1/credentials/{credential_id}/assignments", _CREDENTIAL_USERS),
     Case("DELETE", "/api/v1/credentials/assignments/{assignment_id}", _CREDENTIAL_USERS),
     Case(
         "POST",
