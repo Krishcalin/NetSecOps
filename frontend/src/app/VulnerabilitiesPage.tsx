@@ -15,10 +15,11 @@
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink } from 'react-router-dom';
 
-import { api } from '../api/client';
+import { api, request } from '../api/client';
+import { useAuth } from '../features/auth/useAuth';
 import type {
   CveDetail,
   FeedStatus,
@@ -35,6 +36,24 @@ import type { Paginated } from '../features/inventory/types';
 
 const PAGE_SIZE = 25;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
+
+/** What `POST /vulnerabilities/feeds/import` reports back (FR-VUL-08).
+ *
+ * `records_rejected` is shown alongside the successes rather than hidden on a good
+ * result: a bundle that loaded ninety per cent of its advisories has left a tenth of the
+ * estate unjudged, and an import that only reports what worked reads as complete.
+ */
+interface FeedImportResult {
+  feed: string;
+  kind: string;
+  status: string;
+  advisories_ingested: number;
+  cves_ingested: number;
+  eol_records_ingested: number;
+  kev_entries_ingested: number;
+  epss_scores_ingested: number;
+  records_rejected: number;
+}
 
 function KevBadge({ kev }: { kev: boolean | null }) {
   if (kev === true) {
@@ -96,11 +115,173 @@ function SummaryStrip({ summary }: { summary: VulnerabilitySummary }) {
   );
 }
 
+/** Load a bundle, or fetch from the publishers.
+ *
+ * The offline import is first and the sync second, matching FR-VUL-08 and C-7: an
+ * air-gapped deployment has only the former, and `feeds_offline_mode` refuses the latter.
+ *
+ * The bundle's format is detected from its contents, so this asks for a label rather
+ * than a type. Vendor and product are shown as optional because they are needed only for
+ * an end-of-life bundle — the API refuses that case with an explanation rather than
+ * guessing whose lifecycle dates it is holding, and inventing a format sniffer here to
+ * pre-empt it would be a second, worse copy of that judgement.
+ */
+function FeedControls({ onDone }: { onDone: () => void }) {
+  const [file, setFile] = useState<File | null>(null);
+  const [feed, setFeed] = useState('manual');
+  const [sha256, setSha256] = useState('');
+  const [vendor, setVendor] = useState('');
+  const [product, setProduct] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+
+  const settled = (message: string) => {
+    setError(null);
+    setNote(message);
+    onDone();
+  };
+
+  const failed = (err: unknown, fallback: string) =>
+    setError(err instanceof Error ? err.message : fallback);
+
+  const importBundle = useMutation({
+    mutationFn: async () => {
+      if (!file) throw new Error('Choose a bundle first.');
+      const form = new FormData();
+      form.append('file', file);
+
+      const params = new URLSearchParams({ feed: feed.trim() || 'manual' });
+      if (sha256.trim()) params.set('expected_sha256', sha256.trim());
+      if (vendor.trim()) params.set('vendor', vendor.trim());
+      if (product.trim()) params.set('product', product.trim());
+
+      return request<FeedImportResult>(`/vulnerabilities/feeds/import?${params}`, {
+        method: 'POST',
+        body: form,
+        rawBody: true,
+      });
+    },
+    onSuccess: (result) => {
+      setFile(null);
+      settled(
+        `Imported ${result.advisories_ingested.toLocaleString()} advisories, ` +
+          `${result.cves_ingested.toLocaleString()} CVEs, ` +
+          `${result.eol_records_ingested.toLocaleString()} end-of-life records. ` +
+          `${result.records_rejected.toLocaleString()} records could not be read.`,
+      );
+    },
+    onError: (err) => failed(err, 'The import failed. Nothing was written.'),
+  });
+
+  const sync = useMutation({
+    mutationFn: () => api.post<{ id: string }>('/vulnerabilities/feeds/sync'),
+    onSuccess: () => settled('A sync has been queued. Its progress is on the Assessments page.'),
+    onError: (err) => failed(err, 'The sync could not be queued.'),
+  });
+
+  return (
+    <div className="card">
+      {error && (
+        <div className="alert alert--error" role="alert">
+          {error}
+        </div>
+      )}
+      {note && (
+        <div className="alert" role="status">
+          {note}
+        </div>
+      )}
+
+      <div className="form-grid">
+        <label className="field">
+          <span className="field__label">Bundle</span>
+          <input
+            className="field__input"
+            type="file"
+            aria-label="Feed bundle"
+            onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+          />
+          <span className="field__help">NVD, CSAF, endoflife.date, CISA KEV or FIRST EPSS.</span>
+        </label>
+        <label className="field">
+          <span className="field__label">Source label</span>
+          <input
+            className="field__input"
+            value={feed}
+            aria-label="Source label"
+            onChange={(event) => setFeed(event.target.value)}
+          />
+          <span className="field__help">Recorded against every advisory the bundle carries.</span>
+        </label>
+        <label className="field">
+          <span className="field__label">Expected SHA-256</span>
+          <input
+            className="field__input"
+            value={sha256}
+            aria-label="Expected SHA-256"
+            onChange={(event) => setSha256(event.target.value)}
+          />
+          <span className="field__help">
+            Optional. Checked before anything is written; a mismatch imports nothing.
+          </span>
+        </label>
+        <label className="field">
+          <span className="field__label">Vendor</span>
+          <input
+            className="field__input"
+            value={vendor}
+            aria-label="Vendor"
+            onChange={(event) => setVendor(event.target.value)}
+          />
+          <span className="field__help">End-of-life bundles only.</span>
+        </label>
+        <label className="field">
+          <span className="field__label">Product</span>
+          <input
+            className="field__input"
+            value={product}
+            aria-label="Product"
+            onChange={(event) => setProduct(event.target.value)}
+          />
+          <span className="field__help">End-of-life bundles only.</span>
+        </label>
+      </div>
+
+      <div className="toolbar">
+        <button
+          className="button button--small"
+          disabled={!file || importBundle.isPending}
+          onClick={() => importBundle.mutate()}
+        >
+          Import bundle
+        </button>
+        <button
+          className="button button--ghost button--small"
+          disabled={sync.isPending}
+          onClick={() => sync.mutate()}
+          title="Fetches from CISA, FIRST and NVD. Refused in offline mode."
+        >
+          Sync from publishers
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FeedPanel() {
+  const { can } = useAuth();
+  const queryClient = useQueryClient();
   const feeds = useQuery({
     queryKey: ['vuln-feeds'],
     queryFn: () => api.get<FeedStatus[]>('/vulnerabilities/feeds?limit=10'),
   });
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ['vuln-feeds'] });
+    void queryClient.invalidateQueries({ queryKey: ['vuln-summary'] });
+  };
+
+  const controls = can('vuln:write') ? <FeedControls onDone={refresh} /> : null;
 
   if (feeds.isLoading) return <p className="page-loading">Loading…</p>;
 
@@ -108,15 +289,27 @@ function FeedPanel() {
 
   if (rows.length === 0) {
     return (
-      <p className="empty">
-        No feed has ever been imported. Until one is, every device reports no vulnerabilities
-        because nothing has been compared against it — which is not the same as being clear. Import
-        an NVD, CSAF or end-of-life bundle to begin, and a CISA KEV catalogue to make the
-        known-exploited filter mean anything.
-      </p>
+      <>
+        <p className="empty">
+          No feed has ever been imported. Until one is, every device reports no vulnerabilities
+          because nothing has been compared against it — which is not the same as being clear.
+          Import an NVD, CSAF or end-of-life bundle to begin, and a CISA KEV catalogue to make the
+          known-exploited filter mean anything.
+        </p>
+        {controls}
+      </>
     );
   }
 
+  return (
+    <>
+      {controls}
+      {renderFeedTable(rows)}
+    </>
+  );
+}
+
+function renderFeedTable(rows: FeedStatus[]) {
   return (
     <div className="table-wrap">
       <table className="table">

@@ -1,6 +1,9 @@
 # API reachability
 
-**138 operations are published. The console requests 65 of them. 73 it never requests.**
+**138 operations are published. The console requests 69 of them. 69 it never requests.**
+
+Last measured 2026-09-19, after the first four gaps were closed: job cancel, re-run
+failed, feed import and feed sync.
 
 Measured 2026-09-19 against the OpenAPI schema `create_app()` produces and every `.ts`
 and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed.
@@ -12,7 +15,7 @@ job type nothing created, so for three phases it never ran. Nobody noticed, beca
 
 The audit is deliberately generous — a path assembled from fragments counts as a call.
 A false *reachable* costs a missed finding; a false *unreachable* costs a minute. The
-error is cheaper in that direction, so the 73 below is a floor, not a ceiling.
+error is cheaper in that direction, so the 69 below is a floor, not a ceiling.
 
 It took four passes to get there, and every error inflated the count: the matcher first
 missed template literals containing ternaries, then failed to strip query strings, then —
@@ -42,7 +45,7 @@ client. Three of them — the exception register, the check library and policy a
 are capabilities the AlgoSec and FireMon dossiers cite as advantages over the incumbents.
 An advantage nobody can reach is not one.
 
-Only **two** of the 73 are correctly machine-only: `GET /metrics` and `GET /readyz`.
+Only **two** of the 69 are correctly machine-only: `GET /metrics` and `GET /readyz`.
 
 ---
 
@@ -72,20 +75,26 @@ capability, and the gap is entirely missing UI.
 | `/exceptions` | 3 | The waiver register — justification, approver, expiry. |
 | `/sites`, `/tags`, `/device-groups/{id}/parent` | 4 | Reference data and grouping. |
 
-### A page exists but does not use the operation — 31 · `surface`
+### Closed
+
+| Operation | Surface |
+|---|---|
+| `POST /jobs/{id}/cancel` | Cancel on the Assessments row, for `queued`/`running`/`paused`. |
+| `POST /jobs/{id}/rerun-failed` | Re-run failed on the same row, when a device failed. |
+| `POST /vulnerabilities/feeds/import` | Bundle upload in the feed panel, with digest, vendor and product. |
+| `POST /vulnerabilities/feeds/sync` | Sync from publishers, in the same panel. |
+
+### A page exists but does not use the operation — 27 · `surface`
 
 Ordered by how much the absence costs.
 
 | Operation | Page | Cost of the gap |
 |---|---|---|
-| `POST /jobs/{id}/cancel` | Jobs | **A running job cannot be stopped from the console.** FR-JOB-03 cancellation is a safety control; the page renders `cancelling` and `cancelled` as status labels but offers no way to reach them. |
-| `POST /vulnerabilities/feeds/import` | Vulnerabilities | **The advisory catalogue cannot be populated from the console.** With the matcher now running on every collection, an empty catalogue is the difference between an assessment and a blank. |
-| `POST /vulnerabilities/feeds/sync` | Vulnerabilities | Same, for the online path. |
 | `GET /vulnerabilities/devices/{id}/upgrade-path` | Vulnerabilities | KEV-first upgrade ranking, described in the README, reachable only by API. |
 | `GET /vulnerabilities/cpe-coverage` | Vulnerabilities | The coverage honesty check — which platforms have no CPE mapping and so silently report zero. |
 | `GET /devices/pending-review`, `POST /devices/{id}/approve`, `/archive` | Inventory, Discovery | The discovery-to-inventory promotion path. Discovery finds hosts; nothing promotes them. |
 | `GET /discovery/pending/{host_id}`, `DELETE /discovery/scopes/{id}` | Discovery | Per-host detail and scope removal. |
-| `POST /jobs/{id}/rerun-failed`, `GET /jobs/{id}/progress` | Jobs | Re-running only the failed devices, and live progress. |
+| `GET /jobs/{id}/progress` | Jobs | Live progress. Low value while the list already refreshes every five seconds. |
 | 5 × `/notifications` channel edit/delete, subscriptions | Settings | Settings creates channels, tests them and requeues dead deliveries, but a channel cannot be edited or removed and subscriptions have no surface at all — so who gets told what is API-only. |
 | `GET /devices/{id}/checks`, `/risk` | Device config | Per-device check results and risk score. |
 | `POST /devices/{id}/children/preview`, `/import` | Inventory | Managed-device import from a manager. |
@@ -99,9 +108,9 @@ Ordered by how much the absence costs.
 
 ## Suggested order
 
-1. **`POST /jobs/{id}/cancel`** — a safety control with no control.
-2. **Feed import and sync** — without them the vulnerability engine has nothing to weigh,
-   which now silently weakens every collection rather than only the rematch job.
+1. ~~`POST /jobs/{id}/cancel` — a safety control with no control.~~ **Done.**
+2. ~~Feed import and sync — without them the vulnerability engine has nothing to
+   weigh.~~ **Done.**
 3. **Credentials** — `POST /credentials/{id}/test` in particular; a credential that fails
    is currently discovered by a job failing against a live device.
 4. **Users and API tokens** — first-run administration.

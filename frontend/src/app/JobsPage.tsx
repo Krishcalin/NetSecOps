@@ -1,16 +1,31 @@
-/** Assessment run history (FR-JOB-04).
+/** Assessment run history (FR-JOB-03, FR-JOB-04).
  *
  * Failures are shown with their FR-COL-07 error class, because "unreachable" and
  * "auth failed" send an operator to completely different places.
+ *
+ * Cancel and re-run live here because this is the only page that lists a running job.
+ * Until they did, `POST /jobs/{id}/cancel` was reachable only by API: the page rendered
+ * `cancelling` and `cancelled` as status pills with nothing able to produce them, so a
+ * collection sweeping five hundred devices could be started from the console and not
+ * stopped from it.
  */
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '../api/client';
+import { useAuth } from '../features/auth/useAuth';
 import type { Job, JobDetail, JobStatus, Paginated } from '../features/inventory/types';
 
 const PAGE_SIZE = 25;
+
+/** Statuses `JobService.cancel` accepts — everything the API does not call terminal.
+ *
+ * `cancelling` is excluded deliberately though the API would take it again: the request
+ * is already in and the devices in flight are finishing, so a second button offers the
+ * operator an action that changes nothing at the moment they most want reassurance.
+ */
+const CANCELLABLE: ReadonlySet<JobStatus> = new Set<JobStatus>(['queued', 'running', 'paused']);
 
 const STATUS_PILL: Record<JobStatus, string> = {
   queued: 'pill',
@@ -34,8 +49,13 @@ const ERROR_CLASS_HELP: Record<string, string> = {
 };
 
 export function JobsPage() {
+  const { can } = useAuth();
+  const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const canRun = can('job:execute');
 
   const jobs = useQuery({
     queryKey: ['jobs', offset],
@@ -53,6 +73,26 @@ export function JobsPage() {
     enabled: expanded !== null,
   });
 
+  const refresh = () => {
+    setError(null);
+    void queryClient.invalidateQueries({ queryKey: ['jobs'] });
+  };
+
+  const cancel = useMutation({
+    mutationFn: (jobId: string) => api.post<Job>(`/jobs/${jobId}/cancel`),
+    onSuccess: refresh,
+    // A job that finished while the list was on screen returns 409, and the operator
+    // needs to be told it completed rather than left looking at a button that did
+    // nothing. The API's own message says which.
+    onError: (err) => setError(err instanceof Error ? err.message : 'The cancel failed.'),
+  });
+
+  const rerun = useMutation({
+    mutationFn: (jobId: string) => api.post<Job>(`/jobs/${jobId}/rerun-failed`),
+    onSuccess: refresh,
+    onError: (err) => setError(err instanceof Error ? err.message : 'The re-run failed.'),
+  });
+
   const total = jobs.data?.meta.total ?? 0;
 
   return (
@@ -63,6 +103,12 @@ export function JobsPage() {
           Every run, with per-device outcomes. Commands issued are in the audit log.
         </p>
       </header>
+
+      {error && (
+        <div className="alert alert--error" role="alert">
+          {error}
+        </div>
+      )}
 
       {jobs.isLoading ? (
         <p className="page-loading">Loading…</p>
@@ -93,13 +139,33 @@ export function JobsPage() {
                   <td>{job.stats.total ?? 0}</td>
                   <td>{job.stats.succeeded ?? 0}</td>
                   <td>{job.stats.failed ?? 0}</td>
-                  <td>
+                  <td className="table__actions">
                     <button
                       className="button button--ghost button--small"
                       onClick={() => setExpanded(expanded === job.id ? null : job.id)}
                     >
                       {expanded === job.id ? 'Hide' : 'Details'}
                     </button>
+                    {canRun && CANCELLABLE.has(job.status) && (
+                      <button
+                        className="button button--ghost button--small"
+                        disabled={cancel.isPending}
+                        onClick={() => cancel.mutate(job.id)}
+                        title="Devices already in flight finish; no new sessions are opened."
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    {canRun && (job.stats.failed ?? 0) > 0 && (
+                      <button
+                        className="button button--ghost button--small"
+                        disabled={rerun.isPending}
+                        onClick={() => rerun.mutate(job.id)}
+                        title="Starts a new run against only the devices that failed."
+                      >
+                        Re-run failed
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
