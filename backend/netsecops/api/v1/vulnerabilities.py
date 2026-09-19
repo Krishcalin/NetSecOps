@@ -104,11 +104,10 @@ async def list_vulnerabilities(
         limit=limit,
         offset=offset,
     )
+    # `total` is exact, including under `kev_only`: the catalogue membership is applied
+    # in the query rather than to the fetched page, so the pager cannot promise rows
+    # that do not exist. It used to be applied afterwards and said so here.
     meta: dict[str, object] = {"total": total, "limit": limit, "offset": offset}
-    if kev_only:
-        # The KEV flag lives on the CVE row rather than the finding, so it is applied
-        # after the page is fetched. Saying so keeps `total` from reading as a lie.
-        meta["filtered_after_count"] = True
     return PaginatedVulnerabilities(data=rows, meta=meta)
 
 

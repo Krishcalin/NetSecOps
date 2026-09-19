@@ -139,6 +139,139 @@ class TestVersionMatching:
         assert "no product matching" in result.reasoning[0]
 
 
+# ═════════════════════════ the appliance is the product ══════════════════════
+
+
+def appliance(*, vendor="paloalto", platform="panos", version="10.2.3", model="PA-3220"):
+    """A firewall, which is both an operating system and a box.
+
+    Vendor advisories routinely scope to the chassis rather than to the software — the
+    flaw is in a crypto accelerator, a management port, a bootloader — and NVD records
+    that as a hardware CPE marked `vulnerable: true`. Nothing else in the estate is
+    identified two ways like this, which is why it has its own section.
+    """
+    ncm = NormalisedConfig()
+    ncm.device.vendor = vendor
+    ncm.device.platform = platform
+    ncm.device.version = version
+    ncm.device.model = model
+    return ncm
+
+
+def hardware_entry(cpe: str) -> AffectedProduct:
+    """An affected-hardware statement, shaped as `parse_nvd_feed` produces one.
+
+    The constraint is UNPARSED because the CPE's version component is `-` (NA): a
+    chassis has no software version, so there is no range to read.
+    """
+    return AffectedProduct(
+        vendor="paloaltonetworks",
+        product="pa-3220",
+        cpe=cpe,
+        product_id="nvd-hw-1",
+        constraint=VersionConstraint(kind=ConstraintKind.UNPARSED, raw=cpe),
+    )
+
+
+def vendor_hardware_entry(cpe: str) -> AffectedProduct:
+    """The same claim as a vendor states it, with an interpretable scope.
+
+    Used wherever a test needs to assert *not affected*: the NVD shape above carries an
+    unreadable range, which correctly blocks any clean verdict, so it can only ever
+    demonstrate "cannot tell".
+    """
+    return AffectedProduct(
+        vendor="paloaltonetworks",
+        product="pa-3220",
+        cpe=cpe,
+        product_id="psirt-1",
+        constraint=VersionConstraint(kind=ConstraintKind.ALL, raw="*"),
+    )
+
+
+PA_3220 = "cpe:2.3:h:paloaltonetworks:pa-3220:-:*:*:*:*:*:*:*"
+
+
+class TestHardwareIsMatchedToo:
+    """FireMon parses the config and knows the model, and never turns it into exposure.
+
+    The gap here was worse than not answering: an advisory naming the chassis failed
+    product identity on the CPE part alone (`h` against the device's `o`), left nothing
+    applicable, and — the advisory being fully interpreted — was reported **not
+    affected**. That verdict is the one that *resolves* an open finding, so a hardware
+    advisory did not merely go unnoticed, it closed the record of itself.
+    """
+
+    def test_an_advisory_naming_this_chassis_is_matched(self) -> None:
+        result = match(appliance(), advisory(hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.CONFIRMED
+        assert "PA-3220" in " ".join(result.reasoning)
+
+    def test_a_vendor_advisory_on_this_chassis_is_not_reported_clean(self) -> None:
+        """The dangerous half, and the reason this is a defect rather than a gap.
+
+        NVD writes a chassis CPE's version as `-`, which reads as an unparseable range
+        and leaves the advisory not fully interpreted — so the old code answered "cannot
+        tell", which is merely unhelpful. A vendor advisory states its scope in a form
+        that *is* interpretable, so the same identity miss produced **not affected** on
+        the exact model named — and that is the verdict that closes an open finding.
+        """
+        result = match(appliance(), advisory(vendor_hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.CONFIRMED
+
+    def test_a_different_chassis_is_not_matched(self) -> None:
+        result = match(appliance(model="PA-5220"), advisory(vendor_hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.NOT_AFFECTED
+
+    def test_a_device_with_no_model_is_not_matched(self) -> None:
+        """Absent is not false. A device whose model was never collected is not a match.
+
+        Matching it on vendor alone would attach every Palo Alto chassis advisory to
+        every Palo Alto device — which is the failure this whole engine exists to avoid,
+        pointed the other way.
+        """
+        result = match(appliance(model=None), advisory(vendor_hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.NOT_AFFECTED
+
+    def test_the_nvd_shape_never_clears_a_device(self) -> None:
+        """NVD writes a chassis version as `-`, which is not a range anyone can read.
+
+        So even a device that is plainly a different model cannot be *cleared* by such
+        an advisory — it is reported as unevaluated. That is the fully-interpreted rule
+        doing its job, and it is why the assertions above use the vendor shape.
+        """
+        result = match(appliance(model="PA-5220"), advisory(hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.NOT_EVALUATED
+
+    def test_the_software_version_is_irrelevant_to_a_chassis_advisory(self) -> None:
+        """A hardware flaw is not fixed by an upgrade, so no version clears it."""
+        for version in ("8.1.0", "10.2.3", "11.9.9"):
+            result = match(appliance(version=version), advisory(hardware_entry(PA_3220)))
+            assert result.confidence is Confidence.CONFIRMED, version
+
+    def test_an_os_advisory_still_matches_on_the_os(self) -> None:
+        """The hardware path must not displace the one that already worked."""
+        result = match(
+            appliance(version="10.2.3"),
+            advisory(
+                affected(
+                    "<10.2.9",
+                    fixed="10.2.9",
+                    vendor="paloaltonetworks",
+                    product="pan-os",
+                    cpe="cpe:2.3:o:paloaltonetworks:pan-os:*:*:*:*:*:*:*:*",
+                )
+            ),
+        )
+
+        assert result.confidence is Confidence.CONFIRMED
+
+
 # ══════════════════════ the verdicts that exist to be honest ═════════════════
 
 
