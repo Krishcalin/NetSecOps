@@ -144,8 +144,21 @@ _IOS = re.compile(
 
 #: `10.3(4a)`, `9.3(11)`, `9.18(2)`, `9.12(4)56` — NX-OS and ASA. Same shape, and they
 #: differ only in that ASA may append an interim build number after the bracket.
+#:
+#: Two widenings, both from real NVD records rather than from the naming documentation:
+#:
+#: * the backbone may have three parts, `9.9.1(1)`; and
+#: * the value inside the bracket may itself be dotted, `9.1(7.245)`, which is how ASA
+#:   spells an interim build within a maintenance release.
+#:
+#: Both go into the numeric backbone rather than into `rebuild`, because the brackets are
+#: notation: NVD writes the same release as `9.1.7.245`, and the two spellings have to
+#: compare. Putting the interim in `rebuild` would rank it only against versions that
+#: also used brackets.
 _BRACKETED = re.compile(
-    r"^(?P<major>\d+)\.(?P<minor>\d+)\((?P<release>\d+)(?P<maint>[a-z]*)\)(?P<build>\d*)$"
+    r"^(?P<backbone>\d+(?:\.\d+)+)"
+    r"\((?P<release>\d+(?:\.\d+)*)(?P<maint>[a-z]*)\)"
+    r"(?P<build>\d*)$"
 )
 
 #: `17.9.4a`, `8.10.190.0`, `7.2.5`, `3.2.0.542` — plain dotted numbers with an optional
@@ -225,10 +238,12 @@ def parse(raw: str | None, *, platform: str | None = None) -> DeviceVersion | No
             rebuild.append(maint)
         if build := match.group("build"):
             rebuild.append(int(build))
+        backbone = tuple(int(part) for part in match["backbone"].split("."))
+        bracketed = tuple(int(part) for part in match["release"].split("."))
         return DeviceVersion(
             raw=text,
             scheme=hinted,
-            release=(int(match["major"]), int(match["minor"]), int(match["release"])),
+            release=backbone + bracketed,
             # An IOS release with no train letter is on the trunk, not on an unknown
             # branch: `train=None` is a real answer that compares against other trunk
             # releases and, correctly, against nothing on a branch.

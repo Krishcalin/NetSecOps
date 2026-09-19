@@ -58,6 +58,14 @@ class VersionConstraint:
     introduced: str | None = None
     #: Exclusive upper bound — the release that contains the fix — for a RANGE.
     fixed: str | None = None
+    #: **Inclusive** upper bound — the last release that is affected, where no fix is
+    #: named. Distinct from `fixed` and not interchangeable with it: NVD publishes
+    #: `versionEndIncluding` wherever a vendor never shipped a fix, and storing that as
+    #: `fixed` would report every device on the named release as patched. Before this
+    #: existed such a range was marked UNPARSED, which was safe and cost a large share of
+    #: real advisories — roughly a fifth of the unevaluated verdicts in a thousand-record
+    #: NVD sample.
+    last_affected: str | None = None
     #: The single version, for an EXACT.
     version: str | None = None
 

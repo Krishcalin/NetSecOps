@@ -50,18 +50,29 @@ def affected(
     kind=ConstraintKind.RANGE,
     introduced=None,
     fixed=None,
+    last_affected=None,
     version=None,
     vendor="Cisco",
     product="IOS",
     cpe=None,
+    train=None,
 ) -> AffectedProduct:
+    # `train` is accepted and ignored; it documents at the call site that a bound like
+    # `15.2(7)E6` is on the same IOS train as the device under test, which is what makes
+    # the two comparable at all.
+    del train
     return AffectedProduct(
         vendor=vendor,
         product=product,
         cpe=cpe,
         product_id="CSAFPID-0001",
         constraint=VersionConstraint(
-            kind=kind, raw=raw, introduced=introduced, fixed=fixed, version=version
+            kind=kind,
+            raw=raw,
+            introduced=introduced,
+            fixed=fixed,
+            last_affected=last_affected,
+            version=version,
         ),
     )
 
@@ -90,6 +101,118 @@ class TestVersionMatching:
 
         assert result.confidence is Confidence.CONFIRMED
         assert "15.2(7)E3" in result.reasoning[0]
+
+    def test_the_last_affected_release_is_itself_affected(self) -> None:
+        """`versionEndIncluding` names a release that *is* vulnerable.
+
+        NVD publishes this bound wherever a vendor never shipped a fix, so the devices it
+        covers are the ones with nowhere to upgrade to. It was marked unparsed because
+        the model had only an exclusive `fixed`, and storing it there would have reported
+        every device on the named release as patched.
+        """
+        result = match(
+            device(version="15.2(7)E6"),
+            advisory(
+                affected(
+                    "<=15.2(7)E6",
+                    last_affected="15.2(7)E6",
+                    train="E",
+                )
+            ),
+        )
+
+        assert result.confidence is Confidence.CONFIRMED
+
+    def test_a_release_after_the_last_affected_one_is_clear(self) -> None:
+        result = match(
+            device(version="15.2(7)E9"),
+            advisory(affected("<=15.2(7)E6", last_affected="15.2(7)E6", train="E")),
+        )
+
+        assert result.confidence is Confidence.NOT_AFFECTED
+
+    def test_an_inclusive_bound_is_not_read_as_an_exclusive_one(self) -> None:
+        """The specific regression, stated as the difference between the two fields.
+
+        Same advisory text, same device, one field apart: on `fixed` the device is
+        reported patched, on `last_affected` it is reported vulnerable. Only the second
+        is what the vendor said.
+        """
+        on_the_boundary = device(version="15.2(7)E6")
+
+        as_fixed = match(
+            on_the_boundary, advisory(affected("<15.2(7)E6", fixed="15.2(7)E6", train="E"))
+        )
+        as_last_affected = match(
+            on_the_boundary,
+            advisory(affected("<=15.2(7)E6", last_affected="15.2(7)E6", train="E")),
+        )
+
+        assert as_fixed.confidence is Confidence.NOT_AFFECTED
+        assert as_last_affected.confidence is Confidence.CONFIRMED
+
+    def test_a_lower_bound_still_applies_alongside_it(self) -> None:
+        """`>=7.1.0 <=7.1.26` is the shape NVD actually publishes."""
+        inside = match(
+            device(platform="fortios", vendor="fortinet", version="7.1.10"),
+            advisory(
+                affected(
+                    ">=7.1.0 <=7.1.26",
+                    introduced="7.1.0",
+                    last_affected="7.1.26",
+                    vendor="fortinet",
+                    product="fortios",
+                )
+            ),
+        )
+        below = match(
+            device(platform="fortios", vendor="fortinet", version="7.0.9"),
+            advisory(
+                affected(
+                    ">=7.1.0 <=7.1.26",
+                    introduced="7.1.0",
+                    last_affected="7.1.26",
+                    vendor="fortinet",
+                    product="fortios",
+                )
+            ),
+        )
+
+        assert inside.confidence is Confidence.CONFIRMED
+        assert below.confidence is Confidence.NOT_AFFECTED
+
+    def test_the_bound_survives_storage(self) -> None:
+        """An advisory is matched after a round trip through JSONB, not before it.
+
+        A field the writer forgets is a field the matcher never sees, and the failure is
+        silent and one-directional: an inclusive upper bound that comes back as `None`
+        leaves the range unbounded above, so every release after the last affected one
+        reads as affected. The same class of bug the `_rebuild_product` docstring warns
+        about for `notes_unparsed`.
+        """
+        from netsecops.services.feeds import _affected_json
+        from netsecops.services.vuln_assessment import _rebuild_product
+
+        entry = affected(
+            ">=7.1.0 <=7.1.26",
+            introduced="7.1.0",
+            last_affected="7.1.26",
+            vendor="fortinet",
+            product="fortios",
+        )
+
+        restored = _rebuild_product(_affected_json(entry))
+
+        assert restored.constraint.last_affected == "7.1.26"
+        assert restored.constraint.fixed is None, "an inclusive bound became an exclusive one"
+
+    def test_an_unreadable_last_affected_bound_refuses_rather_than_guesses(self) -> None:
+        result = match(
+            device(version="15.2(7)E3"),
+            advisory(affected("<=whenever", last_affected="whenever", train="E")),
+        )
+
+        assert result.confidence is Confidence.NOT_EVALUATED
 
     def test_the_fixed_release_itself_is_not_affected(self) -> None:
         """`fixed` is exclusive — the release containing the fix is the safe one.

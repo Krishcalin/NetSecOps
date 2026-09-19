@@ -725,6 +725,10 @@ def _affected_json(entry: Any) -> dict[str, Any]:
             "raw": entry.constraint.raw,
             "introduced": entry.constraint.introduced,
             "fixed": entry.constraint.fixed,
+            # Dropping this on the way to storage would turn an inclusive upper bound
+            # into an unbounded range on the way back, so every later release would read
+            # as affected.
+            "last_affected": entry.constraint.last_affected,
             "version": entry.constraint.version,
         },
     }

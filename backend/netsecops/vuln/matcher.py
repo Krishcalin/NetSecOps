@@ -304,6 +304,23 @@ def _version_applies(
             # `fixed` is exclusive: the release containing the fix is not affected.
             return False, ""
 
+    if constraint.last_affected is not None:
+        upper = parse(constraint.last_affected, platform=platform)
+        if upper is None:
+            return None, (
+                f"The advisory's last affected release {constraint.last_affected!r} is unreadable."
+            )
+        ordering = compare(device, upper)
+        if ordering is None:
+            return None, _incomparable(device, upper)
+        if ordering is Ordering.GREATER:
+            # Inclusive, and that is the whole point of the field: the named release is
+            # affected, so only something strictly later is clear. Comparing this the way
+            # `fixed` is compared would report every device on the last affected release
+            # as patched — and NVD uses this bound precisely where no fix exists, so
+            # those devices have nowhere to go.
+            return False, ""
+
     return True, ""
 
 

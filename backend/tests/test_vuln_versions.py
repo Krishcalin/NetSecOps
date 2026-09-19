@@ -221,6 +221,58 @@ class TestBracketedAndDottedSpellings:
         """NVD writes `9.12.4.67`; the device says `9.12(4)`. Padding makes them rank."""
         assert compare(v("9.12(4)", "cisco_asa"), v("9.12.4.67", "cisco_asa")) is Ordering.LESS
 
+    def test_an_asa_interim_build_inside_the_bracket_parses(self) -> None:
+        """`9.1(7.245)` is an ordinary ASA interim release, and did not parse at all.
+
+        Found by running a thousand real NVD records through the matcher: the bracketed
+        pattern allowed only a bare integer inside the parentheses, so every ASA advisory
+        stating an interim build returned "cannot parse" and the device could be neither
+        ruled in nor out. Around a third of the unevaluated ASA verdicts in that sample
+        were this one shape.
+        """
+        parsed = v("9.1(7.245)", "cisco_asa")
+
+        assert parsed is not None
+        assert parsed.release == (9, 1, 7, 245)
+
+    def test_an_interim_build_compares_against_the_dotted_spelling(self) -> None:
+        """Which is the whole point: NVD writes the same release as `9.1.7.245`."""
+        assert compare(v("9.1(7.245)", "cisco_asa"), v("9.1.7.245", "cisco_asa")) is Ordering.EQUAL
+
+    def test_interim_builds_order_within_a_maintenance_release(self) -> None:
+        assert compare(v("9.1(7.245)", "cisco_asa"), v("9.1(7.246)", "cisco_asa")) is Ordering.LESS
+        assert compare(v("9.1(7.245)", "cisco_asa"), v("9.1(6.1)", "cisco_asa")) is Ordering.GREATER
+
+    def test_a_three_part_backbone_before_the_bracket_parses(self) -> None:
+        """`9.9.1(1)` appears in NVD's ASA records and matched nothing before."""
+        parsed = v("9.9.1(1)", "cisco_asa")
+
+        assert parsed is not None
+        assert parsed.release == (9, 9, 1, 1)
+
+    def test_an_interim_release_outranks_its_base(self) -> None:
+        """`9.1(7)` is the base; `9.1(7.245)` is a build on top of it, so it is later."""
+        assert compare(v("9.1(7)", "cisco_asa"), v("9.1(7.245)", "cisco_asa")) is Ordering.LESS
+
+    def test_the_plain_bracketed_forms_are_unchanged(self) -> None:
+        """The shapes that already worked must keep their exact parse.
+
+        Widening the pattern is only safe if it does not re-interpret the versions the
+        estate is actually running.
+        """
+        assert v("9.18(2)", "cisco_asa").release == (9, 18, 2)
+        assert v("10.3(4a)", "cisco_nxos").release == (10, 3, 4)
+        assert v("10.3(4a)", "cisco_nxos").rebuild == ("a",)
+        assert v("9.12(4)56", "cisco_asa").release == (9, 12, 4)
+        assert v("9.12(4)56", "cisco_asa").rebuild == (56,)
+
+    def test_a_train_letter_still_wins_over_the_bracketed_reading(self) -> None:
+        """`15.2(7)E3` must stay IOS with a train, not become a bracketed ASA release."""
+        parsed = v("15.2(7)E3", "cisco_ios")
+
+        assert parsed.scheme is Scheme.IOS
+        assert parsed.train == "E"
+
     def test_ios_is_deliberately_excluded_from_this(self) -> None:
         """The IOS train letter is meaning, not notation.
 
