@@ -18,12 +18,21 @@ published, so a device whose version could not be read would match every IOS adv
 the database. :func:`software_cpe` returns None when the version is unknown, and the
 matcher reports the device as unassessable rather than catastrophically vulnerable.
 
-**What is not yet verified.** The product strings here are written from the CPE naming
-convention and have *not* been checked against a real NVD dictionary — there is no feed
-data in the repository to check them against. :func:`unverified_products` exists so the
-feed-ingestion slice can do exactly that once it has the dictionary, and
-`test_vuln_cpe.py::TestProductNamesAreVerifiedWhenFeedsLand` records the obligation.
-Treat every entry as provisional until then.
+**Verified against the dictionary on 2026-09-19.** Every string in :data:`PRODUCTS` was
+queried against the live NVD CPE API. Eleven matched, with counts from 71 entries
+(`fortinet:fortiauthenticator`) to 6,474 (`cisco:ios`). Two did not exist and have been
+moved to :data:`NO_DICTIONARY_ENTRY`:
+
+* `checkpoint:security_management` — NVD has no product for the Check Point management
+  server. Its Check Point catalogue runs to `security_gateway`, `provider-1`,
+  `firewall-1` and `vpn-1`, none of which is the management server, and picking the
+  nearest would file management-plane CVEs against the gateway.
+* `shrubbery:tac_plus` — there is no `shrubbery` vendor. `tac_plus` exists only as
+  `cisco:tac_plus` and `facebook:tac_plus`, which are separate forks of the daemon with
+  their own version schemes; a config alone does not say which fork produced it.
+
+Both were silently matching nothing before, which is the failure this module opens by
+describing. They now match nothing *visibly*, which is the point of the distinction.
 """
 
 from __future__ import annotations
@@ -63,8 +72,9 @@ class ProductName:
 
 #: Platform (as the parser registry spells it) to its CPE vendor and product.
 #:
-#: Provisional — see the module docstring. Each entry is the name the CPE dictionary is
-#: expected to use, and a platform missing from here deliberately produces no CPE.
+#: Every entry verified against the live NVD dictionary — see the module docstring. A
+#: platform missing from here deliberately produces no CPE, and one whose product does
+#: not exist in the dictionary belongs in :data:`NO_DICTIONARY_ENTRY` rather than here.
 PRODUCTS: Final[dict[str, ProductName]] = {
     "cisco_ios": ProductName(Part.OS, "cisco", "ios"),
     "cisco_iosxe": ProductName(Part.OS, "cisco", "ios_xe"),
@@ -78,9 +88,27 @@ PRODUCTS: Final[dict[str, ProductName]] = {
     "fortios": ProductName(Part.OS, "fortinet", "fortios"),
     "fortiauthenticator": ProductName(Part.APPLICATION, "fortinet", "fortiauthenticator"),
     "checkpoint_gaia": ProductName(Part.OS, "checkpoint", "gaia_os"),
-    "checkpoint_mgmt": ProductName(Part.APPLICATION, "checkpoint", "security_management"),
     "freeradius": ProductName(Part.APPLICATION, "freeradius", "freeradius"),
-    "tac_plus": ProductName(Part.APPLICATION, "shrubbery", "tac_plus"),
+}
+
+#: Platforms NetSecOps parses that the NVD dictionary has no product for, and why.
+#:
+#: Separate from simply being absent from :data:`PRODUCTS`, which would look like an
+#: oversight. These were checked, and the honest answer is that no identifier exists —
+#: so software CPE matching cannot run for them and the name fallback in the matcher is
+#: all there is. Recorded rather than guessed, because a guess produces a confident
+#: clean bill of health and an absence produces a visible gap.
+NO_DICTIONARY_ENTRY: Final[dict[str, str]] = {
+    "checkpoint_mgmt": (
+        "NVD has no product for the Check Point management server. Its catalogue covers "
+        "security_gateway, provider-1, firewall-1 and vpn-1, and filing management-plane "
+        "CVEs against the gateway would attribute them to the wrong device."
+    ),
+    "tac_plus": (
+        "There is no `shrubbery` vendor in NVD. `tac_plus` exists as cisco:tac_plus and "
+        "facebook:tac_plus, separate forks with their own version schemes, and a parsed "
+        "config does not say which fork produced it."
+    ),
 }
 
 #: Hardware CPEs are per vendor, not per platform: the model string is the product.
@@ -185,6 +213,30 @@ def hardware_cpe(ncm: NormalisedConfig) -> Cpe | None:
     The version component is `-` (NA) rather than `*` (ANY): a chassis has no software
     version, and saying "not applicable" is a different claim from "any", which would
     make the identifier match hardware entries it should not.
+
+    **Coverage is partial, and cannot be made complete.** Unlike :data:`PRODUCTS`, whose
+    eleven strings were chosen and are verified, the product here is whatever the parser
+    read off the device — an unbounded set, one entry per chassis a customer owns. Eight
+    real model strings checked against the NVD dictionary on 2026-09-19:
+
+    * `C9300-48P`, `PA-3220`, `PA-850` — matched exactly.
+    * `FortiGate-100F` — NVD writes `fortigate_100f`. Punctuation only.
+    * `ASA5525` — NVD writes `asa_5525-x`. Not punctuation: the device reports a shorter
+      part number than the dictionary's, and closing that needs product knowledge.
+    * `WS-C2960X-48FPD-L`, `Nexus9000 C93180YC-EX` — NVD has no entry at all, for any
+      spelling. Not a miss to fix.
+
+    No single normalisation helps: `pa-3220` matches *keeping* its hyphen while
+    `fortigate_100f` needs an underscore, so a rule that fixes Fortinet breaks Palo Alto.
+    A punctuation-insensitive comparison in :func:`same_product` would cover both and is
+    the obvious candidate, but it widens identity matching for every CPE in the system
+    and is not worth doing on eight samples without deciding it deliberately.
+
+    What this means in practice: a chassis advisory is matched where the device's own
+    model string is what NVD calls the box, and is silently not matched otherwise. The
+    failure direction is safe — an unmatched model produces no finding rather than a
+    wrong one — but it is a coverage gap, not a solved problem, and
+    `GET /vulnerabilities/cpe-coverage` is where an operator should be able to see it.
     """
     vendor = HARDWARE_VENDORS.get((ncm.device.vendor or "").strip().lower())
     model = (ncm.device.model or "").strip()
@@ -254,9 +306,11 @@ def unverified_products() -> dict[str, str]:
     """Every CPE product string this module will emit, for checking against a real
     dictionary.
 
-    The feed-ingestion slice calls this once it holds the NVD CPE dictionary and reports
-    any entry with no match. Until then every name here is provisional, and this function
-    is the list of what has to be confirmed.
+    Named for the state it was written in. All of these have since been confirmed
+    against the live NVD dictionary — see the module docstring — and the two that had no
+    entry were moved to :data:`NO_DICTIONARY_ENTRY`. The function stays because the
+    dictionary is not fixed: a vendor rename or a product NVD retires would put an entry
+    back in the state this was built to find, and re-running it is how that is noticed.
     """
     return {
         platform: f"{name.vendor}:{name.product}" for platform, name in sorted(PRODUCTS.items())
@@ -265,6 +319,7 @@ def unverified_products() -> dict[str, str]:
 
 __all__ = [
     "HARDWARE_VENDORS",
+    "NO_DICTIONARY_ENTRY",
     "PRODUCTS",
     "Cpe",
     "Part",

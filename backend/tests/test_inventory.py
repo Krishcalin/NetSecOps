@@ -407,6 +407,102 @@ class TestCredentialVault:
             await credentials.assign(credential, actor=actor)
 
 
+class TestReadingAssignments:
+    """FR-CRED-04 — a binding that cannot be enumerated cannot be revoked.
+
+    `unassign` takes an assignment id, and until this existed nothing emitted one except
+    the response to the POST that created it. So an assignment made last month could not
+    be withdrawn at all, and "which devices does this credential reach?" — the first
+    question asked when a credential is suspected of being compromised — had no answer.
+    """
+
+    async def test_it_reports_both_device_and_group_bindings(
+        self,
+        credentials: CredentialService,
+        inventory: InventoryService,
+        actor: Principal,
+        session: AsyncSession,
+    ) -> None:
+        group = await make_group(session, name="read-assign-group")
+        device = await inventory.create_device(mgmt_ip="192.0.2.61", actor=actor)
+        credential = await credentials.create(
+            name="reachable",
+            credential_type=CredentialType.SSH_PASSWORD,
+            secret_data={"username": "ro", "password": "p"},
+            actor=actor,
+        )
+        await credentials.assign(credential, group_id=group.id, actor=actor)
+        await credentials.assign(credential, device_id=device.id, actor=actor)
+
+        rows = await credentials.assignments(credential)
+
+        assert {r.device_id for r in rows} == {device.id, None}
+        assert {r.group_id for r in rows} == {group.id, None}
+
+    async def test_device_bindings_are_listed_before_inherited_ones(
+        self,
+        credentials: CredentialService,
+        inventory: InventoryService,
+        actor: Principal,
+        session: AsyncSession,
+    ) -> None:
+        """The list reads as the fallback order it governs, not an arbitrary set."""
+        group = await make_group(session, name="order-group")
+        device = await inventory.create_device(mgmt_ip="192.0.2.62", actor=actor)
+        credential = await credentials.create(
+            name="ordered",
+            credential_type=CredentialType.SSH_PASSWORD,
+            secret_data={"username": "ro", "password": "p"},
+            actor=actor,
+        )
+        await credentials.assign(credential, group_id=group.id, actor=actor)
+        await credentials.assign(credential, device_id=device.id, actor=actor)
+
+        rows = await credentials.assignments(credential)
+
+        assert rows[0].device_id == device.id, "the inherited binding was listed first"
+
+    async def test_another_credentials_bindings_are_not_included(
+        self,
+        credentials: CredentialService,
+        inventory: InventoryService,
+        actor: Principal,
+    ) -> None:
+        device = await inventory.create_device(mgmt_ip="192.0.2.63", actor=actor)
+        mine = await credentials.create(
+            name="mine",
+            credential_type=CredentialType.SSH_PASSWORD,
+            secret_data={"username": "a", "password": "p"},
+            actor=actor,
+        )
+        theirs = await credentials.create(
+            name="theirs",
+            credential_type=CredentialType.SSH_PASSWORD,
+            secret_data={"username": "b", "password": "p"},
+            actor=actor,
+        )
+        await credentials.assign(theirs, device_id=device.id, actor=actor)
+
+        assert await credentials.assignments(mine) == []
+
+    async def test_an_unassigned_credential_reports_nothing(
+        self, credentials: CredentialService, actor: Principal
+    ) -> None:
+        """Which is the state a credential is in immediately after being stored.
+
+        It reaches no device until it is bound, and a job against one of those devices
+        fails with "no credential is assigned" rather than with an auth error.
+        """
+        credential = await credentials.create(
+            name="unbound",
+            credential_type=CredentialType.SSH_PASSWORD,
+            secret_data={"username": "ro", "password": "p"},
+            actor=actor,
+        )
+
+        assert await credentials.assignments(credential) == []
+
+
 class TestCredentialResolution:
     """FR-CRED-04 — device assignments win; group ones are inherited."""
 

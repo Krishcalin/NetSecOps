@@ -19,9 +19,20 @@ called four Cisco names wrong purely because the corpus holds two advisories; Ci
 publishes for hundreds of products, so holding two of them contradicts nothing. That
 report is worse than no report: an operator chases it, finds nothing, and stops reading.
 
-The real failure is narrower and this targets it: ``nx-os`` where NVD writes ``nx_os`` is
-not a gap in the corpus, it is one of the two being wrong. So a contradiction requires the
-same name under different **punctuation**, and anything else is *no evidence*.
+The real failure is narrower and this targets it: a name written one way where NVD writes
+it another — ``foo-bar`` against ``foo_bar`` — is not a gap in the corpus, it is one of the
+two being wrong. So a contradiction requires the same name under different
+**punctuation**, and anything else is *no evidence*.
+
+(This used to illustrate that with ``nx-os`` against NVD's ``nx_os``. The dictionary was
+queried on 2026-09-19 and NVD writes ``nx-os``, so the example asserted the opposite of
+the truth about a mapping that is correct. Replaced with a neutral one.)
+
+**What this method cannot find**, and the reason it is not the only check: a product name
+that nothing has ever published reads as *no evidence*, which is the same answer as a
+name that is right but uncovered. Two entries were wrong that way — see
+:data:`~netsecops.vuln.cpe.NO_DICTIONARY_ENTRY` — and only a direct dictionary query
+found them. This corroborates against the corpus; it does not confirm existence.
 
 Not string similarity, which was the second attempt and also wrong: ``ios_xe`` and
 ``ios_xr`` score 0.8 against each other and are different operating systems. Vendors name

@@ -50,18 +50,29 @@ def affected(
     kind=ConstraintKind.RANGE,
     introduced=None,
     fixed=None,
+    last_affected=None,
     version=None,
     vendor="Cisco",
     product="IOS",
     cpe=None,
+    train=None,
 ) -> AffectedProduct:
+    # `train` is accepted and ignored; it documents at the call site that a bound like
+    # `15.2(7)E6` is on the same IOS train as the device under test, which is what makes
+    # the two comparable at all.
+    del train
     return AffectedProduct(
         vendor=vendor,
         product=product,
         cpe=cpe,
         product_id="CSAFPID-0001",
         constraint=VersionConstraint(
-            kind=kind, raw=raw, introduced=introduced, fixed=fixed, version=version
+            kind=kind,
+            raw=raw,
+            introduced=introduced,
+            fixed=fixed,
+            last_affected=last_affected,
+            version=version,
         ),
     )
 
@@ -90,6 +101,147 @@ class TestVersionMatching:
 
         assert result.confidence is Confidence.CONFIRMED
         assert "15.2(7)E3" in result.reasoning[0]
+
+    def test_the_last_affected_release_is_itself_affected(self) -> None:
+        """`versionEndIncluding` names a release that *is* vulnerable.
+
+        NVD publishes this bound wherever a vendor never shipped a fix, so the devices it
+        covers are the ones with nowhere to upgrade to. It was marked unparsed because
+        the model had only an exclusive `fixed`, and storing it there would have reported
+        every device on the named release as patched.
+        """
+        result = match(
+            device(version="15.2(7)E6"),
+            advisory(
+                affected(
+                    "<=15.2(7)E6",
+                    last_affected="15.2(7)E6",
+                    train="E",
+                )
+            ),
+        )
+
+        assert result.confidence is Confidence.CONFIRMED
+
+    def test_a_release_after_the_last_affected_one_is_clear(self) -> None:
+        result = match(
+            device(version="15.2(7)E9"),
+            advisory(affected("<=15.2(7)E6", last_affected="15.2(7)E6", train="E")),
+        )
+
+        assert result.confidence is Confidence.NOT_AFFECTED
+
+    def test_an_inclusive_bound_is_not_read_as_an_exclusive_one(self) -> None:
+        """The specific regression, stated as the difference between the two fields.
+
+        Same advisory text, same device, one field apart: on `fixed` the device is
+        reported patched, on `last_affected` it is reported vulnerable. Only the second
+        is what the vendor said.
+        """
+        on_the_boundary = device(version="15.2(7)E6")
+
+        as_fixed = match(
+            on_the_boundary, advisory(affected("<15.2(7)E6", fixed="15.2(7)E6", train="E"))
+        )
+        as_last_affected = match(
+            on_the_boundary,
+            advisory(affected("<=15.2(7)E6", last_affected="15.2(7)E6", train="E")),
+        )
+
+        assert as_fixed.confidence is Confidence.NOT_AFFECTED
+        assert as_last_affected.confidence is Confidence.CONFIRMED
+
+    def test_a_lower_bound_still_applies_alongside_it(self) -> None:
+        """`>=7.1.0 <=7.1.26` is the shape NVD actually publishes."""
+        inside = match(
+            device(platform="fortios", vendor="fortinet", version="7.1.10"),
+            advisory(
+                affected(
+                    ">=7.1.0 <=7.1.26",
+                    introduced="7.1.0",
+                    last_affected="7.1.26",
+                    vendor="fortinet",
+                    product="fortios",
+                )
+            ),
+        )
+        below = match(
+            device(platform="fortios", vendor="fortinet", version="7.0.9"),
+            advisory(
+                affected(
+                    ">=7.1.0 <=7.1.26",
+                    introduced="7.1.0",
+                    last_affected="7.1.26",
+                    vendor="fortinet",
+                    product="fortios",
+                )
+            ),
+        )
+
+        assert inside.confidence is Confidence.CONFIRMED
+        assert below.confidence is Confidence.NOT_AFFECTED
+
+    def test_a_product_named_without_versions_says_so(self) -> None:
+        """NVD's `-` version component, which is 150 statements in a 1,000-record sample.
+
+        The verdict is unevaluated and stays there: reading "no version information" as
+        "every version" would confirm a 2013 advisory against a release shipped a decade
+        later, and those statements skew old. Only the explanation changes — it used to
+        print the CPE as though it were a range the parser had choked on, which sends a
+        reader hunting for a parser bug rather than reading the advisory.
+        """
+        entry = AffectedProduct(
+            vendor="cisco",
+            product="adaptive_security_appliance_software",
+            cpe="cpe:2.3:o:cisco:adaptive_security_appliance_software:-:*:*:*:*:*:*:*",
+            product_id="nvd-1",
+            constraint=VersionConstraint(
+                kind=ConstraintKind.UNPARSED,
+                raw="cpe:2.3:o:cisco:adaptive_security_appliance_software:-:*:*:*:*:*:*:*",
+            ),
+        )
+        result = match(
+            appliance(vendor="cisco", platform="cisco_asa", version="9.18(2)", model=None),
+            advisory(entry),
+        )
+
+        assert result.confidence is Confidence.NOT_EVALUATED
+        reason = " ".join(result.reasoning)
+        assert "without any version qualification" in reason
+        assert "cpe:2.3:" not in reason, "the CPE was printed as if it were a version range"
+
+    def test_the_bound_survives_storage(self) -> None:
+        """An advisory is matched after a round trip through JSONB, not before it.
+
+        A field the writer forgets is a field the matcher never sees, and the failure is
+        silent and one-directional: an inclusive upper bound that comes back as `None`
+        leaves the range unbounded above, so every release after the last affected one
+        reads as affected. The same class of bug the `_rebuild_product` docstring warns
+        about for `notes_unparsed`.
+        """
+        from netsecops.services.feeds import _affected_json
+        from netsecops.services.vuln_assessment import _rebuild_product
+
+        entry = affected(
+            ">=7.1.0 <=7.1.26",
+            introduced="7.1.0",
+            last_affected="7.1.26",
+            vendor="fortinet",
+            product="fortios",
+        )
+
+        restored = _rebuild_product(_affected_json(entry))
+
+        assert restored.constraint.last_affected == "7.1.26"
+        assert restored.constraint.fixed is None, "an inclusive bound became an exclusive one"
+
+    def test_an_unreadable_last_affected_bound_refuses_rather_than_guesses(self) -> None:
+        result = match(
+            device(version="15.2(7)E3"),
+            advisory(affected("<=whenever", last_affected="whenever", train="E")),
+        )
+
+        assert result.confidence is Confidence.NOT_EVALUATED
 
     def test_the_fixed_release_itself_is_not_affected(self) -> None:
         """`fixed` is exclusive — the release containing the fix is the safe one.
@@ -137,6 +289,139 @@ class TestVersionMatching:
 
         assert result.confidence is Confidence.NOT_AFFECTED
         assert "no product matching" in result.reasoning[0]
+
+
+# ═════════════════════════ the appliance is the product ══════════════════════
+
+
+def appliance(*, vendor="paloalto", platform="panos", version="10.2.3", model="PA-3220"):
+    """A firewall, which is both an operating system and a box.
+
+    Vendor advisories routinely scope to the chassis rather than to the software — the
+    flaw is in a crypto accelerator, a management port, a bootloader — and NVD records
+    that as a hardware CPE marked `vulnerable: true`. Nothing else in the estate is
+    identified two ways like this, which is why it has its own section.
+    """
+    ncm = NormalisedConfig()
+    ncm.device.vendor = vendor
+    ncm.device.platform = platform
+    ncm.device.version = version
+    ncm.device.model = model
+    return ncm
+
+
+def hardware_entry(cpe: str) -> AffectedProduct:
+    """An affected-hardware statement, shaped as `parse_nvd_feed` produces one.
+
+    The constraint is UNPARSED because the CPE's version component is `-` (NA): a
+    chassis has no software version, so there is no range to read.
+    """
+    return AffectedProduct(
+        vendor="paloaltonetworks",
+        product="pa-3220",
+        cpe=cpe,
+        product_id="nvd-hw-1",
+        constraint=VersionConstraint(kind=ConstraintKind.UNPARSED, raw=cpe),
+    )
+
+
+def vendor_hardware_entry(cpe: str) -> AffectedProduct:
+    """The same claim as a vendor states it, with an interpretable scope.
+
+    Used wherever a test needs to assert *not affected*: the NVD shape above carries an
+    unreadable range, which correctly blocks any clean verdict, so it can only ever
+    demonstrate "cannot tell".
+    """
+    return AffectedProduct(
+        vendor="paloaltonetworks",
+        product="pa-3220",
+        cpe=cpe,
+        product_id="psirt-1",
+        constraint=VersionConstraint(kind=ConstraintKind.ALL, raw="*"),
+    )
+
+
+PA_3220 = "cpe:2.3:h:paloaltonetworks:pa-3220:-:*:*:*:*:*:*:*"
+
+
+class TestHardwareIsMatchedToo:
+    """FireMon parses the config and knows the model, and never turns it into exposure.
+
+    The gap here was worse than not answering: an advisory naming the chassis failed
+    product identity on the CPE part alone (`h` against the device's `o`), left nothing
+    applicable, and — the advisory being fully interpreted — was reported **not
+    affected**. That verdict is the one that *resolves* an open finding, so a hardware
+    advisory did not merely go unnoticed, it closed the record of itself.
+    """
+
+    def test_an_advisory_naming_this_chassis_is_matched(self) -> None:
+        result = match(appliance(), advisory(hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.CONFIRMED
+        assert "PA-3220" in " ".join(result.reasoning)
+
+    def test_a_vendor_advisory_on_this_chassis_is_not_reported_clean(self) -> None:
+        """The dangerous half, and the reason this is a defect rather than a gap.
+
+        NVD writes a chassis CPE's version as `-`, which reads as an unparseable range
+        and leaves the advisory not fully interpreted — so the old code answered "cannot
+        tell", which is merely unhelpful. A vendor advisory states its scope in a form
+        that *is* interpretable, so the same identity miss produced **not affected** on
+        the exact model named — and that is the verdict that closes an open finding.
+        """
+        result = match(appliance(), advisory(vendor_hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.CONFIRMED
+
+    def test_a_different_chassis_is_not_matched(self) -> None:
+        result = match(appliance(model="PA-5220"), advisory(vendor_hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.NOT_AFFECTED
+
+    def test_a_device_with_no_model_is_not_matched(self) -> None:
+        """Absent is not false. A device whose model was never collected is not a match.
+
+        Matching it on vendor alone would attach every Palo Alto chassis advisory to
+        every Palo Alto device — which is the failure this whole engine exists to avoid,
+        pointed the other way.
+        """
+        result = match(appliance(model=None), advisory(vendor_hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.NOT_AFFECTED
+
+    def test_the_nvd_shape_never_clears_a_device(self) -> None:
+        """NVD writes a chassis version as `-`, which is not a range anyone can read.
+
+        So even a device that is plainly a different model cannot be *cleared* by such
+        an advisory — it is reported as unevaluated. That is the fully-interpreted rule
+        doing its job, and it is why the assertions above use the vendor shape.
+        """
+        result = match(appliance(model="PA-5220"), advisory(hardware_entry(PA_3220)))
+
+        assert result.confidence is Confidence.NOT_EVALUATED
+
+    def test_the_software_version_is_irrelevant_to_a_chassis_advisory(self) -> None:
+        """A hardware flaw is not fixed by an upgrade, so no version clears it."""
+        for version in ("8.1.0", "10.2.3", "11.9.9"):
+            result = match(appliance(version=version), advisory(hardware_entry(PA_3220)))
+            assert result.confidence is Confidence.CONFIRMED, version
+
+    def test_an_os_advisory_still_matches_on_the_os(self) -> None:
+        """The hardware path must not displace the one that already worked."""
+        result = match(
+            appliance(version="10.2.3"),
+            advisory(
+                affected(
+                    "<10.2.9",
+                    fixed="10.2.9",
+                    vendor="paloaltonetworks",
+                    product="pan-os",
+                    cpe="cpe:2.3:o:paloaltonetworks:pan-os:*:*:*:*:*:*:*:*",
+                )
+            ),
+        )
+
+        assert result.confidence is Confidence.CONFIRMED
 
 
 # ══════════════════════ the verdicts that exist to be honest ═════════════════

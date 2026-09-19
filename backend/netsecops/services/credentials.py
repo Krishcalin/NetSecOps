@@ -392,6 +392,33 @@ class CredentialService:
         )
         return assignment
 
+    async def assignments(self, credential: Credential) -> Sequence[CredentialAssignment]:
+        """Where this credential is bound (FR-CRED-04).
+
+        A read path exists because ``unassign`` needs an assignment id and nothing else
+        emitted one: an assignment that cannot be enumerated cannot be revoked, and
+        "which devices does this credential reach?" is the first question asked when one
+        is suspected of being compromised.
+
+        Ordered the way the resolver tries them — device-level before inherited group
+        ones, then by priority — so the list reads as the fallback order it governs
+        rather than as an arbitrary set.
+        """
+        return (
+            (
+                await self.session.execute(
+                    select(CredentialAssignment)
+                    .where(CredentialAssignment.credential_id == credential.id)
+                    .order_by(
+                        CredentialAssignment.device_id.is_(None),
+                        CredentialAssignment.priority,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+
     async def unassign(self, assignment_id: uuid.UUID, *, actor: Principal) -> None:
         assignment = (
             await self.session.execute(

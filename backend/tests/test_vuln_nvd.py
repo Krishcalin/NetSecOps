@@ -17,7 +17,6 @@ from pathlib import Path
 import pytest
 
 from netsecops.ncm.models import NormalisedConfig
-from netsecops.vuln.advisory import ConstraintKind
 from netsecops.vuln.matcher import Confidence, match
 from netsecops.vuln.nvd import parse_nvd_feed
 
@@ -92,21 +91,42 @@ class TestVersionEndIncluding:
     9.18.3 as patched, which is precisely the population most at risk.
     """
 
-    def test_it_is_not_stored_as_a_fixed_release(self, advisories) -> None:
+    def test_it_is_never_stored_as_a_fixed_release(self, advisories) -> None:
+        """The invariant this class exists for, and it does not move.
+
+        It now lands in `last_affected`, an inclusive bound of its own, rather than being
+        refused outright — but the one mapping that must never happen is still the one
+        that never happens.
+        """
         entry = advisories["CVE-2024-20359"].affected[0]
 
         assert entry.constraint.fixed is None
-        assert entry.constraint.kind is ConstraintKind.UNPARSED
+        assert entry.constraint.last_affected == "9.18.3"
         assert "<=9.18.3" in entry.constraint.raw, "the operator must see the real bound"
 
-    def test_a_device_on_that_version_is_not_cleared(self, advisories) -> None:
+    def test_a_device_on_that_version_is_reported_affected(self, advisories) -> None:
+        """It used to be reported unevaluated, which was safe and unhelpful.
+
+        9.18.3 is named as affected and no fix exists, so the honest answer is that the
+        device is vulnerable — and it is the population most at risk, because there is
+        nowhere to upgrade to.
+        """
         result = match(asa("9.18(3)"), advisories["CVE-2024-20359"])
 
-        assert result.confidence is not Confidence.NOT_AFFECTED
-        assert result.confidence is Confidence.NOT_EVALUATED
+        assert result.confidence is Confidence.CONFIRMED
 
-    def test_the_advisory_knows_it_is_not_fully_interpreted(self, advisories) -> None:
-        assert advisories["CVE-2024-20359"].fully_interpreted is False
+    def test_a_later_release_is_cleared(self, advisories) -> None:
+        result = match(asa("9.18(4)"), advisories["CVE-2024-20359"])
+
+        assert result.confidence is Confidence.NOT_AFFECTED
+
+    def test_the_advisory_is_now_fully_interpreted(self, advisories) -> None:
+        """Which is what lets it clear a device at all.
+
+        While the bound was unparsed this advisory could rule a device *in* and never
+        *out*, so an ASA on a later release stayed on the list for ever.
+        """
+        assert advisories["CVE-2024-20359"].fully_interpreted is True
 
 
 class TestCompoundAndPlatformEntries:

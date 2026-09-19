@@ -499,6 +499,7 @@ def _rebuild_product(entry: dict[str, object]) -> AffectedProduct:
             raw=str(constraint.get("raw") or ""),
             introduced=constraint.get("introduced"),
             fixed=constraint.get("fixed"),
+            last_affected=constraint.get("last_affected"),
             version=constraint.get("version"),
         ),
     )

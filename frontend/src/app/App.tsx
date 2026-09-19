@@ -16,6 +16,7 @@ import { DashboardPage } from './DashboardPage';
 import { InventoryPage } from './InventoryPage';
 import { ImportPage } from './ImportPage';
 import { DeviceConfigPage } from './DeviceConfigPage';
+import { CredentialsPage } from './CredentialsPage';
 import { FirewallPage } from './FirewallPage';
 import { AaaPage } from './AaaPage';
 import { FindingsPage } from './FindingsPage';
@@ -92,6 +93,7 @@ export function App() {
               <Route path="inventory" element={<InventoryPage />} />
               <Route path="inventory/import" element={<ImportPage />} />
               <Route path="inventory/:deviceId/config" element={<DeviceConfigPage />} />
+              <Route path="credentials" element={<CredentialsPage />} />
               {/* Both spellings reach the same page: the nav entry has no device yet and
                   offers a picker, while a link from a device goes straight to its rules. */}
               <Route path="inventory/:deviceId/firewall" element={<FirewallPage />} />

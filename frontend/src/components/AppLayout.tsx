@@ -20,6 +20,10 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/' },
   { label: 'Inventory', to: '/inventory', permission: 'device:read' },
+  // Directly below Inventory because it is the other half of reaching a device: an
+  // inventory entry with no credential assigned to it fails its job before a single
+  // command is sent, and that is the first thing a new deployment hits.
+  { label: 'Credentials', to: '/credentials', permission: 'credential:read' },
   { label: 'Assessments', to: '/jobs', permission: 'job:read' },
   { label: 'Findings', to: '/findings', permission: 'finding:read' },
   { label: 'Vulnerabilities', to: '/vulnerabilities', permission: 'vuln:read' },

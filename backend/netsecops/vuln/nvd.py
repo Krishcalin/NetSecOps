@@ -206,16 +206,18 @@ def _node(node: dict[str, Any], advisory: Advisory) -> None:
 def _constraint(criteria: dict[str, Any], cpe: str) -> VersionConstraint:
     """Turn NVD's four version bounds into a constraint.
 
-    Two of the four cannot be represented exactly, and are marked unparsed rather than
-    shifted by a release:
+    ``versionEndIncluding`` now has a home of its own. The named release *is* affected,
+    so it is not the fixed one, and storing it as ``fixed`` would report every device on
+    it as patched — the dangerous direction. It was marked unparsed for that reason,
+    which was safe and expensive: NVD uses it wherever a vendor never shipped a fix, and
+    it accounted for roughly a fifth of the unevaluated verdicts in a thousand-record
+    sample. It maps to ``last_affected``, an inclusive upper bound the matcher compares
+    with ``>`` rather than ``>=``.
 
-    * ``versionStartExcluding`` — an exclusive lower bound, where the model's is
-      inclusive. Treating them as the same pulls in one release that is not affected.
-    * ``versionEndIncluding`` — the named release *is* affected, so it is not the fixed
-      one. Storing it as ``fixed`` would report every device on it as patched.
-
-    That second one is the dangerous direction, and it is common: NVD uses
-    ``versionEndIncluding`` wherever a vendor never shipped a fix.
+    ``versionStartExcluding`` is still marked unparsed. It is an exclusive lower bound
+    where the model's is inclusive, and treating them as the same pulls in one release
+    that is not affected — the safe direction, but still wrong, and rarer than the case
+    above. It needs its own field for the same reason this one did.
     """
     start_including = criteria.get("versionStartIncluding")
     start_excluding = criteria.get("versionStartExcluding")
@@ -233,15 +235,16 @@ def _constraint(criteria: dict[str, Any], cpe: str) -> VersionConstraint:
         if part
     )
 
-    if start_excluding or end_including:
+    if start_excluding:
         return VersionConstraint(kind=ConstraintKind.UNPARSED, raw=raw or cpe)
 
-    if start_including or end_excluding:
+    if start_including or end_excluding or end_including:
         return VersionConstraint(
             kind=ConstraintKind.RANGE,
             raw=raw,
             introduced=str(start_including) if start_including else None,
             fixed=str(end_excluding) if end_excluding else None,
+            last_affected=str(end_including) if end_including else None,
         )
 
     # No bounds: the version sits in the CPE's own version component.

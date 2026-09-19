@@ -43,7 +43,7 @@ import jmespath
 from netsecops.core.logging import get_logger
 from netsecops.ncm.models import NormalisedConfig
 from netsecops.vuln.advisory import Advisory, AffectedProduct, ConstraintKind, FeatureCondition
-from netsecops.vuln.cpe import same_product, software_cpe
+from netsecops.vuln.cpe import hardware_cpe, same_product, software_cpe
 from netsecops.vuln.versions import DeviceVersion, Ordering, compare, parse
 
 log = get_logger(__name__)
@@ -124,9 +124,13 @@ def match(ncm: NormalisedConfig, advisory: Advisory, *, platform: str | None = N
 
     device_cpe = software_cpe(ncm, platform=platform)
     device_cpe_text = device_cpe.to_string() if device_cpe else None
+    device_hardware = hardware_cpe(ncm)
+    device_hardware_text = device_hardware.to_string() if device_hardware else None
 
     applicable = [
-        entry for entry in advisory.affected if _names_this_device(entry, ncm, device_cpe_text)
+        entry
+        for entry in advisory.affected
+        if _names_this_device(entry, ncm, device_cpe_text, device_hardware_text)
     ]
     if not applicable:
         return _nothing_applies(outcome, advisory, ncm)
@@ -137,6 +141,16 @@ def match(ncm: NormalisedConfig, advisory: Advisory, *, platform: str | None = N
     unknowns: list[tuple[AffectedProduct, str]] = []
 
     for entry in applicable:
+        if same_product(entry.cpe, device_hardware_text):
+            # The statement is about the chassis, and the chassis is this one. There is
+            # no software version to weigh: a flaw in a crypto accelerator or a
+            # management port is not fixed by an upgrade, and NVD writes the version
+            # component of a hardware CPE as `-` (NA) precisely to say so. Reading that
+            # NA as an unreadable range — which is what happens if this falls through to
+            # the version logic — turns an exact identity match into "cannot tell".
+            hits.append(entry)
+            continue
+
         verdict, why = _version_applies(device_version, entry, platform)
         if verdict is True:
             hits.append(entry)
@@ -145,10 +159,17 @@ def match(ncm: NormalisedConfig, advisory: Advisory, *, platform: str | None = N
 
     if hits:
         outcome.matched = hits[0]
-        outcome.reasoning.append(
-            f"{ncm.device.version} falls within {hits[0].constraint.raw!r}, which "
-            f"{advisory.advisory_id} names as affected."
-        )
+        if same_product(hits[0].cpe, device_hardware_text):
+            outcome.reasoning.append(
+                f"{advisory.advisory_id} names this device's hardware "
+                f"({ncm.device.model}) as affected. A chassis advisory does not depend "
+                "on the software version, and no upgrade closes it."
+            )
+        else:
+            outcome.reasoning.append(
+                f"{ncm.device.version} falls within {hits[0].constraint.raw!r}, which "
+                f"{advisory.advisory_id} names as affected."
+            )
         return _apply_conditions(outcome, advisory, ncm)
 
     if unknowns:
@@ -165,7 +186,10 @@ def match(ncm: NormalisedConfig, advisory: Advisory, *, platform: str | None = N
 
 
 def _names_this_device(
-    entry: AffectedProduct, ncm: NormalisedConfig, device_cpe: str | None
+    entry: AffectedProduct,
+    ncm: NormalisedConfig,
+    device_cpe: str | None,
+    device_hardware: str | None = None,
 ) -> bool:
     """Whether an advisory statement is about this device's product at all.
 
@@ -173,7 +197,26 @@ def _names_this_device(
     and comparing it avoids deciding whether "PAN-OS" and "Palo Alto Networks PAN-OS"
     are the same string. Falling back to vendor and product names is necessary because
     plenty of advisories carry no CPE.
+
+    **A device is two products.** A firewall is an operating system and a chassis, and
+    vendors scope advisories to either. Comparing only the software CPE meant a statement
+    about the chassis failed identity on the CPE part alone — `h` against `o` — and an
+    advisory naming this exact model was reported as naming no product matching this
+    device. Where that advisory was fully interpreted, that verdict is *not affected*,
+    which resolves an open finding: the hardware advisory closed the record of itself.
+
+    Matching hardware is safe here because NVD's contextual "running on" entries never
+    reach this point — `parse_nvd_feed` drops anything not marked `vulnerable: true`, so
+    a hardware CPE that survives is one the publisher says is itself affected.
+
+    The hardware arm is CPE-only, deliberately. Falling back to name comparison would
+    weigh an advisory's product string against `model`, and model strings are written a
+    dozen ways for one box; an over-eager match there attaches every chassis advisory to
+    every device from that vendor.
     """
+    if entry.cpe and device_hardware and same_product(entry.cpe, device_hardware):
+        return True
+
     if entry.cpe and device_cpe:
         return same_product(entry.cpe, device_cpe)
 
@@ -218,6 +261,26 @@ def _version_applies(
     constraint = entry.constraint
 
     if constraint.kind is ConstraintKind.UNPARSED:
+        if constraint.raw.startswith("cpe:2.3:"):
+            # NVD names the product with the version component set to `-` and states no
+            # bounds at all: the whole applicability statement is "this product", with no
+            # version information in it.
+            #
+            # Still unevaluated, and deliberately. Reading the absence of versions as
+            # "every version" would confirm a 2013 advisory against a release shipped a
+            # decade later — every one of the 150 such statements in a thousand-record
+            # sample had no bounds beside it, and they skew old. Absent is not false here
+            # any more than anywhere else.
+            #
+            # What changes is the sentence. It used to print the CPE as though it were a
+            # version range the parser had failed on, which sent a reader looking for a
+            # parser bug instead of at the advisory.
+            return None, (
+                f"{constraint.raw.split(':')[4]} is named as affected without any "
+                "version qualification, so this device cannot be ruled in or out by it. "
+                "Read the advisory to see which releases it covers."
+            )
+
         return None, (
             f"The advisory states its affected versions as {constraint.raw!r}, which "
             "this system cannot interpret. The device may or may not be in that range — "
@@ -261,11 +324,42 @@ def _version_applies(
             # `fixed` is exclusive: the release containing the fix is not affected.
             return False, ""
 
+    if constraint.last_affected is not None:
+        upper = parse(constraint.last_affected, platform=platform)
+        if upper is None:
+            return None, (
+                f"The advisory's last affected release {constraint.last_affected!r} is unreadable."
+            )
+        ordering = compare(device, upper)
+        if ordering is None:
+            return None, _incomparable(device, upper)
+        if ordering is Ordering.GREATER:
+            # Inclusive, and that is the whole point of the field: the named release is
+            # affected, so only something strictly later is clear. Comparing this the way
+            # `fixed` is compared would report every device on the last affected release
+            # as patched — and NVD uses this bound precisely where no fix exists, so
+            # those devices have nowhere to go.
+            return False, ""
+
     return True, ""
 
 
 def _incomparable(device: DeviceVersion, other: DeviceVersion) -> str:
-    """Why two versions could not be ranked, in terms an operator can act on."""
+    """Why two versions could not be ranked, in terms an operator can act on.
+
+    The scheme is checked before the train, and the order matters: this used to report a
+    train mismatch whenever the trains differed, which is true of every pair whose
+    schemes differ as well — so a scheme problem was reported for months as a Cisco train
+    problem, and the diagnostic pointed at the wrong rule when somebody finally measured
+    it.
+    """
+    if device.scheme is not other.scheme:
+        return (
+            f"{device.raw} and {other.raw} are versioned on different scales "
+            f"({device.scheme.value} and {other.scheme.value}), so neither is later than "
+            "the other. This usually means the advisory names a different product."
+        )
+
     if device.train != other.train:
         return (
             f"{device.raw} and {other.raw} are on different Cisco release trains "

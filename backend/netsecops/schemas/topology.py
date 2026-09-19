@@ -72,6 +72,12 @@ class PathResponse(BaseModel):
     stopped_at_next_hop: str | None = None
     stopped_at_device: str | None = None
 
+    #: Devices where the packet had more than one equal-cost route and this trace
+    #: followed one of them. Structured beside the note for the same reason
+    #: `stopped_at_*` is: a caveat a UI can render as a branch is one somebody acts on.
+    #: Non-empty implies `policy` is `partially-allowed` rather than `allowed`.
+    branched_at: list[str] = Field(default_factory=list)
+
     #: Read these beside the verdict. A caveat that lives only in a log is one nobody
     #: reads, and most of what makes a path answer trustworthy is in here.
     notes: list[str] = Field(default_factory=list)

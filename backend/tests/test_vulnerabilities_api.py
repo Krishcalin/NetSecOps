@@ -287,17 +287,109 @@ class TestListing:
 
         assert [row["device_id"] for row in rows] == [device_id]
 
-    async def test_kev_only_says_that_the_total_precedes_it(
-        self, client: AsyncClient, estate
-    ) -> None:
-        """The KEV flag is on the CVE row, not the finding, so it filters after paging.
+    async def test_kev_only_returns_an_exact_total(self, client: AsyncClient, estate) -> None:
+        """The KEV flag lives on the CVE row, and the filter is applied in the query.
 
-        The meta says so rather than letting `total` read as a count of the rows shown.
+        It used to be applied to the fetched page, which left the total counting rows
+        the filter then removed — so the pager offered pages that came back empty. That
+        mattered most on the one list an operator opens when something is being
+        exploited right now.
         """
         body = (await client.get(LIST, params={"kev_only": True})).json()
 
         assert [row["kev"] for row in body["data"]] == [True]
-        assert body["meta"]["filtered_after_count"] is True
+        assert body["meta"]["total"] == len(body["data"])
+        assert "filtered_after_count" not in body["meta"]
+
+    async def test_a_second_page_of_kev_results_is_reachable(
+        self, client: AsyncClient, estate
+    ) -> None:
+        """The shape of the old bug, pinned.
+
+        With the filter applied after paging, asking for one row at a time returned the
+        KEV row only when it happened to fall on the page severity ordering put it on;
+        every other page came back empty while the total still promised more.
+        """
+        body = (await client.get(LIST, params={"kev_only": True, "limit": 1})).json()
+
+        assert len(body["data"]) == 1
+        assert body["data"][0]["kev"] is True
+
+
+class TestKnownExploitedOutranksSeverity:
+    """FR-VUL-06 — the argument for ingesting the KEV catalogue at all.
+
+    The list sorted by severity alone, which puts a CVSS 9.8 nobody has ever attacked
+    above a 7.5 under active ransomware use. The README has claimed the opposite
+    ordering since Phase 6; the query did not implement it, and the two indexes added
+    for it (`ix_vuln_cves_kev`, `ix_vuln_cves_epss`) went unused.
+
+    The estate fixture cannot show this on its own — its KEV finding is also its most
+    severe — so this builds the case that separates the two rules.
+    """
+
+    async def test_an_exploited_medium_outranks_a_quiet_critical(
+        self, client: AsyncClient, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        quiet = await add_device(
+            session, principal, ip="10.0.0.4", hostname="sw-quiet-crit", version="15.2(7)E3"
+        )
+        exploited = await add_device(
+            session, principal, ip="10.0.0.5", hostname="sw-exploited-med", version="15.2(7)E3"
+        )
+
+        quiet_advisory = await add_advisory(
+            session, source="nvd", advisory_id="CVE-2026-50001", cve_ids=["CVE-2026-50001"]
+        )
+        exploited_advisory = await add_advisory(
+            session, source="nvd", advisory_id="CVE-2026-50002", cve_ids=["CVE-2026-50002"]
+        )
+        await add_cve(session, cve_id="CVE-2026-50001", score=9.8, kev=False, epss=0.01)
+        await add_cve(session, cve_id="CVE-2026-50002", score=5.3, kev=True, epss=0.92)
+
+        await add_finding(
+            session, quiet, quiet_advisory, confidence="confirmed", severity="critical"
+        )
+        await add_finding(
+            session, exploited, exploited_advisory, confidence="confirmed", severity="medium"
+        )
+        await session.commit()
+
+        rows = (await client.get(LIST, params={"limit": 200})).json()["data"]
+        order = [row["device_id"] for row in rows]
+
+        assert order.index(str(exploited.id)) < order.index(str(quiet.id)), (
+            "a critical nobody is attacking was listed above a medium under active exploitation"
+        )
+
+    async def test_severity_still_orders_within_the_exploited_group(
+        self, client: AsyncClient, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """KEV is the first key, not the only one."""
+        low = await add_device(
+            session, principal, ip="10.0.0.6", hostname="sw-kev-low", version="15.2(7)E3"
+        )
+        high = await add_device(
+            session, principal, ip="10.0.0.7", hostname="sw-kev-high", version="15.2(7)E3"
+        )
+
+        low_advisory = await add_advisory(
+            session, source="nvd", advisory_id="CVE-2026-50003", cve_ids=["CVE-2026-50003"]
+        )
+        high_advisory = await add_advisory(
+            session, source="nvd", advisory_id="CVE-2026-50004", cve_ids=["CVE-2026-50004"]
+        )
+        await add_cve(session, cve_id="CVE-2026-50003", score=3.1, kev=True)
+        await add_cve(session, cve_id="CVE-2026-50004", score=9.1, kev=True)
+
+        await add_finding(session, low, low_advisory, confidence="confirmed", severity="low")
+        await add_finding(session, high, high_advisory, confidence="confirmed", severity="critical")
+        await session.commit()
+
+        rows = (await client.get(LIST, params={"limit": 200})).json()["data"]
+        order = [row["device_id"] for row in rows]
+
+        assert order.index(str(high.id)) < order.index(str(low.id))
 
 
 class TestKevAndEpssNullsSurvive:

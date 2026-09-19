@@ -131,26 +131,83 @@ class VulnViewService:
         if confidence:
             stmt = stmt.where(Finding.evidence["confidence"].astext == confidence)
 
+        if kev_only:
+            # In the query, not after it. Filtering an already-paged list left page two
+            # of a KEV-only request empty whenever the first fifty findings by severity
+            # happened not to be exploited — and reported a total counted before the
+            # filter, so the pager promised rows that could not be reached. That is the
+            # same mistake `_visible` above exists to avoid, and the KEV list is the one
+            # an operator opens when something is being exploited right now.
+            stmt = stmt.where(self._is_kev())
+
         total = int(
             (
                 await self.session.execute(select(func.count()).select_from(stmt.subquery()))
             ).scalar_one()
         )
 
-        order = case(SEVERITY_ORDER, value=Finding.severity, else_=5)
         rows = (
-            await self.session.execute(
-                stmt.order_by(order, Finding.last_seen_at.desc()).limit(limit).offset(offset)
-            )
+            await self.session.execute(stmt.order_by(*self._ranking()).limit(limit).offset(offset))
         ).all()
 
-        enriched = await self._enrich([(finding, device) for finding, device in rows])
-        if kev_only:
-            # Filtered after enrichment because the KEV flag lives on the CVE row, not
-            # on the finding. The total above therefore counts before this filter, and
-            # the caller is told so in the response meta.
-            enriched = [row for row in enriched if row.kev]
-        return enriched, total
+        return await self._enrich([(finding, device) for finding, device in rows]), total
+
+    # ── ranking ──────────────────────────────────────────────────────────
+
+    def _cve_ids_contain(self) -> Any:
+        """Correlate a CVE row to the finding that names it.
+
+        The finding stores its CVEs as a JSONB array on `evidence`, so the join is
+        containment: `'["CVE-1","CVE-2"]'::jsonb @> '"CVE-1"'::jsonb`.
+        """
+        return Finding.evidence["cve_ids"].op("@>")(func.to_jsonb(VulnCve.cve_id))
+
+    def _is_kev(self) -> Any:
+        """Whether any CVE on this finding is in CISA's catalogue."""
+        return (
+            select(VulnCve.id)
+            .where(
+                VulnCve.org_id == self.org_id,
+                VulnCve.kev.is_(True),
+                self._cve_ids_contain(),
+            )
+            .correlate(Finding)
+            .exists()
+        )
+
+    def _max_epss(self) -> Any:
+        """The highest exploit-prediction score across this finding's CVEs.
+
+        Max rather than average: one advisory covering three CVEs is as urgent as its
+        most likely-to-be-exploited member, and averaging would let two quiet CVEs bury
+        an active one.
+        """
+        return (
+            select(func.max(VulnCve.epss))
+            .where(VulnCve.org_id == self.org_id, self._cve_ids_contain())
+            .correlate(Finding)
+            .scalar_subquery()
+        )
+
+    def _ranking(self) -> tuple[Any, ...]:
+        """The order the list is read in (FR-VUL-06).
+
+        **Known-exploited outranks severity**, which is the whole argument for ingesting
+        the KEV catalogue: a CVSS 9.8 nobody has ever attacked and a 7.5 in active
+        ransomware use are not the same work item, and sorting by severity alone puts
+        them the wrong way round. Severity breaks the tie within each group, then EPSS,
+        then recency.
+
+        EPSS sorts nulls last rather than as zero. An unscored CVE is one FIRST has not
+        modelled, which for something published last week is precisely the opposite of
+        "almost certainly not exploited".
+        """
+        return (
+            self._is_kev().desc(),
+            case(SEVERITY_ORDER, value=Finding.severity, else_=5),
+            self._max_epss().desc().nullslast(),
+            Finding.last_seen_at.desc(),
+        )
 
     async def _enrich(self, rows: Sequence[tuple[Finding, Device]]) -> list[VulnerabilityRead]:
         """Attach advisory text and CVE scoring to a page of findings.

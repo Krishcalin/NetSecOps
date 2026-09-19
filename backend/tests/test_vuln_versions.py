@@ -180,6 +180,38 @@ class TestIncomparable:
     def test_a_trunk_release_is_not_ordered_against_a_branch(self) -> None:
         assert compare(v("15.2(4)", "cisco_ios"), v("15.2(4)M5", "cisco_ios")) is None
 
+    def test_a_train_only_blocks_comparison_within_its_own_release_family(self) -> None:
+        """Trains are branches *of a release*, not free-floating labels.
+
+        15.2(7)E3 and 15.2(4)M5 are two branches of 15.2 and genuinely have no ordering.
+        12.0 is not a branch of anything 15.2 — it is six major releases earlier, and no
+        train discipline makes those two unorderable.
+
+        Refusing across families cost more than anything else in the engine: against a
+        thousand real NVD records, a Cisco IOS device could not rule out a single
+        advisory — 95% unevaluated, 0% not-affected. Every one of the 693 refused
+        comparisons in that sample was cross-family like this one; not one was inside
+        15.2, where the refusal is correct and is kept by the tests above.
+        """
+        assert compare(v("15.2(7)E3", "cisco_ios"), v("12.0", "cisco_ios")) is Ordering.GREATER
+        assert compare(v("12.0", "cisco_ios"), v("15.2(7)E3", "cisco_ios")) is Ordering.LESS
+
+    def test_cross_family_ordering_holds_across_trains(self) -> None:
+        """Two named trains, different families. The numbers decide."""
+        assert compare(v("15.2(7)E3", "cisco_ios"), v("12.4(24)T", "cisco_ios")) is Ordering.GREATER
+        assert compare(v("15.1(2)SY7", "cisco_ios"), v("15.2(7)E3", "cisco_ios")) is Ordering.LESS
+
+    def test_the_minor_release_is_part_of_the_family(self) -> None:
+        """15.1 and 15.2 are different families, not two takes on "15".
+
+        Comparing only the major number would rank 15.1(2)SY against 15.2(4)M, which are
+        as unrelated as the E and M branches this whole rule protects.
+        """
+        assert (
+            compare(v("15.2(7)E3", "cisco_ios"), v("15.1(2)SY7", "cisco_ios")) is Ordering.GREATER
+        )
+        assert compare(v("15.2(7)E3", "cisco_ios"), v("15.2(4)M5", "cisco_ios")) is None
+
     def test_different_vendors_share_no_scale(self) -> None:
         assert compare(v("7.2.5", "fortios"), v("7.2.5", "cisco_iosxe")) is None
 
@@ -220,6 +252,58 @@ class TestBracketedAndDottedSpellings:
     def test_a_longer_nvd_bound_still_compares(self) -> None:
         """NVD writes `9.12.4.67`; the device says `9.12(4)`. Padding makes them rank."""
         assert compare(v("9.12(4)", "cisco_asa"), v("9.12.4.67", "cisco_asa")) is Ordering.LESS
+
+    def test_an_asa_interim_build_inside_the_bracket_parses(self) -> None:
+        """`9.1(7.245)` is an ordinary ASA interim release, and did not parse at all.
+
+        Found by running a thousand real NVD records through the matcher: the bracketed
+        pattern allowed only a bare integer inside the parentheses, so every ASA advisory
+        stating an interim build returned "cannot parse" and the device could be neither
+        ruled in nor out. Around a third of the unevaluated ASA verdicts in that sample
+        were this one shape.
+        """
+        parsed = v("9.1(7.245)", "cisco_asa")
+
+        assert parsed is not None
+        assert parsed.release == (9, 1, 7, 245)
+
+    def test_an_interim_build_compares_against_the_dotted_spelling(self) -> None:
+        """Which is the whole point: NVD writes the same release as `9.1.7.245`."""
+        assert compare(v("9.1(7.245)", "cisco_asa"), v("9.1.7.245", "cisco_asa")) is Ordering.EQUAL
+
+    def test_interim_builds_order_within_a_maintenance_release(self) -> None:
+        assert compare(v("9.1(7.245)", "cisco_asa"), v("9.1(7.246)", "cisco_asa")) is Ordering.LESS
+        assert compare(v("9.1(7.245)", "cisco_asa"), v("9.1(6.1)", "cisco_asa")) is Ordering.GREATER
+
+    def test_a_three_part_backbone_before_the_bracket_parses(self) -> None:
+        """`9.9.1(1)` appears in NVD's ASA records and matched nothing before."""
+        parsed = v("9.9.1(1)", "cisco_asa")
+
+        assert parsed is not None
+        assert parsed.release == (9, 9, 1, 1)
+
+    def test_an_interim_release_outranks_its_base(self) -> None:
+        """`9.1(7)` is the base; `9.1(7.245)` is a build on top of it, so it is later."""
+        assert compare(v("9.1(7)", "cisco_asa"), v("9.1(7.245)", "cisco_asa")) is Ordering.LESS
+
+    def test_the_plain_bracketed_forms_are_unchanged(self) -> None:
+        """The shapes that already worked must keep their exact parse.
+
+        Widening the pattern is only safe if it does not re-interpret the versions the
+        estate is actually running.
+        """
+        assert v("9.18(2)", "cisco_asa").release == (9, 18, 2)
+        assert v("10.3(4a)", "cisco_nxos").release == (10, 3, 4)
+        assert v("10.3(4a)", "cisco_nxos").rebuild == ("a",)
+        assert v("9.12(4)56", "cisco_asa").release == (9, 12, 4)
+        assert v("9.12(4)56", "cisco_asa").rebuild == (56,)
+
+    def test_a_train_letter_still_wins_over_the_bracketed_reading(self) -> None:
+        """`15.2(7)E3` must stay IOS with a train, not become a bracketed ASA release."""
+        parsed = v("15.2(7)E3", "cisco_ios")
+
+        assert parsed.scheme is Scheme.IOS
+        assert parsed.train == "E"
 
     def test_ios_is_deliberately_excluded_from_this(self) -> None:
         """The IOS train letter is meaning, not notation.

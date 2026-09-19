@@ -31,7 +31,7 @@ from netsecops.core.rbac import Principal, Role, Scope
 from netsecops.db.models import Device, Finding
 from netsecops.db.models.collection import FindingKind, FindingSeverity, FindingStatus, Snapshot
 from netsecops.db.models.inventory import DeviceClass, Vendor
-from netsecops.db.models.vulnerability import VulnMatch
+from netsecops.db.models.vulnerability import VulnAdvisory, VulnMatch
 from netsecops.services.feeds import FeedImportService
 from netsecops.services.inventory import InventoryService
 from netsecops.services.snapshots import SnapshotService
@@ -57,6 +57,10 @@ EOL_BUNDLE = (FEEDS / "eol" / "cisco_asa.json").read_bytes()
 #: `>=9.18.0 <9.18.4` as affected, so this device is inside the range — checked against
 #: the fixture by hand, not read off a run of the matcher.
 AFFECTED_CVE = "CVE-2024-20353"
+#: Both advisories in the bundle that cover 9.18(2). The second states its scope as
+#: `<=9.18.3`, an inclusive upper bound — unreadable until `VersionConstraint` gained
+#: `last_affected`, so this test expected one finding for as long as it was unreadable.
+AFFECTED_CVES = [AFFECTED_CVE, "CVE-2024-20359"]
 #: The release that closes it, per the same NVD record.
 FIXED_VERSION = "9.18.4"
 
@@ -124,10 +128,12 @@ class TestPhase6Acceptance:
         # ── 3. assess ────────────────────────────────────────────────────
         outcome = await assessments.assess_device(device)
 
-        # ── 4. the expected CVE, at the expected confidence ──────────────
+        # ── 4. the expected CVEs, at the expected confidence ─────────────
         confirmed = [m for m in outcome.matches if m.confidence is Confidence.CONFIRMED]
-        assert [m.advisory_id for m in confirmed] == [AFFECTED_CVE], (
-            "9.18(2) is inside >=9.18.0 <9.18.4 and outside every other range in the bundle"
+        assert sorted(m.advisory_id for m in confirmed) == sorted(AFFECTED_CVES), (
+            "9.18(2) is inside >=9.18.0 <9.18.4, and also inside the <=9.18.3 bound that "
+            "CVE-2024-20359 states — an inclusive bound the engine could not read until "
+            "`last_affected` existed, so this expected one finding where there are two"
         )
 
         # ── 5. and a finding somebody can act on ─────────────────────────
@@ -148,11 +154,16 @@ class TestPhase6Acceptance:
         assert "9.18(2)" in finding.description
 
         # ── 6. what to upgrade to (FR-VUL-10) ────────────────────────────
+        # Scoped to the advisory rather than to "the confirmed one": 9.18(2) is inside
+        # two ranges in this bundle, so there is no single confirmed match any more.
         match_row = (
             await session.execute(
-                select(VulnMatch).where(
+                select(VulnMatch)
+                .join(VulnAdvisory, VulnAdvisory.id == VulnMatch.advisory_id)
+                .where(
                     VulnMatch.device_id == device.id,
                     VulnMatch.confidence == Confidence.CONFIRMED.value,
+                    VulnAdvisory.advisory_id == AFFECTED_CVE,
                 )
             )
         ).scalar_one()
