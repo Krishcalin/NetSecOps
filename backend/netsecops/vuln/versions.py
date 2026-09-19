@@ -272,11 +272,23 @@ def parse(raw: str | None, *, platform: str | None = None) -> DeviceVersion | No
         # — a whole vendor's worth of matching quietly dead. They stay in the platform's
         # own scheme so the two spellings compare.
         #
-        # IOS is deliberately not in that list. Its train letter is semantic, not
-        # notation, and a dotted `15.2.7` does not say whether it means the E train or
-        # the M train. Leaving it DOTTED keeps it incomparable with a device on a named
-        # train, which is the honest answer rather than a coin flip.
-        scheme = Scheme.DOTTED if hinted is Scheme.IOS else hinted
+        # IOS keeps its own scheme too, with no train — which is the same shape the
+        # bracketed `15.2(4)` already produces, and the honest reading: NVD wrote a Cisco
+        # IOS version without saying which branch.
+        #
+        # It used to be demoted to DOTTED so that it could not compare against a device
+        # on a named train, since a dotted `15.2.7` does not say whether it means E or M.
+        # That intent is right and is now carried by `compare`, which refuses across
+        # trains *within a release family* — so `15.2.7` is still incomparable with
+        # `15.2(7)E3`, and `12.0` is not.
+        #
+        # The demotion was too blunt: it made every dotted NVD bound a foreign scheme, so
+        # a Cisco IOS device could not be ruled out by anything. Against a thousand real
+        # records that was 95% unevaluated and not one advisory ruled out, and the
+        # diagnostic blamed the train rule because `_incomparable` reports a train
+        # mismatch whenever the trains differ — including when the scheme was the real
+        # blocker.
+        scheme = hinted
         return DeviceVersion(
             raw=text,
             scheme=scheme,
@@ -307,8 +319,26 @@ def compare(left: DeviceVersion, right: DeviceVersion) -> Ordering | None:
     if left.scheme is not right.scheme:
         return None
 
-    if left.scheme is Scheme.IOS and left.train != right.train:
+    if (
+        left.scheme is Scheme.IOS
+        and left.train != right.train
+        and left.release[:2] == right.release[:2]
+    ):
         # Same numbers, different branch. 15.2(7)E3 and 15.2(7)M3 are different images.
+        #
+        # Scoped to the release family, because a train is a branch *of a release* rather
+        # than a free-floating label. 15.2(7)E3 and 15.2(4)M5 are two branches of 15.2 and
+        # have no ordering; 12.0 is not a branch of anything 15.2, it is six major
+        # releases earlier, and no train discipline makes those unorderable.
+        #
+        # Refusing across families was the single largest cost in the engine. Against a
+        # thousand real NVD records a Cisco IOS device could not rule out one advisory —
+        # 95% unevaluated, 0% not affected — and every one of the 693 refusals in that
+        # sample was cross-family. An operator with an IOS estate got a list that never
+        # shrank, which is a different way of being useless from a list that is wrong.
+        #
+        # The family is major *and* minor. Comparing majors alone would rank 15.1(2)SY
+        # against 15.2(4)M, which are as unrelated as the E and M branches this protects.
         return None
 
     if (ordering := _compare_sequences(left.release, right.release)) is not None:

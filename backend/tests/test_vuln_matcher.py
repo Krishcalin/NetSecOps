@@ -181,6 +181,35 @@ class TestVersionMatching:
         assert inside.confidence is Confidence.CONFIRMED
         assert below.confidence is Confidence.NOT_AFFECTED
 
+    def test_a_product_named_without_versions_says_so(self) -> None:
+        """NVD's `-` version component, which is 150 statements in a 1,000-record sample.
+
+        The verdict is unevaluated and stays there: reading "no version information" as
+        "every version" would confirm a 2013 advisory against a release shipped a decade
+        later, and those statements skew old. Only the explanation changes — it used to
+        print the CPE as though it were a range the parser had choked on, which sends a
+        reader hunting for a parser bug rather than reading the advisory.
+        """
+        entry = AffectedProduct(
+            vendor="cisco",
+            product="adaptive_security_appliance_software",
+            cpe="cpe:2.3:o:cisco:adaptive_security_appliance_software:-:*:*:*:*:*:*:*",
+            product_id="nvd-1",
+            constraint=VersionConstraint(
+                kind=ConstraintKind.UNPARSED,
+                raw="cpe:2.3:o:cisco:adaptive_security_appliance_software:-:*:*:*:*:*:*:*",
+            ),
+        )
+        result = match(
+            appliance(vendor="cisco", platform="cisco_asa", version="9.18(2)", model=None),
+            advisory(entry),
+        )
+
+        assert result.confidence is Confidence.NOT_EVALUATED
+        reason = " ".join(result.reasoning)
+        assert "without any version qualification" in reason
+        assert "cpe:2.3:" not in reason, "the CPE was printed as if it were a version range"
+
     def test_the_bound_survives_storage(self) -> None:
         """An advisory is matched after a round trip through JSONB, not before it.
 

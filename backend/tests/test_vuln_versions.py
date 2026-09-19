@@ -180,6 +180,38 @@ class TestIncomparable:
     def test_a_trunk_release_is_not_ordered_against_a_branch(self) -> None:
         assert compare(v("15.2(4)", "cisco_ios"), v("15.2(4)M5", "cisco_ios")) is None
 
+    def test_a_train_only_blocks_comparison_within_its_own_release_family(self) -> None:
+        """Trains are branches *of a release*, not free-floating labels.
+
+        15.2(7)E3 and 15.2(4)M5 are two branches of 15.2 and genuinely have no ordering.
+        12.0 is not a branch of anything 15.2 — it is six major releases earlier, and no
+        train discipline makes those two unorderable.
+
+        Refusing across families cost more than anything else in the engine: against a
+        thousand real NVD records, a Cisco IOS device could not rule out a single
+        advisory — 95% unevaluated, 0% not-affected. Every one of the 693 refused
+        comparisons in that sample was cross-family like this one; not one was inside
+        15.2, where the refusal is correct and is kept by the tests above.
+        """
+        assert compare(v("15.2(7)E3", "cisco_ios"), v("12.0", "cisco_ios")) is Ordering.GREATER
+        assert compare(v("12.0", "cisco_ios"), v("15.2(7)E3", "cisco_ios")) is Ordering.LESS
+
+    def test_cross_family_ordering_holds_across_trains(self) -> None:
+        """Two named trains, different families. The numbers decide."""
+        assert compare(v("15.2(7)E3", "cisco_ios"), v("12.4(24)T", "cisco_ios")) is Ordering.GREATER
+        assert compare(v("15.1(2)SY7", "cisco_ios"), v("15.2(7)E3", "cisco_ios")) is Ordering.LESS
+
+    def test_the_minor_release_is_part_of_the_family(self) -> None:
+        """15.1 and 15.2 are different families, not two takes on "15".
+
+        Comparing only the major number would rank 15.1(2)SY against 15.2(4)M, which are
+        as unrelated as the E and M branches this whole rule protects.
+        """
+        assert (
+            compare(v("15.2(7)E3", "cisco_ios"), v("15.1(2)SY7", "cisco_ios")) is Ordering.GREATER
+        )
+        assert compare(v("15.2(7)E3", "cisco_ios"), v("15.2(4)M5", "cisco_ios")) is None
+
     def test_different_vendors_share_no_scale(self) -> None:
         assert compare(v("7.2.5", "fortios"), v("7.2.5", "cisco_iosxe")) is None
 

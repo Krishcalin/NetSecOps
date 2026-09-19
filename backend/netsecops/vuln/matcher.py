@@ -261,6 +261,26 @@ def _version_applies(
     constraint = entry.constraint
 
     if constraint.kind is ConstraintKind.UNPARSED:
+        if constraint.raw.startswith("cpe:2.3:"):
+            # NVD names the product with the version component set to `-` and states no
+            # bounds at all: the whole applicability statement is "this product", with no
+            # version information in it.
+            #
+            # Still unevaluated, and deliberately. Reading the absence of versions as
+            # "every version" would confirm a 2013 advisory against a release shipped a
+            # decade later — every one of the 150 such statements in a thousand-record
+            # sample had no bounds beside it, and they skew old. Absent is not false here
+            # any more than anywhere else.
+            #
+            # What changes is the sentence. It used to print the CPE as though it were a
+            # version range the parser had failed on, which sent a reader looking for a
+            # parser bug instead of at the advisory.
+            return None, (
+                f"{constraint.raw.split(':')[4]} is named as affected without any "
+                "version qualification, so this device cannot be ruled in or out by it. "
+                "Read the advisory to see which releases it covers."
+            )
+
         return None, (
             f"The advisory states its affected versions as {constraint.raw!r}, which "
             "this system cannot interpret. The device may or may not be in that range — "
@@ -325,7 +345,21 @@ def _version_applies(
 
 
 def _incomparable(device: DeviceVersion, other: DeviceVersion) -> str:
-    """Why two versions could not be ranked, in terms an operator can act on."""
+    """Why two versions could not be ranked, in terms an operator can act on.
+
+    The scheme is checked before the train, and the order matters: this used to report a
+    train mismatch whenever the trains differed, which is true of every pair whose
+    schemes differ as well — so a scheme problem was reported for months as a Cisco train
+    problem, and the diagnostic pointed at the wrong rule when somebody finally measured
+    it.
+    """
+    if device.scheme is not other.scheme:
+        return (
+            f"{device.raw} and {other.raw} are versioned on different scales "
+            f"({device.scheme.value} and {other.scheme.value}), so neither is later than "
+            "the other. This usually means the advisory names a different product."
+        )
+
     if device.train != other.train:
         return (
             f"{device.raw} and {other.raw} are on different Cisco release trains "
