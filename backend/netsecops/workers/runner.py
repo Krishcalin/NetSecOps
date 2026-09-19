@@ -887,7 +887,62 @@ async def _collect_profile(
         outcome.findings_resolved = assessment.findings_resolved
         outcome.risk_score = assessment.risk.score if assessment.risk else None
 
+        await _assess_vulnerabilities(session, device, outcome)
+
     return outcome
+
+
+async def _assess_vulnerabilities(
+    session: AsyncSession, device: Device, outcome: DeviceOutcome
+) -> None:
+    """Match the advisory catalogue against the configuration just collected.
+
+    This runs here rather than only under `VULN_REMATCH` because the two triggers cover
+    different halves of the same question and only one of them was reachable. A rematch
+    answers "the catalogue changed, is anything newly exposed?"; it is created by a feed
+    import and never by a person. Nothing answered "this device changed, is it exposed?"
+    — so a device could be collected, assessed against policy, and reported on without
+    any advisory ever being weighed against it. A vulnerability engine that runs only
+    when a job type nothing creates is created is indistinguishable from one that does
+    not exist.
+
+    A failure here does not fail the collection. The snapshot is stored and the policy
+    assessment is already written; losing both because one malformed advisory row raised
+    would be a poor trade. But it is recorded on the outcome rather than swallowed —
+    "no vulnerabilities found" and "the matcher did not run" are the same empty result
+    on a report, and only one of them is good news.
+
+    **Cost, measured rather than assumed.** `match()` runs at ~35 µs, and
+    `assess_device` weighs every advisory in the catalogue and reloads that catalogue
+    per device. At vendor-PSIRT scale (~10k advisories) that is ~0.3 s per device and
+    not worth engineering around. At full-NVD scale (~250k) it is ~9 s of CPU per
+    device, and the repeated full-table load — not the matching — becomes the limit. If
+    a deployment imports all of NVD, hoist the advisory load to once per job before
+    reaching for anything cleverer.
+    """
+    from netsecops.services.vuln_assessment import VulnAssessmentService
+
+    try:
+        vulns = await VulnAssessmentService(session).assess_device(device)
+    # Deliberately broad: see the docstring. Anything this raises is worth less than
+    # the collection and the policy assessment that are already written.
+    except Exception as exc:
+        log.warning(
+            "job.vuln_assessment_failed",
+            device_id=str(device.id),
+            error=str(exc),
+        )
+        outcome.output += "; vulnerability matching failed"
+        return
+
+    # Folded into the same counters because they are findings by the same definition and
+    # share a lifecycle. The kinds stay distinguishable on the finding rows themselves.
+    outcome.findings_opened += vulns.findings_opened
+    outcome.findings_resolved += vulns.findings_resolved
+    outcome.output += (
+        f"; {vulns.confirmed} confirmed, {vulns.likely} likely"
+        f" of {vulns.advisories_considered} advisories"
+    )
 
 
 @dataclass(frozen=True, slots=True)
