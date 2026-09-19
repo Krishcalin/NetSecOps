@@ -127,6 +127,10 @@ class PathResult:
     #: Plain-language reasons, shown beside the verdict. A caveat that lives only in a
     #: log is a caveat nobody reads.
     notes: list[str] = field(default_factory=list)
+    #: Devices where the packet could have taken more than one equal-cost route. The
+    #: trace follows one; a real router picks per flow by a hash this cannot see, so the
+    #: others are paths this answer does not describe.
+    branched_at: list[str] = field(default_factory=list)
 
     @property
     def devices_traversed(self) -> int:
@@ -339,6 +343,29 @@ def walk(
                 )
             return _finalise(result)
 
+        # More than one route ties for best. A router chooses per flow by hashing the
+        # header, and nothing in a configuration says which way this flow goes — so the
+        # trace continues down one of them and the result has to say the others exist.
+        # Silently following the first is how a permit gets reported for a path the
+        # packet may never take, while an equal-cost sibling crosses a firewall that
+        # denies it.
+        alternatives = current.equal_cost_next_hops(dst)
+        if alternatives:
+            chosen = route.next_hop
+            others = [hop_address for hop_address in alternatives if hop_address != chosen]
+            result.branched_at.append(
+                f"{current.hostname} has {len(alternatives)} equal-cost routes to "
+                f"{route.destination} (via {', '.join(alternatives)}); this trace follows "
+                f"{chosen}."
+            )
+            log.info(
+                "topology.equal_cost_paths",
+                device=current.hostname,
+                destination=route.destination,
+                followed=chosen,
+                alternatives=others,
+            )
+
         hop.matched_route = _describe(route)
         hop.next_hop = route.next_hop
         hop.egress_interface = route.interface
@@ -422,6 +449,21 @@ def _finalise(result: PathResult) -> PathResult:
         return result
 
     if result.routing is RoutingConfidence.ROUTED:
+        if result.branched_at:
+            # Traced end to end, but only down one of several equal-cost paths. The
+            # permit is real for the devices consulted and says nothing about the
+            # firewalls on the paths not taken — which is exactly what
+            # `partially-allowed` means, so it needs no new verdict of its own.
+            result.policy = PolicyVerdict.PARTIALLY_ALLOWED
+            result.notes.append(
+                "This path was traced end to end, but the packet could take more than "
+                "one route: "
+                + " ".join(result.branched_at)
+                + " A router picks between equal-cost paths per flow, so a firewall on "
+                "a path not followed here could still deny this traffic."
+            )
+            return result
+
         result.policy = PolicyVerdict.ALLOWED
         return result
 

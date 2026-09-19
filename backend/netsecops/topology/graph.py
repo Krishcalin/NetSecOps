@@ -129,6 +129,45 @@ class DeviceNode:
             for route in self.routes
         )
 
+    def equal_cost_next_hops(self, address: int, vrf: str | None = None) -> list[str]:
+        """Every next hop tying for best on this address, when there is more than one.
+
+        `lookup` returns one route, which is what a router does per flow — but which one
+        it picks depends on a hash of the flow, and the choice is not in any configuration
+        this product reads. So a trace that follows the single best route is describing
+        one of several real paths without saying so, and if the alternatives cross
+        different firewalls the verdict is about an arbitrary one of them.
+
+        Returns an empty list where there is no ambiguity, so the caller can stay silent
+        in the ordinary case. Routes with no next hop are excluded: a connected or
+        interface route is the end of the path rather than a branch in it.
+        """
+        best_key: tuple[int, int, int] | None = None
+        hops: dict[tuple[int, int, int], list[str]] = {}
+
+        for route in self.routes:
+            if route.vrf != vrf or not route.next_hop:
+                continue
+            network = _network(route.destination)
+            if network is None or not _in_network(address, network):
+                continue
+
+            key = (
+                -network.prefixlen,
+                route.distance if route.distance is not None else 1,
+                route.metric if route.metric is not None else 0,
+            )
+            hops.setdefault(key, []).append(route.next_hop)
+            if best_key is None or key < best_key:
+                best_key = key
+
+        if best_key is None:
+            return []
+
+        # Deduplicated: the same next hop learned twice is one path, not two.
+        winners = sorted(set(hops[best_key]))
+        return winners if len(winners) > 1 else []
+
     def other_vrfs_matching(self, address: int) -> list[str]:
         """VRFs *other than the global table* that hold a route to this address.
 

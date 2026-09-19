@@ -39,6 +39,13 @@ from netsecops.topology.missing import missing_devices
 from netsecops.topology.path import PolicyVerdict, RoutingConfidence, walk
 
 
+def address(text: str) -> int:
+    """An IP as the walker holds it: an integer, not a string."""
+    import ipaddress
+
+    return int(ipaddress.ip_address(text))
+
+
 def connected(prefix: str, interface: str) -> Route:
     return Route(destination=prefix, interface=interface, protocol="connected")
 
@@ -131,6 +138,144 @@ def estate():
         firewall=permit_all(),
     )
     return build_graph([edge, core, dmz])
+
+
+@pytest.fixture
+def equal_cost_estate():
+    """The same shape, but the core reaches the DMZ two ways.
+
+    Two firewalls in parallel, which is how anybody builds a resilient DMZ edge, and the
+    two do not agree: one permits the traffic and the other denies it. A router picks
+    between equal-cost paths by hashing the flow, so the packet may take either — and a
+    trace that follows one of them and reports "allowed" has described the lucky half.
+    """
+    core = node(
+        "core-rtr",
+        addresses={"lan": "10.10.0.1/24", "a": "10.0.1.1/30", "b": "10.0.2.1/30"},
+        routes=[
+            connected("10.10.0.0/24", "lan"),
+            connected("10.0.1.0/30", "a"),
+            connected("10.0.2.0/30", "b"),
+            static("10.20.0.0/24", "10.0.1.2", "a"),
+            static("10.20.0.0/24", "10.0.2.2", "b"),
+        ],
+    )
+    permissive = node(
+        "dmz-fw-a",
+        addresses={"up": "10.0.1.2/30", "dmz": "10.20.0.1/24"},
+        routes=[connected("10.0.1.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+        firewall=permit_all(),
+    )
+    strict = node(
+        "dmz-fw-b",
+        addresses={"up": "10.0.2.2/30", "dmz": "10.20.0.2/24"},
+        routes=[connected("10.0.2.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+        firewall=deny_to("10.20.0.0/24", name="block-dmz-b"),
+    )
+    return build_graph([core, permissive, strict])
+
+
+class TestEqualCostPaths:
+    """A packet with more than one way to go (FR-TOPO-04).
+
+    `lookup` returns the single best route, which is what a router does per flow — but
+    which one it picks depends on a hash of the header that appears in no configuration.
+    So following the first silently turns "one of the paths permits this" into "this is
+    permitted", and the difference matters most in exactly the topology people build for
+    resilience: two firewalls in parallel that have drifted apart.
+    """
+
+    def test_the_alternatives_are_reported(self, equal_cost_estate) -> None:
+        result = walk(equal_cost_estate, source="10.10.0.5", destination="10.20.0.5", port=443)
+
+        assert result.branched_at, "a packet with two equal-cost routes was traced as if it had one"
+        assert "10.0.1.2" in result.branched_at[0]
+        assert "10.0.2.2" in result.branched_at[0]
+
+    def test_a_permit_down_one_path_is_not_reported_as_allowed(self, equal_cost_estate) -> None:
+        """The regression this exists for.
+
+        The traced path goes through the permissive firewall and reaches the destination,
+        so every check the old code made says `routed` and `allowed`. The other path is
+        denied, and the packet may take it.
+        """
+        result = walk(equal_cost_estate, source="10.10.0.5", destination="10.20.0.5", port=443)
+
+        assert result.routing is RoutingConfidence.ROUTED
+        assert result.policy is PolicyVerdict.PARTIALLY_ALLOWED
+        assert result.policy is not PolicyVerdict.ALLOWED
+
+    def test_the_note_says_what_was_not_examined(self, equal_cost_estate) -> None:
+        """A hedge nobody can act on is barely better than the overclaim."""
+        result = walk(equal_cost_estate, source="10.10.0.5", destination="10.20.0.5", port=443)
+        notes = " ".join(result.notes)
+
+        assert "equal-cost" in notes
+        assert "could still deny" in notes
+
+    def test_an_unambiguous_path_is_still_plainly_allowed(self, estate) -> None:
+        """The caveat must not attach itself to every path.
+
+        One route to the destination is one path, and hedging it would make the verdict
+        meaningless everywhere.
+        """
+        result = walk(estate, source="10.10.0.5", destination="10.20.0.5", port=443)
+
+        assert result.branched_at == []
+        assert result.policy is PolicyVerdict.ALLOWED
+
+    def test_a_denial_on_the_followed_path_still_stands(self, equal_cost_estate) -> None:
+        """Blocked is asymmetric and stays so.
+
+        A packet denied on the path it took is denied, whatever the alternatives offered
+        — the existing rule that a block is definitive is not weakened by this.
+        """
+        result = walk(equal_cost_estate, source="10.10.0.5", destination="10.20.0.9", port=443)
+
+        assert result.policy in (PolicyVerdict.BLOCKED, PolicyVerdict.PARTIALLY_ALLOWED)
+
+    def test_duplicate_next_hops_are_not_a_branch(self) -> None:
+        """The same next hop learned twice is one path.
+
+        A device can hold the same route from two sources — a static and a redistributed
+        copy — and reporting that as a choice would hedge a path that has none.
+        """
+        device = node(
+            "rtr",
+            addresses={"lan": "10.10.0.1/24", "up": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "up"),
+                static("10.20.0.0/24", "10.0.1.2", "up"),
+                static("10.20.0.0/24", "10.0.1.2", "up"),
+            ],
+        )
+
+        assert device.equal_cost_next_hops(address("10.20.0.5")) == []
+
+    def test_a_worse_route_is_not_an_alternative(self) -> None:
+        """Equal cost means equal. A backup route is not a path the packet may take."""
+        device = node(
+            "rtr",
+            addresses={"lan": "10.10.0.1/24"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                Route(
+                    destination="10.20.0.0/24",
+                    next_hop="10.0.1.2",
+                    protocol="static",
+                    distance=1,
+                ),
+                Route(
+                    destination="10.20.0.0/24",
+                    next_hop="10.0.2.2",
+                    protocol="static",
+                    distance=200,
+                ),
+            ],
+        )
+
+        assert device.equal_cost_next_hops(address("10.20.0.5")) == []
 
 
 # ═════════════════════════ tracing across devices ════════════════════════════
