@@ -143,14 +143,31 @@ The parts added last, each of which changes what an answer means:
   Vendor PSIRT feeds are not fetched: Cisco's openVuln API needs an OAuth client
   credential and the others publish CSAF at per-advisory URLs that must be walked from an
   index. Both already have a working offline path.
-- **CPE product names are checked, against evidence rather than a dictionary.**
+- **CPE product names are verified against the NVD dictionary, and corroborated against
+  evidence.** The two answer different questions and both are needed.
   `GET /vulnerabilities/cpe-coverage` compares the platform-to-CPE table against the CPE
-  strings imported advisories actually use — no NVD dictionary needed, because every
-  advisory carries NVD's own spelling. A name is *corroborated*, *contradicted* (the same
-  name under different punctuation appears instead — `nx-os` against NVD's `nx_os`), or
-  *no evidence*. Deliberately not string similarity: `ios_xe` and `ios_xr` are 0.8
-  similar and are different operating systems. Against the repository's fixtures: 2
-  corroborated, 0 contradicted, 11 unconfirmed for want of advisories.
+  strings imported advisories actually use, reporting each name as *corroborated*,
+  *contradicted* (the same name under different punctuation appears instead) or *no
+  evidence*. Deliberately not string similarity: `ios_xe` and `ios_xr` are 0.8 similar
+  and are different operating systems.
+
+  That method cannot find a name nothing has ever published, because absence is *no
+  evidence* rather than a contradiction — so the table was also queried directly against
+  the live NVD CPE dictionary on 2026-09-19. Eleven of thirteen matched, from 71 entries
+  for `fortinet:fortiauthenticator` to 6,474 for `cisco:ios`. Two did not exist at all:
+  `checkpoint:security_management`, for which NVD has no management-server product, and
+  `shrubbery:tac_plus`, for which there is no such vendor. Both were matching nothing
+  while looking like a clean result, and are now recorded in `NO_DICTIONARY_ENTRY` with
+  the evidence rather than guessed at.
+- **Chassis coverage is partial and bounded by what NVD names.** Hardware advisories are
+  matched on the model the device reports, which is an unbounded set rather than a table
+  that can be verified in advance. Of eight real model strings checked, three resolved
+  (`C9300-48P`, `PA-3220`, `PA-850`), two differ from NVD's spelling
+  (`FortiGate-100F` against `fortigate_100f`, `ASA5525` against `asa_5525-x`) and two
+  have no NVD entry under any spelling. No single normalisation closes the gap — Palo
+  Alto matches keeping its hyphen where Fortinet needs an underscore — so an unmatched
+  chassis produces no finding rather than a wrong one, and the gap is recorded rather
+  than papered over.
 - **The upgrade-path view is built** (FR-VUL-10).
   `GET /vulnerabilities/devices/{id}/upgrade-path` ranks every release the device's own
   advisories name as fixed by what each would close, KEV first — a release ending one

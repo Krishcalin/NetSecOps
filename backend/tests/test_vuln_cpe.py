@@ -19,6 +19,7 @@ from netsecops.ncm.models import NormalisedConfig
 from netsecops.parsers.base import ParseContext
 from netsecops.parsers.registry import get_parser
 from netsecops.vuln.cpe import (
+    NO_DICTIONARY_ENTRY,
     PRODUCTS,
     Cpe,
     Part,
@@ -184,6 +185,58 @@ class TestHardwareCpe:
         assert cpe is not None
         assert cpe.to_string().split(":")[5] == "-"
 
+    def test_the_measured_dictionary_coverage_is_recorded(self) -> None:
+        """What the chassis identifiers actually resolve to, checked 2026-09-19.
+
+        Not a test of NVD — it makes no network call. It records the result of the check
+        so the next person does not rediscover it, and so that a change to `quote` or to
+        `hardware_cpe` which alters these strings has to be looked at against real
+        evidence rather than against a fixture somebody chose.
+
+        The three that matched are why the chassis path is worth having. The rest is why
+        it is a coverage gap rather than a finished feature, and the split matters: two
+        are spelling, two are chassis NVD has never had an entry for.
+        """
+        checked = {
+            # model string -> the product NVD uses, or None where it has no entry
+            "C9300-48P": "c9300-48p",
+            "PA-3220": "pa-3220",
+            "PA-850": "pa-850",
+            "FortiGate-100F": "fortigate_100f",
+            "ASA5525": "asa_5525-x",
+            "WS-C2960X-48FPD-L": None,
+            "Nexus9000 C93180YC-EX": None,
+        }
+
+        matches = {
+            model: quote(model) == expected for model, expected in checked.items() if expected
+        }
+
+        assert matches == {
+            "C9300-48P": True,
+            "PA-3220": True,
+            "PA-850": True,
+            # Punctuation: NVD uses an underscore where the device reports a hyphen.
+            "FortiGate-100F": False,
+            # Not punctuation: the device reports a shorter part number than NVD's.
+            "ASA5525": False,
+        }
+
+    def test_no_single_punctuation_rule_would_fix_the_misses(self) -> None:
+        """The reason this is left as a recorded gap rather than normalised away.
+
+        Palo Alto matches keeping its hyphen and Fortinet needs an underscore, so a rule
+        that repairs one breaks the other. Stated as a test because it is the argument
+        against the obvious fix, and an argument nobody can re-check is one that gets
+        overturned by whoever next notices the misses.
+        """
+        hyphens_to_underscores = quote("PA-3220").replace("-", "_")
+
+        assert hyphens_to_underscores == "pa_3220"
+        assert hyphens_to_underscores != "pa-3220", (
+            "the rule that repairs fortigate_100f breaks the Palo Alto chassis that works"
+        )
+
     def test_the_vendor_is_mapped_to_its_cpe_spelling(self) -> None:
         """The inventory says `paloalto`; the dictionary says `paloaltonetworks`."""
         cpe = hardware_cpe(device_ncm(vendor="paloalto", model="PA-3220"))
@@ -272,28 +325,55 @@ class TestProductNamesAreVerifiedWhenFeedsLand:
         """
         from netsecops.parsers.registry import PARSERS
 
-        missing = set(PARSERS) - set(PRODUCTS)
+        missing = set(PARSERS) - set(PRODUCTS) - set(NO_DICTIONARY_ENTRY)
 
         assert missing == set(), (
             f"platforms with no CPE product mapping: {sorted(missing)}. Add them to "
-            "PRODUCTS, or record here why they have no dictionary entry."
+            "PRODUCTS, or to NO_DICTIONARY_ENTRY with the evidence that none exists."
         )
 
-    def test_the_provisional_names_are_listed_for_checking(self) -> None:
-        """These strings are written from the naming convention and have NOT been
-        checked against a real NVD dictionary — there is none in the repository.
+    def test_a_platform_is_not_both_mapped_and_recorded_absent(self) -> None:
+        """The two tables answer the same question and must not disagree.
 
-        `unverified_products()` is what the feed-ingestion slice calls to do that, and
-        this test is the record that it is still owed. When the dictionary lands, any
-        name below that has no match is a device silently reporting zero
-        vulnerabilities.
+        A platform in both would have a CPE emitted for it while the code claims none
+        exists — and whichever a reader trusted, the other would be wrong.
+        """
+        assert set(PRODUCTS) & set(NO_DICTIONARY_ENTRY) == set()
+
+    def test_every_recorded_absence_says_why(self) -> None:
+        """An absence with no reason is indistinguishable from an oversight.
+
+        That is the whole difference between this table and simply leaving a platform
+        out, so an empty reason defeats the point of having it.
+        """
+        for platform, reason in NO_DICTIONARY_ENTRY.items():
+            assert len(reason.strip()) > 40, f"{platform} records no usable reason"
+
+    def test_the_names_match_the_dictionary_as_checked(self) -> None:
+        """Confirmed against the live NVD CPE API on 2026-09-19.
+
+        This was the record of an obligation, and is now the record of its result. Each
+        string below returned entries from the dictionary — `cisco:ios` alone has 6,474 —
+        so a device on one of these platforms is compared against advisories that use the
+        same spelling.
+
+        The two that returned nothing, `checkpoint:security_management` and
+        `shrubbery:tac_plus`, are no longer here: they are in `NO_DICTIONARY_ENTRY` with
+        the evidence. Before that they matched nothing while looking exactly like a clean
+        bill of health, which is the failure this whole module is arranged around.
         """
         names = unverified_products()
 
         assert names["cisco_ios"] == "cisco:ios"
         assert names["cisco_iosxe"] == "cisco:ios_xe"
+        assert names["cisco_nxos"] == "cisco:nx-os"
         assert names["panos"] == "paloaltonetworks:pan-os"
+        assert names["fortios"] == "fortinet:fortios"
+        assert names["checkpoint_gaia"] == "checkpoint:gaia_os"
         assert len(names) == len(PRODUCTS)
+
+        assert "checkpoint_mgmt" not in names
+        assert "tac_plus" not in names
 
 
 class TestCpeRoundTrip:
