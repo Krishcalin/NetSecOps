@@ -493,21 +493,50 @@ unreachable with nothing anywhere recording that a perfectly good next hop had b
 and discarded. The existing test for that grammar asserted destinations only, which is
 how it survived: the assertion covered the half that worked.
 
-The second is in the walk, and is the larger one. A Cisco device's policy is a **set of
-ACLs bound to different interfaces**, not one ordered list. `SecurityRule.rulebase`
-records that and the hygiene analysis honours it — two entries in different ACLs are
-never compared, because they never see the same packet. The path walk was evaluating all
-of them as a single ordered list, so on a three-interface ASA the first ACL in the file
-decided every path; and since each ends in `deny ip any any`, every path came back
-blocked by a rule governing traffic in a different direction.
+The second was in the walk. A Cisco device's policy is a **set of ACLs bound to different
+interfaces**, not one ordered list. `SecurityRule.rulebase` records that and the hygiene
+analysis honours it — two entries in different ACLs are never compared, because they
+never see the same packet. The path walk was evaluating all of them as a single ordered
+list, so on a three-interface ASA the first ACL in the file decided every path; and since
+each ends in `deny ip any any`, every path came back blocked by a rule governing traffic
+in a different direction.
 
-Half of that is now fixed outright: an ACL bound to no interface — a vty filter, an SNMP
-filter, a leftover — filters nothing, and the parsers mark its rules so the walk skips
-them. The other half is **hedged rather than guessed**: a device with more than one bound
-access list reports its decision as unknown and names the ambiguity, because which ACL
-governs a hop depends on the interface the packet arrives on, and that binding is recorded
-per platform in shapes that do not yet agree. Normalising it is the next piece of work on
-this subject, and until then no confident verdict is produced from an arbitrary choice.
+Both halves are now closed. An ACL bound to no interface — a vty filter, an SNMP filter,
+a leftover — filters nothing, and its rules are skipped. And **the bindings are
+normalised**, so the walk selects the list bound inbound on the interface the packet
+arrived on, plus any bound outbound on the interface it leaves by. Those are two separate
+first-match evaluations combined with deny-wins, never concatenated: merging them would
+let the first list's trailing deny shadow the second list's rules, which is the defect
+again in a smaller form. The binding shapes genuinely differ — IOS and NX-OS name a
+physical interface, an ASA names the `nameif` — so both names are kept and the match
+tries either, rather than resolving to one and losing the key that works elsewhere. A
+snapshot too old to carry bindings, or a device where no list names this hop's
+interfaces, still reports the decision as unknown rather than guessing.
+
+### Chasing that found the ASA rulebase was inert
+
+Fixing the selection meant the right access list was finally consulted — and it turned out
+**nothing in it could match anything**. Four spellings the ASA parser emitted, none of
+which the resolver reads:
+
+| Emitted | Meaning | Resolved as |
+|---|---|---|
+| `ip` | every protocol | nothing — `unresolved` |
+| `tcp/eq 443 log` | tcp port 443 | nothing — `unresolved` |
+| `host 10.20.0.10` | one address | nothing — `unresolved` |
+| `subnet 10.20.0.0 255.255.255.0` (in an object) | a /24 | **the empty set, silently** |
+
+The first three at least landed in the rule's `unresolved` list. The fourth did not: an
+address *object* whose value could not be read returned an empty set rather than an error,
+so every rule referencing it was parsed, ordered, analysed — and able to match nothing at
+all, with no error anywhere. That is how an entire platform's rulebase can be inert while
+looking healthy.
+
+The parser now emits the same vocabulary as the IOS reader, reusing that reader's port
+handling rather than keeping a second dialect — including its refusal to express `neq`,
+which marks a rule partial instead of quietly widening it. And the resolver now **refuses
+an object it cannot read** instead of returning nothing, so the next instance of this
+surfaces as an unresolved reference rather than as a rulebase that silently does nothing.
 
 **Address translation is declared, not modelled**, and for the same kind of reason. A
 trace that crossed a translating firewall and reached the far side used to report
@@ -595,9 +624,10 @@ their first real one.
 [docs/evaluating.md](docs/evaluating.md) says what to look at and in what order, including
 the limits the demonstration will show you.
 
-Building it found two defects in path analysis that no test had caught, both of them
+Building it found four defects in path analysis that no test had caught, all of them
 false-`blocked` verdicts — the dangerous direction, because a blocked verdict says a
-control is already in place and somebody stops looking. See the Phase 8 section.
+control is already in place and somebody stops looking. One of them left every ASA
+rulebase unable to match anything at all. See the Phase 8 section.
 
 ### What Phase 5 delivers
 

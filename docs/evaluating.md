@@ -92,9 +92,9 @@ Two more things in the same result:
 - `demo-core-sw-01` reports **no decision**, not "allowed". It carries no rulebase. A
   router that forwarded without an opinion is not a control that was checked, and
   rendering the two the same is how an estate comes to look better defended than it is.
-- `demo-edge-fw-01` also reports no decision, for a different reason the note gives:
-  it carries several access lists bound to different interfaces, and which one governs
-  this hop is not yet something the path walk can determine. See *Known limits* below.
+- `demo-edge-fw-01` permits it at `INSIDE-IN` — the access list bound inbound on the
+  interface the packet arrived on, not the one that happens to be first in the
+  configuration. It carries three, and the other two govern traffic in other directions.
 
 Now ask for the same pair on **tcp/22**. That one is **blocked**, and it names the device
 and the rule.
@@ -133,13 +133,13 @@ nothing: no check, no result row, no finding, no risk score.
 
 The demo will show you these, so they are worth saying first.
 
-**A path across a Cisco device with more than one access list reports no decision.** The
-device's policy is a set of ACLs bound to different interfaces, and which one governs a
-given hop depends on the interface the packet arrives on — a binding that is recorded per
-platform in shapes that do not yet agree. Rather than pick one and be confidently wrong
-in a direction that says a control is already in place, the walk reports the decision as
-unknown and names the ambiguity. Use the rule query against the specific access list to
-settle it.
+**A path across a device whose access-list bindings could not be read reports no
+decision.** A Cisco device's policy is a set of ACLs bound to different interfaces, and
+the walk picks the one bound inbound where the packet arrived plus any bound outbound
+where it leaves. Where the snapshot predates binding capture, or no list names either
+interface, it says the decision is unknown rather than picking one — being confidently
+wrong in the direction that says a control is already in place is the failure worth
+avoiding. Use the rule query against a specific access list to settle it.
 
 **Address translation is declared, not modelled.** The four firewall parsers disagree
 about what their NAT fields mean — PAN-OS puts a rule's source members in `original`

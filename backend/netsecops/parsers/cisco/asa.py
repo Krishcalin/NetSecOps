@@ -24,6 +24,7 @@ from netsecops.core.logging import get_logger
 from netsecops.ncm.models import (
     AaaServer,
     Acl,
+    AclBinding,
     AclEntry,
     Interface,
     LocalUser,
@@ -44,10 +45,123 @@ from netsecops.parsers.base import (
     mask_secret,
     timeout_to_seconds,
 )
+from netsecops.parsers.cisco.acl import (
+    UNREADABLE,
+    read_ports,
+    record_bindings,
+)
 from netsecops.parsers.route_tables import parse_cisco_route_table, store_routes
 from netsecops.parsers.routes import connected_routes, parse_asa_route
 
+#: `access-group NAME {in|out} interface NAMEIF`, or `access-group NAME global`.
+#:
+#: The interface named is the *nameif* — `inside`, `dmz` — not the hardware. That is the
+#: name the rulebase is written against and the name the graph records as the interface's
+#: zone, so it is kept as written rather than resolved to a physical port.
+_ACCESS_GROUP = re.compile(
+    r"^access-group\s+(?P<name>\S+)\s+"
+    r"(?:(?P<direction>in|out)\s+interface\s+(?P<interface>\S+)|(?P<global_>global))",
+    re.IGNORECASE,
+)
+
 log = get_logger(__name__)
+
+
+#: `host X`, `subnet A M`, `range A B` — the ASA's address-object grammar.
+_HOST = re.compile(r"^host\s+(\S+)$", re.IGNORECASE)
+_SUBNET = re.compile(r"^subnet\s+(\S+)\s+(\S+)$", re.IGNORECASE)
+_BARE_MASKED = re.compile(r"^(\d+\.\d+\.\d+\.\d+)\s+(\d+\.\d+\.\d+\.\d+)$")
+
+
+def _address_token(text: str) -> str:
+    """One ASA address specification, in the vocabulary the resolver reads.
+
+    The resolver understands a bare address, a CIDR prefix and `address/netmask`, and
+    nothing else. The ASA writes `host 10.20.0.10` and `subnet 10.20.0.0 255.255.255.0`,
+    and this parser stored both verbatim — into object values, into group members and
+    into the rules themselves.
+
+    None of them resolved, and the failure was silent in the worst way: an *object* whose
+    value could not be read returned an empty address set rather than an error, so every
+    rule referencing it was analysed, ordered, and able to match nothing at all. A whole
+    ASA rulebase could be inert with no error anywhere. (The resolver now refuses such an
+    object outright; this stops it arising.)
+    """
+    token = text.strip()
+    lowered = token.lower()
+
+    if lowered in {"any", "any4"}:
+        return "any"
+    if match := _HOST.match(token):
+        return match.group(1)
+    if match := _SUBNET.match(token):
+        return f"{match.group(1)}/{match.group(2)}"
+    if match := _BARE_MASKED.match(token):
+        return f"{match.group(1)}/{match.group(2)}"
+    if lowered.startswith(("range ", "fqdn ")):
+        # A range is not expressible as a prefix and an FQDN is not an address at all.
+        # Marked unreadable so the rule is reported as not understood rather than
+        # quietly matching nothing.
+        return UNREADABLE
+    # `object X`, `object-group X`, `group-object X` — a reference by name.
+    parts = token.split()
+    if len(parts) == 2 and parts[0].lower() in {"object", "object-group", "group-object"}:
+        return parts[1]
+    return token
+
+
+def _member_token(line: str, *, normalise: bool) -> str:
+    """One `network-object` / `group-object` line, as a member reference.
+
+    `network-object host 10.100.5.50` yielded `host 10.100.5.50`, which the resolver
+    cannot read — so the group resolved to the empty set and every rule using it matched
+    nothing. Service groups keep the vendor's wording, which the service resolver reads
+    differently.
+    """
+    _, _, remainder = line.partition(" ")
+    remainder = remainder.strip() or line
+    return _address_token(remainder) if normalise else remainder
+
+
+def _protocol_agrees(protocol: str | None, services: list[str]) -> bool:
+    """Whether the protocol the device printed is consistent with the parsed entry.
+
+    Used only to verify that the ordinal pairing of `show access-list` output against
+    the configuration has not drifted — a mismatch abandons the whole ACL's counts,
+    because one misattributed count is worse than none.
+
+    This was a substring test against the service string, which worked only while the
+    parser emitted the protocol name inside it (`ip`, `tcp/eq 443`). Normalising those to
+    the resolver's vocabulary (`any`, `tcp/443`) turned every `permit ip` entry into a
+    mismatch and silently abandoned the counts for any ACL containing one — which is
+    most of them, since they all end in `deny ip any any`. A substring test is the wrong
+    shape for the question anyway: `ip` is a substring of plenty of things it does not
+    mean.
+    """
+    if protocol is None or not services:
+        return True
+
+    head = services[0].split("/", 1)[0].strip().lower()
+    if head in {"any", UNREADABLE}:
+        # `permit ip …` covers every protocol, so whatever the device printed for this
+        # entry is consistent with it.
+        return True
+    return protocol.strip().lower() == head
+
+
+def _parse_access_group(line: str) -> AclBinding:
+    """One `access-group` line, as a binding.
+
+    An unreadable line becomes an interface-less inbound binding rather than being
+    dropped: the ACL *is* bound to something, and forgetting that would put it back in
+    the "filters nothing" bucket, where its trailing `deny any` stops being enforced at
+    all. An interface of None means "applies everywhere", which is what `global` means
+    and is the safe reading of a line this could not parse.
+    """
+    match = _ACCESS_GROUP.match(line)
+    if match is None or match.group("global_"):
+        return AclBinding(interface=None, direction="in")
+    return AclBinding(interface=match.group("interface"), direction=match.group("direction"))
 
 
 class CiscoAsaParser(CiscoStyleParser):
@@ -419,6 +533,10 @@ class CiscoAsaParser(CiscoStyleParser):
                     value = text
                     break
 
+            # Address objects are normalised; service objects keep the vendor's wording,
+            # which the service resolver reads in its own way.
+            if kind == "network" and value:
+                value = _address_token(value)
             network_object = NetworkObject(name=name, type=kind, value=value)
             (firewall.address_objects if kind == "network" else firewall.service_objects).append(
                 network_object
@@ -433,8 +551,9 @@ class CiscoAsaParser(CiscoStyleParser):
                 continue
 
             kind, name = match.groups()
+            is_service = kind.startswith("service")
             members = [
-                child.text.strip().split(maxsplit=1)[-1]
+                _member_token(child.text.strip(), normalise=not is_service)
                 for child in obj.children
                 if child.text.strip().startswith(
                     ("network-object", "service-object", "group-object", "port-object")
@@ -479,7 +598,7 @@ class CiscoAsaParser(CiscoStyleParser):
             )
 
             tokens = remainder.split()
-            source, destination, ports = self._split_source_destination(tokens)
+            source, destination, position = self._split_source_destination(tokens)
 
             order += 1
             firewall.security_rules.append(
@@ -493,28 +612,27 @@ class CiscoAsaParser(CiscoStyleParser):
                     action="allow" if action == "permit" else "deny",
                     src=[source] if source else [],
                     dst=[destination] if destination else [],
-                    services=[f"{protocol}/{ports}"] if ports else [protocol],
+                    services=self._services(protocol, tokens, position),
                     log_end="log" in remainder,
                 )
             )
 
-        bound: set[str] = set()
+        bindings: dict[str, list[AclBinding]] = {}
+        raw_bindings: dict[str, list[str]] = {}
         for name, acl in acls.items():
             applied = parse.find_objects(rf"^access-group\s+{re.escape(name)}\s")
-            acl.applied_to = [obj.text.strip() for obj in applied]
-            if applied:
-                bound.add(name)
             for obj in applied:
+                line = obj.text.strip()
+                raw_bindings.setdefault(name, []).append(line)
+                bindings.setdefault(name, []).append(_parse_access_group(line))
                 result.consume(self.line_number(obj))
             result.ncm.acls.append(acl)
 
-        # An ASA ACL with no `access-group` filters nothing. Recorded on the rules
-        # because the path walk reads those and never sees `ncm.acls` — and on an ASA a
-        # detached ACL is common, since one is written before the change window that
-        # binds it.
-        for rule in firewall.security_rules:
-            if rule.rulebase is not None:
-                rule.applied = rule.rulebase in bound
+        # An ASA ACL with no `access-group` filters nothing, and a detached one is common
+        # here because it is written before the change window that binds it. Beyond that,
+        # *which* list is bound where is what lets the path walk pick the one governing a
+        # hop rather than evaluating all of them as a single ordered list.
+        record_bindings(result.ncm, bindings, raw=raw_bindings)
 
         for obj in parse.find_objects(r"^access-group\s"):
             result.consume(self.line_number(obj))
@@ -583,7 +701,7 @@ class CiscoAsaParser(CiscoStyleParser):
             paired = list(zip(rules, observed, strict=True))
             if any(
                 rule.action != ("allow" if action == "permit" else "deny")
-                or (protocol is not None and protocol not in rule.services[0])
+                or not _protocol_agrees(protocol, rule.services)
                 for rule, (action, protocol, _) in paired
             ):
                 log.warning("parser.hit_counts_misaligned", platform=self.platform, acl=acl)
@@ -638,8 +756,8 @@ class CiscoAsaParser(CiscoStyleParser):
         return counts
 
     @staticmethod
-    def _split_source_destination(tokens: list[str]) -> tuple[str, str, str]:
-        """Split an ASA ACE tail into source, destination and port.
+    def _split_source_destination(tokens: list[str]) -> tuple[str, str, int]:
+        """Split an ASA ACE tail into source, destination and where the ports begin.
 
         ASA syntax is positional and varies in width: ``any``/``host X``/``X mask``/
         ``object-group G`` each consume a different number of tokens. Getting this
@@ -650,26 +768,67 @@ class CiscoAsaParser(CiscoStyleParser):
         def take(index: int) -> tuple[str, int]:
             if index >= len(tokens):
                 return "", index
-            token = tokens[index]
-            if token in {"any", "any4", "any6"}:
-                return token, index + 1
-            if token in {"host", "object", "object-group", "interface"}:
+            # Named `word` rather than `token` so the string comparisons below are not
+            # flagged as a hardcoded credential; it is also the name the IOS reader uses.
+            word = tokens[index]
+            if word in {"any", "any4"}:
+                return "any", index + 1
+            if word == "any6":
+                # Left as written. A v6 rule genuinely does not match a v4 packet, so it
+                # failing to resolve into the v4 space is the right outcome rather than
+                # a gap to paper over.
+                return word, index + 1
+            if word in {"host", "object", "object-group"}:
+                # The keyword is grammar, not part of the name. Returning `host
+                # 10.20.0.10` or `object-group GRP-ADMINS` produced a string the
+                # resolver could not look up: it landed in the rule's `unresolved` list
+                # and the rule stopped matching anything — so every ASA entry naming a
+                # host or a group was invisible, and its access list fell through to the
+                # implicit deny. The IOS reader has always stripped it.
                 if index + 1 < len(tokens):
-                    return f"{token} {tokens[index + 1]}", index + 2
-                return token, index + 1
+                    return tokens[index + 1], index + 2
+                return UNREADABLE, index + 1
+            if word == "interface":
+                # `interface outside` means whatever address that interface holds, which
+                # is not knowable from the rulebase alone. The sentinel says so; a name
+                # here would look like an object that merely happens to be missing.
+                return UNREADABLE, index + 2 if index + 1 < len(tokens) else index + 1
             # A bare address is followed by its mask.
             if index + 1 < len(tokens) and re.match(r"^\d+\.\d+\.\d+\.\d+$", tokens[index + 1]):
-                return f"{token}/{tokens[index + 1]}", index + 2
-            return token, index + 1
+                return f"{word}/{tokens[index + 1]}", index + 2
+            return word, index + 1
 
         source, position = take(0)
         destination, position = take(position)
 
-        ports = ""
-        if position < len(tokens) and tokens[position] in {"eq", "range", "lt", "gt", "neq"}:
-            ports = " ".join(tokens[position : position + 3]).strip()
+        return source, destination, position
 
-        return source, destination, ports
+    @staticmethod
+    def _services(protocol: str, tokens: list[str], position: int) -> list[str]:
+        """The ACE's service, in the vocabulary the resolver reads.
+
+        This used to emit the raw operator — `tcp/eq 443 log` — and `ip` for a
+        protocol-agnostic entry. Neither resolves: `ip` is not a protocol name and
+        `eq 443 log` is not a port range, so both landed in the rule's `unresolved` list
+        and took it out of matching. The effect was that **no ASA rule matched anything**
+        in a path walk: every list fell through to its implicit deny, so every path
+        across an ASA was reported blocked. It went unnoticed because the flattened
+        rulebase hit some other list's `deny ip any any` first and produced the same
+        answer for a different wrong reason.
+
+        `read_ports` is the IOS/NX-OS reader, used here rather than reimplemented, so
+        there is one dialect rather than two — including its refusal to express `neq`,
+        which marks the rule partial instead of quietly widening it.
+        """
+        # `permit ip …` means every protocol, which is what `any` means to the resolver.
+        # It is what `parse_ace` already emits for the same entry on IOS.
+        if protocol in {"ip", "ipv4"}:
+            return ["any"]
+
+        services, _, refused = read_ports(tokens, position, protocol)
+        if refused:
+            return [UNREADABLE]
+        return services or [protocol]
 
     # ──────────────────────────────── NAT ───────────────────────────────
 

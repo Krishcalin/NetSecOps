@@ -26,7 +26,12 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
+
+from ciscoconfparse2 import CiscoConfParse
+
+from netsecops.ncm.models import AclBinding, NormalisedConfig
 
 #: Port names IOS and NX-OS accept in place of a number. Not exhaustive by design: an
 #: unrecognised name is refused rather than guessed, because guessing a port number
@@ -125,7 +130,7 @@ TRAILING_FLAGS = frozenset(
     }
 )
 
-#: The port comparison operators. `neq` is deliberately absent — see `_read_ports`.
+#: The port comparison operators. `neq` is deliberately absent — see `read_ports`.
 PORT_OPERATORS = frozenset({"eq", "lt", "gt", "range", "neq"})
 
 #: Sentinel emitted where a token was understood to exist but could not be expressed.
@@ -235,7 +240,7 @@ def _port_number(word: str) -> int | None:
     return PORT_NAMES.get(word)
 
 
-def _read_ports(tokens: list[str], index: int, protocol: str) -> tuple[list[str], int, bool]:
+def read_ports(tokens: list[str], index: int, protocol: str) -> tuple[list[str], int, bool]:
     """Consume a port operator if one is present.
 
     Returns the service tokens, the next index, and whether anything was refused.
@@ -342,9 +347,9 @@ def parse_ace(text: str) -> ParsedAce | None:
         cursor += 1
 
         source, cursor = _read_address(tokens, cursor)
-        source_ports, cursor, src_refused = _read_ports(tokens, cursor, protocol)
+        source_ports, cursor, src_refused = read_ports(tokens, cursor, protocol)
         destination, cursor = _read_address(tokens, cursor)
-        destination_ports, cursor, dst_refused = _read_ports(tokens, cursor, protocol)
+        destination_ports, cursor, dst_refused = read_ports(tokens, cursor, protocol)
         partial = src_refused or dst_refused
 
         # Destination ports describe the service; a source port constrains the client
@@ -373,10 +378,72 @@ def parse_ace(text: str) -> ParsedAce | None:
     return ace
 
 
+def record_bindings(
+    ncm: NormalisedConfig, applied: Mapping[str, list[AclBinding]], *, raw: Mapping[str, list[str]]
+) -> None:
+    """Attach ACL bindings to the ACLs, the rulebase index and the rules themselves.
+
+    Three places, because three different consumers ask three different questions and
+    none of them can see the others' data:
+
+    * `Acl.bindings` — for anything reading the ACL as a configuration object.
+    * `Firewall.rulebase_bindings` — for the path walk, which reads the firewall block
+      and never sees `ncm.acls`. Without it the walk cannot tell which of a device's
+      access lists governs a hop, and it was evaluating all of them as one ordered list:
+      on a three-interface ASA the first list in the file decided every path.
+    * `SecurityRule.applied` — the cheap question, "does this rule filter anything at
+      all", asked before the expensive one. An access list bound to nothing is usually a
+      vty or SNMP filter and still ends in `deny any`.
+    """
+    for acl in ncm.acls:
+        if lines := raw.get(acl.name):
+            acl.applied_to = lines
+        if bindings := applied.get(acl.name):
+            acl.bindings = list(bindings)
+
+    ncm.firewall.rulebase_bindings = {name: list(items) for name, items in applied.items()}
+
+    for rule in ncm.firewall.security_rules:
+        if rule.rulebase is not None:
+            rule.applied = rule.rulebase in applied
+
+
+def interface_bindings(
+    parse: CiscoConfParse, pattern: str
+) -> tuple[dict[str, list[AclBinding]], dict[str, list[str]]]:
+    """Read `ip access-group NAME {in|out}` from under each interface.
+
+    The IOS and NX-OS shape: the binding lives inside the interface block, so the
+    interface is the parent and the ACL name is in the child line. `pattern` differs
+    only in that NX-OS also accepts `ip port access-group`.
+    """
+    applied: dict[str, list[AclBinding]] = {}
+    raw: dict[str, list[str]] = {}
+    compiled = re.compile(pattern)
+
+    for obj in parse.find_objects(r"^interface\s"):
+        name_match = re.match(r"^interface\s+(\S+)", obj.text)
+        interface = name_match.group(1) if name_match else ""
+        for child in obj.children:
+            match = compiled.match(child.text)
+            if not match:
+                continue
+            acl_name, direction = match.group(1), match.group(2)
+            applied.setdefault(acl_name, []).append(
+                AclBinding(interface=interface, direction=direction)
+            )
+            raw.setdefault(acl_name, []).append(f"{interface} {direction}")
+
+    return applied, raw
+
+
 __all__ = [
     "PORT_NAMES",
     "UNREADABLE",
     "ParsedAce",
+    "interface_bindings",
     "parse_ace",
+    "read_ports",
+    "record_bindings",
     "wildcard_to_cidr",
 ]

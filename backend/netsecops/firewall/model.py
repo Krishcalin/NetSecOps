@@ -353,6 +353,17 @@ class ObjectResolver:
         obj = self._addresses.get(name)
         if obj is not None:
             v4, v6 = parse_address(str(obj.get("value") or ""))
+            if not v4 and not v6:
+                # The object exists and its value could not be read — a vendor spelling
+                # this does not know, or an empty definition. Returning the empty set
+                # here made every rule referencing it match *nothing*, silently and with
+                # no entry in `unresolved`: the rule was still analysed, still ordered,
+                # and could never fire. That is how a whole platform's rulebase can be
+                # inert without a single error. Refusing it instead puts the object on
+                # the rule's `unresolved` list, which is reported and takes the rule out
+                # of overlap analysis.
+                self.unresolved.add(f"{name} (value not understood)")
+                return None
             resolved = AddressSet(v4=v4, v6=v6)
             self._address_cache[name] = resolved
             return resolved
@@ -360,11 +371,19 @@ class ObjectResolver:
         group = self._address_groups.get(name)
         if group is not None:
             combined = EMPTY_ADDRESS
-            for member in group.get("members", []):
+            members = list(group.get("members", []))
+            for member in members:
                 member_set = self._resolve_address(str(member), depth=depth + 1)
                 if member_set is None:
                     continue
                 combined = combined.union(member_set)
+            if members and combined is EMPTY_ADDRESS:
+                # Same reasoning as an object: a group with members, none of which could
+                # be read, is not an empty group. An empty group is a real thing to
+                # write and resolves to nothing legitimately — so the distinction is
+                # whether there were members at all.
+                self.unresolved.add(f"{name} (no member could be read)")
+                return None
             self._address_cache[name] = combined
             return combined
 
@@ -401,11 +420,17 @@ class ObjectResolver:
             return cached
 
         token = name.strip().lower()
-        if token in {"any", "all", "*", "application-default"}:
+        if token in {"any", "all", "*", "application-default", "ip", "ipv4"}:
             # `application-default` is PAN-OS for "whatever ports the App-ID expects".
             # It is narrower than `any` in practice, but the rulebase alone does not say
             # how much narrower, so treating it as any is the conservative reading —
             # it can only over-report overlap, never hide it.
+            #
+            # `ip` is Cisco for "every protocol" in an access-list entry. The parsers
+            # normalise it to `any` before it gets here; it is accepted anyway because
+            # the failure mode when it is not is silent — the service lands in
+            # `unresolved`, the rule stops matching, and the rulebase quietly behaves as
+            # though the entry were not there.
             return ANY_SERVICE
 
         self.referenced.add(name)

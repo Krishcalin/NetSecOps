@@ -54,7 +54,12 @@ from netsecops.parsers.base import (
     mask_secret,
     timeout_to_seconds,
 )
-from netsecops.parsers.cisco.acl import UNREADABLE, parse_ace
+from netsecops.parsers.cisco.acl import (
+    UNREADABLE,
+    interface_bindings,
+    parse_ace,
+    record_bindings,
+)
 from netsecops.parsers.route_tables import parse_cisco_route_table, store_routes
 from netsecops.parsers.routes import connected_routes, parse_ios_static_route
 
@@ -926,25 +931,8 @@ class CiscoIosParser(CiscoStyleParser):
 
     def _bind_acls(self, parse: CiscoConfParse, result: ParseResult) -> None:
         """Record which interface each ACL is applied to, and in which direction."""
-        applied: dict[str, list[str]] = {}
-        for obj in parse.find_objects(r"^interface\s"):
-            interface = self.capture(obj, r"^interface\s+(\S+)") or ""
-            for child in obj.children:
-                match = re.match(r"^\s*ip\s+access-group\s+(\S+)\s+(in|out)", child.text)
-                if match:
-                    applied.setdefault(match.group(1), []).append(f"{interface} {match.group(2)}")
-
-        for acl in result.ncm.acls:
-            if bindings := applied.get(acl.name):
-                acl.applied_to = bindings
-
-        # Carried onto the rules as well as the ACL, because the path walk reads the
-        # rulebase and never sees `ncm.acls`. Without it, an ACL applied to nothing —
-        # a vty filter, an SNMP filter, a leftover — is evaluated against transit
-        # traffic and its trailing `deny any` reports the path blocked.
-        for rule in result.ncm.firewall.security_rules:
-            if rule.rulebase is not None:
-                rule.applied = rule.rulebase in applied
+        applied, raw = interface_bindings(parse, r"^\s*ip\s+access-group\s+(\S+)\s+(in|out)")
+        record_bindings(result.ncm, applied, raw=raw)
 
     # ───────────────────────────── features ─────────────────────────────
 

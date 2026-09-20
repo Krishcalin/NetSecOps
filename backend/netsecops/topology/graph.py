@@ -118,6 +118,33 @@ class DeviceNode:
                     best = (network.prefixlen, zone)
         return best[1] if best else None
 
+    def interface_containing(self, address: int) -> str | None:
+        """The interface whose subnet holds this address.
+
+        `zone_containing` answers the same question for a platform that has zones, and
+        returns None on one that does not — IOS and NX-OS have no zones at all. Choosing
+        which access list governs a hop needs the interface name itself there, because
+        that is what `ip access-group` is written under.
+
+        Longest prefix wins, as in `zone_containing`: an address inside a /30 transit
+        link and inside a summarised /16 arrived over the /30.
+
+        Host entries are skipped. An interface with a /32 has no attached subnet, so
+        nothing ever arrives *over* it — and the graph indexes each device's management
+        address as a synthetic `management` /32 so that peers routing to it are joined
+        correctly. Left in, that entry wins every longest-prefix comparison on exactly
+        the hop where a neighbour routes to this device's address, which is most of them,
+        and names an interface the packet did not arrive on. `zone_containing` never hit
+        this because the synthetic entry carries no zone.
+        """
+        best: tuple[int, str] | None = None
+        for name, network in self.interface_networks:
+            if network.prefixlen == network.max_prefixlen:
+                continue
+            if _in_network(address, network) and (best is None or network.prefixlen > best[0]):
+                best = (network.prefixlen, name)
+        return best[1] if best else None
+
     def serves(self, address: int) -> bool:
         """Whether this device has a connected route covering the address.
 

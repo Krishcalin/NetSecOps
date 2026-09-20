@@ -35,13 +35,13 @@ import ipaddress
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Final
 
 from netsecops.core.errors import ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.firewall.analysis import RangeOutcome, first_match, first_match_over_range
 from netsecops.firewall.intervals import IntervalSet
-from netsecops.firewall.model import PROTOCOL_NUMBERS, resolve_rulebase
+from netsecops.firewall.model import PROTOCOL_NUMBERS, ResolvedRule, resolve_rulebase
 from netsecops.ncm.models import Route
 from netsecops.topology.graph import DeviceNode, TopologyGraph
 
@@ -94,6 +94,10 @@ class Hop:
     matched_route: str | None = None
     next_hop: str | None = None
     egress_interface: str | None = None
+    #: The interface the packet arrived on. Not exposed on the wire — it exists so the
+    #: walk can pick the access list bound inbound here, which on IOS and NX-OS is keyed
+    #: by interface name and not by zone, because those platforms have no zones.
+    ingress_interface: str | None = None
     ingress_zone: str | None = None
     egress_zone: str | None = None
 
@@ -249,6 +253,170 @@ def _describe(route: Route) -> str:
     return route.destination
 
 
+@dataclass(frozen=True, slots=True)
+class _Query:
+    """The packet, as the rulebase is asked about it."""
+
+    source: int
+    destination: int
+    protocol: int
+    port: int
+    src_range: Any = None
+    dst_range: Any = None
+
+
+@dataclass(frozen=True, slots=True)
+class _Verdict:
+    """What one ordered rulebase said.
+
+    `action` None means the list was consulted and its answer could not be established —
+    distinct from a permit, and it must not be combined as one.
+    """
+
+    action: str | None = None
+    rule_name: str | None = None
+    rule_order: int | None = None
+    limitations: tuple[str, ...] = ()
+
+
+#: Conservative precedence when several access lists apply to one hop. A deny anywhere
+#: drops the packet, so it wins outright. An unevaluable list beats a permit, because it
+#: might have denied — claiming `allow` on the strength of the list we could read would
+#: be a permit the data does not support.
+_PRECEDENCE: Final[dict[str | None, int]] = {"deny": 3, "mixed": 2, None: 1, "allow": 0}
+
+
+def _governing_rulebases(node: DeviceNode, hop: Hop, contexts: set[str]) -> set[str] | None:
+    """Which of this device's access lists are enforced on this hop.
+
+    Matching is against the interface name *and* the zone, because the two platforms
+    write the binding differently and both names are available here: IOS and NX-OS bind
+    `ip access-group` under a physical interface and have no zones at all, while an ASA
+    binds `access-group … interface inside`, naming the nameif — which is what the graph
+    records as that interface's zone.
+
+    Returns None when nothing matched, which is the caller's signal to report the
+    decision as unknown rather than to pick one.
+    """
+    bindings = node.firewall.get("rulebase_bindings") or {}
+    if not bindings:
+        return None
+
+    ingress = {name for name in (hop.ingress_interface, hop.ingress_zone) if name}
+    egress = {name for name in (hop.egress_interface, hop.egress_zone) if name}
+
+    governing: set[str] = set()
+    for name in contexts:
+        for binding in bindings.get(name, []):
+            interface = binding.get("interface")
+            direction = str(binding.get("direction") or "in").lower()
+            # An ASA `access-group NAME global` has no interface and applies everywhere,
+            # and so does a binding line the parser could not read — the safe reading of
+            # "bound to something we could not identify" is that it is in force.
+            if (
+                interface is None
+                or (direction == "in" and interface in ingress)
+                or (direction == "out" and interface in egress)
+            ):
+                governing.add(name)
+                break
+
+    return governing or None
+
+
+def _ask(node: DeviceNode, hop: Hop, rules: list[ResolvedRule], query: _Query) -> _Verdict:
+    """One first-match evaluation over one ordered rulebase."""
+    if query.src_range is not None and query.dst_range is not None:
+        ranged = first_match_over_range(
+            rules,
+            source=query.src_range,
+            destination=query.dst_range,
+            protocol=query.protocol,
+            port=query.port,
+            src_zone=hop.ingress_zone,
+            dst_zone=hop.egress_zone,
+        )
+        if ranged.outcome is RangeOutcome.MIXED:
+            return _Verdict(
+                action="mixed",
+                rule_name=", ".join(rule.name for rule in ranged.split_by[:3]),
+                limitations=tuple(ranged.notes),
+            )
+        if ranged.outcome is RangeOutcome.NO_MATCH:
+            return _Verdict(action="deny", rule_name="(implicit deny)")
+
+        decided = ranged.decided_by
+        if decided is None:
+            # Unreachable as the verdict is constructed, and left as a gap rather than
+            # an assumed permit: a uniform outcome with no deciding rule would mean the
+            # range analysis contradicted itself, and inventing an action here would
+            # bury that behind a confident answer.
+            return _Verdict(
+                limitations=(
+                    f"{node.hostname} returned a uniform verdict with no deciding rule, "
+                    "so its decision is unknown and is not counted as a permit.",
+                )
+            )
+        return _Verdict(action=decided.action, rule_name=decided.name, rule_order=decided.order)
+
+    result = first_match(
+        rules,
+        source=query.source,
+        destination=query.destination,
+        protocol=query.protocol,
+        port=query.port,
+        src_zone=hop.ingress_zone,
+        dst_zone=hop.egress_zone,
+    )
+    if result.matched is None:
+        # No rule matched. Every platform here ends its policy with an implicit deny, so
+        # the packet is dropped — and saying so is more useful than "no rule matched",
+        # which reads as though the question went unanswered.
+        return _Verdict(
+            action="deny", rule_name="(implicit deny)", limitations=tuple(result.limitations)
+        )
+
+    return _Verdict(
+        action=result.matched.action,
+        rule_name=result.matched.name,
+        rule_order=result.matched.order,
+        limitations=tuple(result.limitations),
+    )
+
+
+def _combine(
+    node: DeviceNode, hop: Hop, groups: list[list[ResolvedRule]], query: _Query
+) -> _Verdict:
+    """The device's answer, across every access list enforced on this hop.
+
+    With one list — every platform that has a single ordered policy, and the ordinary
+    Cisco case — this is that list's verdict unchanged.
+    """
+    verdicts = [_ask(node, hop, group, query) for group in groups if group]
+    if not verdicts:
+        return _Verdict()
+    if len(verdicts) == 1:
+        return verdicts[0]
+
+    strongest = max(verdicts, key=lambda verdict: _PRECEDENCE.get(verdict.action, 1))
+    # Caveats from the lists that did not decide still apply to the packet, so they are
+    # carried rather than discarded with the verdicts they came from.
+    merged = tuple(dict.fromkeys(note for verdict in verdicts for note in verdict.limitations))
+    return _Verdict(
+        action=strongest.action,
+        rule_name=strongest.rule_name,
+        rule_order=strongest.rule_order,
+        limitations=merged,
+    )
+
+
+def _record(hop: Hop, verdict: _Verdict) -> None:
+    hop.action = verdict.action
+    hop.rule_name = verdict.rule_name
+    hop.rule_order = verdict.rule_order
+    hop.limitations = verdict.limitations
+
+
 def _evaluate(
     node: DeviceNode,
     hop: Hop,
@@ -310,88 +478,38 @@ def _evaluate(
     if not rules:
         return
 
-    # A packet crossing an ASA, an IOS router or a Nexus is tested against *one* ACL —
-    # the one bound inbound on the interface it arrived on. The NCM says so on
-    # `SecurityRule.rulebase`, and the hygiene analysis honours it; evaluating them as
-    # one ordered list does not. On a three-interface ASA that means the first ACL in
-    # the file decides every path, and since every ACL ends in `deny ip any any`, every
-    # path is reported blocked by a rule governing traffic in a different direction.
-    #
-    # Which ACL governs this hop needs the ingress *interface*, and the binding is
-    # recorded per platform in shapes that do not agree — the same collision that keeps
-    # NAT declared rather than modelled. Until that is normalised, a device with more
-    # than one rulebase in play gets no verdict rather than a confident wrong one: a
-    # false `blocked` says a control is already in place, and somebody stops looking.
+    # A packet crossing an ASA, an IOS router or a Nexus is not tested against every
+    # access list the device holds. It is tested against the one bound inbound on the
+    # interface it arrived on, and the one bound outbound on the interface it leaves by.
+    # The NCM records that on `SecurityRule.rulebase` and the hygiene analysis honours
+    # it; evaluating them as one ordered list did not. On a three-interface ASA the
+    # first list in the file decided every path, and since each ends in `deny ip any
+    # any`, every path came back blocked by a rule governing the opposite direction.
     contexts = {rule.rulebase for rule in rules if rule.rulebase is not None}
-    if len(contexts) > 1:
-        hop.limitations = (
-            f"{node.hostname} carries {len(contexts)} access lists bound to different "
-            "interfaces, and which of them governs this hop depends on the interface "
-            "the packet arrives on — which is not yet recorded in a form this can read. "
-            "Its decision is unknown and is not counted as a permit. Ask the rule query "
-            "against the specific access list to settle it.",
-        )
-        return
+    groups: list[list[ResolvedRule]] = [rules]
 
-    if src_range is not None and dst_range is not None:
-        ranged = first_match_over_range(
-            rules,
-            source=src_range,
-            destination=dst_range,
-            protocol=protocol,
-            port=port,
-            src_zone=hop.ingress_zone,
-            dst_zone=hop.egress_zone,
-        )
-        if ranged.outcome is RangeOutcome.MIXED:
-            hop.action = "mixed"
-            hop.rule_name = ", ".join(r.name for r in ranged.split_by[:3])
-            hop.limitations = ranged.notes
-            return
-        if ranged.outcome is RangeOutcome.NO_MATCH:
-            hop.action = "deny"
-            hop.rule_name = "(implicit deny)"
-            return
-        decided = ranged.decided_by
-        if decided is None:
-            # Unreachable as the verdict is constructed, and left as a gap rather than
-            # an assumed permit: a uniform outcome with no deciding rule would mean the
-            # range analysis contradicted itself, and inventing an action here would
-            # bury that behind a confident answer.
+    if len(contexts) > 1:
+        governing = _governing_rulebases(node, hop, contexts)
+        if governing is None:
+            # Either the snapshot predates the bindings, or none of them names this
+            # hop's interfaces. No confident verdict from an arbitrary choice: a false
+            # `blocked` says a control is already in place and somebody stops looking.
             hop.limitations = (
-                f"{node.hostname} returned a uniform verdict with no deciding rule, so "
-                "its decision is unknown and is not counted as a permit.",
+                f"{node.hostname} carries {len(contexts)} access lists and none of them "
+                "is bound to the interface this packet arrives on or leaves by, so "
+                "which one governs this hop could not be determined. Its decision is "
+                "unknown and is not counted as a permit.",
             )
             return
 
-        hop.action = decided.action
-        hop.rule_name = decided.name
-        hop.rule_order = decided.order
-        return
+        # One group per governing list, never concatenated. They are separate
+        # first-match evaluations and a deny in either drops the packet — merging them
+        # would let the first list's trailing deny shadow the second list's permit,
+        # which is exactly the defect this replaced.
+        groups = [[rule for rule in rules if rule.rulebase == name] for name in sorted(governing)]
 
-    result = first_match(
-        rules,
-        source=source,
-        destination=destination,
-        protocol=protocol,
-        port=port,
-        src_zone=hop.ingress_zone,
-        dst_zone=hop.egress_zone,
-    )
-
-    if result.matched is None:
-        # No rule matched. Every platform here ends its policy with an implicit deny, so
-        # the packet is dropped — and saying so is more useful than "no rule matched",
-        # which reads as though the question went unanswered.
-        hop.action = "deny"
-        hop.rule_name = "(implicit deny)"
-        hop.limitations = result.limitations
-        return
-
-    hop.action = result.matched.action
-    hop.rule_name = result.matched.name
-    hop.rule_order = result.matched.order
-    hop.limitations = result.limitations
+    query = _Query(source, destination, protocol, port, src_range, dst_range)
+    _record(hop, _combine(node, hop, groups, query))
 
 
 def walk(
@@ -466,11 +584,16 @@ def walk(
             device_id=current.device_id,
             hostname=current.hostname,
             platform=current.platform,
+            ingress_interface=current.interface_containing(arrived_from),
             ingress_zone=current.zone_containing(arrived_from),
         )
 
         # Arrived: the destination is on a subnet this device is directly attached to.
         if current.serves(dst):
+            # The interface as well as the zone: an outbound access list is bound by
+            # interface name on IOS and NX-OS, and the last hop is exactly where an
+            # outbound list on the destination's own segment is enforced.
+            hop.egress_interface = current.interface_containing(dst)
             hop.egress_zone = current.zone_containing(dst)
             hop.matched_route = "connected"
             _evaluate(

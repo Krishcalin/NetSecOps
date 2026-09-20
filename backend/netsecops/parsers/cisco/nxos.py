@@ -47,7 +47,12 @@ from netsecops.parsers.base import (
     mask_secret,
     timeout_to_seconds,
 )
-from netsecops.parsers.cisco.acl import UNREADABLE, parse_ace
+from netsecops.parsers.cisco.acl import (
+    UNREADABLE,
+    interface_bindings,
+    parse_ace,
+    record_bindings,
+)
 from netsecops.parsers.route_tables import parse_nxos_route_table, store_routes
 from netsecops.parsers.routes import connected_routes, parse_ios_static_route
 
@@ -543,27 +548,15 @@ class CiscoNxosParser(CiscoStyleParser):
         self._bind_acls(parse, result)
 
     def _bind_acls(self, parse: CiscoConfParse, result: ParseResult) -> None:
-        """Record which interface each ACL is applied to, and in which direction."""
-        applied: dict[str, list[str]] = {}
-        for obj in parse.find_objects(r"^interface\s"):
-            interface = self.capture(obj, r"^interface\s+(\S+)") or ""
-            for child in obj.children:
-                match = re.match(
-                    r"^\s*ip\s+(?:port\s+)?access-group\s+(\S+)\s+(in|out)", child.text
-                )
-                if match:
-                    applied.setdefault(match.group(1), []).append(f"{interface} {match.group(2)}")
+        """Record which interface each ACL is applied to, and in which direction.
 
-        for acl in result.ncm.acls:
-            if bindings := applied.get(acl.name):
-                acl.applied_to = bindings
-
-        # As on IOS: the path walk reads `firewall.security_rules` and never sees
-        # `ncm.acls`, so an ACL bound to nothing would otherwise be enforced against
-        # transit traffic by the walker and by nothing else.
-        for rule in result.ncm.firewall.security_rules:
-            if rule.rulebase is not None:
-                rule.applied = rule.rulebase in applied
+        The same shape as IOS, and the same reader — NX-OS differs only in also
+        accepting `ip port access-group` for a layer-2 port ACL.
+        """
+        applied, raw = interface_bindings(
+            parse, r"^\s*ip\s+(?:port\s+)?access-group\s+(\S+)\s+(in|out)"
+        )
+        record_bindings(result.ncm, applied, raw=raw)
 
 
 __all__ = ["CiscoNxosParser"]

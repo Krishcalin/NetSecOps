@@ -401,15 +401,157 @@ class TestWhichRulebaseGoverns:
         )
         return build_graph([core, edge])
 
-    def test_two_bound_access_lists_produce_no_verdict_rather_than_a_wrong_one(self) -> None:
-        """The regression.
+    def test_the_inbound_list_on_the_ingress_interface_decides(self) -> None:
+        """The regression, and the fix.
 
-        `OUTSIDE-IN` denies everything inbound from the internet and `INSIDE-IN` permits
-        the user network outbound. Flattened, the outbound query is decided by the
-        inbound list and reported blocked. Which one governs depends on the interface
-        the packet arrives on, and that binding is not yet recorded in a form this can
-        read — so the honest answer is that the decision is unknown.
+        `OUTSIDE-IN` governs traffic arriving from the internet and denies it.
+        `INSIDE-IN` governs traffic arriving from the core and permits it. The packet
+        arrives on `up`, so only `INSIDE-IN` is consulted — flattened, `OUTSIDE-IN` came
+        first in the list and reported every path blocked by a rule governing the
+        opposite direction.
         """
+        firewall = {
+            "security_rules": [
+                *acl("OUTSIDE-IN", applied=True, action="deny"),
+                *acl("INSIDE-IN", applied=True, action="allow"),
+            ],
+            "rulebase_bindings": {
+                "OUTSIDE-IN": [{"interface": "wan", "direction": "in"}],
+                "INSIDE-IN": [{"interface": "up", "direction": "in"}],
+            },
+        }
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action == "allow"
+        assert hop.rule_name == "INSIDE-IN-1"
+        assert result.policy is not PolicyVerdict.BLOCKED
+
+    def test_a_list_governing_the_other_direction_is_never_consulted(self) -> None:
+        """The inverse, so the selection is not passing by permitting everything."""
+        firewall = {
+            "security_rules": [
+                *acl("INSIDE-IN", applied=True, action="allow"),
+                *acl("OUTSIDE-IN", applied=True, action="deny"),
+            ],
+            "rulebase_bindings": {
+                "INSIDE-IN": [{"interface": "wan", "direction": "in"}],
+                "OUTSIDE-IN": [{"interface": "up", "direction": "in"}],
+            },
+        }
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action == "deny", "the list bound on the ingress interface must decide"
+        assert hop.rule_name == "OUTSIDE-IN-1"
+
+    def test_an_outbound_list_on_the_egress_interface_also_applies(self) -> None:
+        """A packet is tested twice on a real device: inbound where it arrives, outbound
+        where it leaves. A deny in either drops it, so the permit inbound does not settle
+        it — and the two cannot be concatenated, because the first list's trailing deny
+        would shadow the second list's rules."""
+        firewall = {
+            "security_rules": [
+                *acl("IN-ON-UP", applied=True, action="allow"),
+                *acl("OUT-ON-DMZ", applied=True, action="deny"),
+            ],
+            "rulebase_bindings": {
+                "IN-ON-UP": [{"interface": "up", "direction": "in"}],
+                "OUT-ON-DMZ": [{"interface": "dmz", "direction": "out"}],
+            },
+        }
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action == "deny"
+        assert hop.rule_name == "OUT-ON-DMZ-1"
+        assert result.policy is PolicyVerdict.BLOCKED
+
+    def test_both_permitting_still_permits(self) -> None:
+        """Deny-wins must not become deny-by-default when two lists both allow."""
+        firewall = {
+            "security_rules": [
+                *acl("IN-ON-UP", applied=True, action="allow"),
+                *acl("OUT-ON-DMZ", applied=True, action="allow"),
+            ],
+            "rulebase_bindings": {
+                "IN-ON-UP": [{"interface": "up", "direction": "in"}],
+                "OUT-ON-DMZ": [{"interface": "dmz", "direction": "out"}],
+            },
+        }
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action == "allow"
+
+    def test_an_asa_binding_naming_a_nameif_matches_the_zone(self) -> None:
+        """An ASA binds `access-group NAME in interface inside`, naming the nameif rather
+        than the hardware — and the graph records that nameif as the interface's zone. So
+        the match has to try the zone as well as the interface name, or every ASA falls
+        through to 'could not be determined'."""
+        firewall = {
+            "security_rules": [
+                *acl("OUTSIDE-IN", applied=True, action="deny"),
+                *acl("INSIDE-IN", applied=True, action="allow"),
+            ],
+            "rulebase_bindings": {
+                "OUTSIDE-IN": [{"interface": "outside", "direction": "in"}],
+                "INSIDE-IN": [{"interface": "inside", "direction": "in"}],
+            },
+        }
+        core = node(
+            "core-rtr",
+            addresses={"lan": "10.10.0.1/24", "up": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "up"),
+                static("10.20.0.0/24", "10.0.1.2", "up"),
+            ],
+        )
+        edge = node(
+            "edge-fw",
+            addresses={"up": "10.0.1.2/30", "dmz": "10.20.0.1/24"},
+            zones={"up": "inside", "dmz": "dmz"},
+            routes=[connected("10.0.1.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+            firewall=firewall,
+        )
+
+        result = walk(
+            build_graph([core, edge]), source="10.10.0.5", destination="10.20.0.5", port=443
+        )
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action == "allow"
+        assert hop.rule_name == "INSIDE-IN-1"
+
+    def test_a_global_binding_applies_wherever_the_packet_arrives(self) -> None:
+        """An ASA `access-group NAME global` names no interface and is in force on all
+        of them."""
+        firewall = {
+            "security_rules": [
+                *acl("GLOBAL-POLICY", applied=True, action="deny"),
+                *acl("OUTSIDE-IN", applied=True, action="allow"),
+            ],
+            "rulebase_bindings": {
+                "GLOBAL-POLICY": [{"interface": None, "direction": "in"}],
+                "OUTSIDE-IN": [{"interface": "wan", "direction": "in"}],
+            },
+        }
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action == "deny"
+        assert hop.rule_name == "GLOBAL-POLICY-1"
+
+    def test_a_snapshot_with_no_bindings_reports_the_decision_as_unknown(self) -> None:
+        """A snapshot taken before bindings were parsed has several access lists and no
+        way to tell which governs. Picking one would be a coin toss, and a false
+        `blocked` says a control is already in place — so it says it does not know."""
         firewall = {
             "security_rules": [
                 *acl("OUTSIDE-IN", applied=True, action="deny"),
@@ -420,11 +562,29 @@ class TestWhichRulebaseGoverns:
         result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
         hop = next(h for h in result.hops if h.hostname == "edge-fw")
 
-        assert hop.action is None, "a device with two bound ACLs must not pick one arbitrarily"
+        assert hop.action is None
         assert result.policy is not PolicyVerdict.BLOCKED
-        assert hop.limitations and "access lists bound to different interfaces" in " ".join(
-            hop.limitations
-        )
+        assert hop.limitations and "could not be determined" in " ".join(hop.limitations)
+
+    def test_bindings_that_name_no_interface_on_this_path_report_unknown(self) -> None:
+        """Bindings exist but both lists govern interfaces this packet never touches —
+        which is a device whose topology we have misread, not a permit."""
+        firewall = {
+            "security_rules": [
+                *acl("OUTSIDE-IN", applied=True, action="deny"),
+                *acl("MGMT-IN", applied=True, action="allow"),
+            ],
+            "rulebase_bindings": {
+                "OUTSIDE-IN": [{"interface": "wan", "direction": "in"}],
+                "MGMT-IN": [{"interface": "mgmt", "direction": "in"}],
+            },
+        }
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action is None
+        assert result.policy is not PolicyVerdict.BLOCKED
 
     def test_one_access_list_still_decides(self) -> None:
         """The hedge must not spread to the ordinary case: a device with a single

@@ -19,6 +19,7 @@ as a different rule is not.
 
 from __future__ import annotations
 
+import ipaddress
 from pathlib import Path
 
 import pytest
@@ -204,6 +205,188 @@ class TestWhatIsRefused:
 
         assert ace is not None
         assert ace.partial is True
+
+
+class TestBindingsAreNormalised:
+    """Where an access list is enforced, in a shape something can act on.
+
+    `Acl.applied_to` kept the device's own words, which differ per platform and cannot
+    be compared: `access-group INSIDE-IN in interface inside` against
+    `GigabitEthernet0/1 in`. The path walk needs to know which list governs a hop, so
+    the binding is parsed once, here, rather than re-guessed by every consumer.
+    """
+
+    ASA = """
+hostname edge-fw
+!
+interface GigabitEthernet0/1
+ nameif inside
+ ip address 10.0.1.2 255.255.255.252
+!
+access-list INSIDE-IN extended permit ip 10.10.0.0 255.255.255.0 any
+access-list INSIDE-IN extended deny ip any any
+access-list DETACHED extended deny ip any any
+access-list GLOBAL-POLICY extended permit ip any any
+!
+access-group INSIDE-IN in interface inside
+access-group GLOBAL-POLICY global
+!
+: end
+"""
+
+    IOS = """
+hostname edge-router
+!
+ip access-list extended TRANSIT-IN
+ permit ip 10.10.0.0 0.0.0.255 any
+!
+ip access-list extended VTY-ONLY
+ permit tcp 10.100.0.0 0.0.255.255 any eq 22
+!
+interface GigabitEthernet0/1
+ ip address 10.10.0.1 255.255.255.0
+ ip access-group TRANSIT-IN in
+!
+end
+"""
+
+    def test_an_asa_binding_records_the_nameif_and_direction(self) -> None:
+        ncm = get_parser("cisco_asa").parse(ParseContext(text=self.ASA))
+
+        bindings = ncm.firewall.rulebase_bindings
+        assert [(b.interface, b.direction) for b in bindings["INSIDE-IN"]] == [("inside", "in")]
+
+    def test_an_asa_global_binding_names_no_interface(self) -> None:
+        """`access-group NAME global` applies on every interface, and the path walk has
+        to treat it as governing whichever hop it is asked about."""
+        ncm = get_parser("cisco_asa").parse(ParseContext(text=self.ASA))
+
+        bindings = ncm.firewall.rulebase_bindings["GLOBAL-POLICY"]
+        assert [(b.interface, b.direction) for b in bindings] == [(None, "in")]
+
+    def test_an_unbound_list_is_marked_as_filtering_nothing(self) -> None:
+        ncm = get_parser("cisco_asa").parse(ParseContext(text=self.ASA))
+
+        by_rulebase = {rule.rulebase: rule.applied for rule in ncm.firewall.security_rules}
+        assert by_rulebase["INSIDE-IN"] is True
+        assert by_rulebase["DETACHED"] is False
+
+    def test_an_ios_binding_records_the_interface_name(self) -> None:
+        """IOS has no zones, so the interface name is the only key available."""
+        ncm = get_parser("cisco_ios").parse(ParseContext(text=self.IOS))
+
+        bindings = ncm.firewall.rulebase_bindings
+        assert [(b.interface, b.direction) for b in bindings["TRANSIT-IN"]] == [
+            ("GigabitEthernet0/1", "in")
+        ]
+        assert "VTY-ONLY" not in bindings
+
+    def test_the_raw_lines_are_still_kept(self) -> None:
+        """`applied_to` is evidence — what the device actually said — and the parsed
+        form is for acting on. Losing the first would make a binding unciteable."""
+        ncm = get_parser("cisco_asa").parse(ParseContext(text=self.ASA))
+
+        acl = next(acl for acl in ncm.acls if acl.name == "INSIDE-IN")
+        assert acl.applied_to == ["access-group INSIDE-IN in interface inside"]
+
+
+class TestTheAsaSpeaksTheResolversVocabulary:
+    """The ASA parser emitted its own service dialect, and nothing read it.
+
+    `permit ip …` became the service `ip` and `permit tcp … eq 443 log` became
+    `tcp/eq 443 log`. Neither resolves, so both landed in the rule's `unresolved` list
+    and stopped the rule matching anything — which meant **no ASA rule ever matched in a
+    path walk**, and every access list fell through to its implicit deny.
+    """
+
+    CONFIG = """
+hostname edge-fw
+!
+access-list L extended permit ip 10.10.0.0 255.255.255.0 any
+access-list L extended permit tcp any host 10.20.0.10 eq 443 log
+access-list L extended permit udp any any range 16384 32767
+access-list L extended permit tcp any any neq 22
+access-list L extended deny ip any any log
+!
+access-group L in interface inside
+!
+: end
+"""
+
+    def rules(self):
+        ncm = get_parser("cisco_asa").parse(ParseContext(text=self.CONFIG))
+        # Through the dump, because that is how the stored snapshot reaches the resolver
+        # and the path walk — never as the live model object.
+        return resolve_rulebase(ncm.firewall.model_dump(mode="json"))[0]
+
+    def test_permit_ip_resolves_to_every_protocol(self) -> None:
+        rule = self.rules()[0]
+
+        assert rule.unresolved == ()
+        assert rule.services.is_any
+
+    def test_a_port_operator_resolves_and_the_log_keyword_does_not_leak_in(self) -> None:
+        rule = self.rules()[1]
+
+        assert rule.unresolved == ()
+        assert not rule.services.is_any
+        assert rule.services.by_protocol[6].covers_value(443)
+        assert not rule.services.by_protocol[6].covers_value(444)
+
+    def test_a_range_operator_resolves(self) -> None:
+        rule = self.rules()[2]
+
+        assert rule.unresolved == ()
+        assert rule.services.by_protocol[17].covers_value(20000)
+        assert not rule.services.by_protocol[17].covers_value(80)
+
+    def test_neq_is_refused_rather_than_widened(self) -> None:
+        """ "Every port except 22" is not expressible as a `tcp/…` literal, and writing
+        two ranges would make the rule look precise while losing the distinction. The
+        same refusal the IOS reader already makes, because it is the same reader."""
+        rule = self.rules()[3]
+
+        assert rule.unresolved != ()
+
+    def test_a_host_keyword_is_grammar_and_not_part_of_the_address(self) -> None:
+        """`host 10.20.0.10` was passed to the resolver whole, which cannot look it up.
+
+        Same consequence as the service dialect and found the same way: the entry landed
+        in `unresolved`, stopped matching, and its access list fell through to the
+        implicit deny. The IOS reader has always stripped the keyword.
+        """
+        rule = self.rules()[1]
+
+        assert rule.unresolved == ()
+        assert rule.destination.v4.covers_value(int(ipaddress.ip_address("10.20.0.10")))
+        assert not rule.destination.v4.covers_value(int(ipaddress.ip_address("10.20.0.11")))
+
+    def test_an_object_group_is_referenced_by_name(self) -> None:
+        config = """
+hostname edge-fw
+!
+object-group network GRP-ADMINS
+ network-object host 10.100.5.50
+!
+access-list L extended permit tcp object-group GRP-ADMINS any eq 22
+!
+access-group L in interface inside
+!
+: end
+"""
+        ncm = get_parser("cisco_asa").parse(ParseContext(text=config))
+        rule = resolve_rulebase(ncm.firewall.model_dump(mode="json"))[0][0]
+
+        assert rule.unresolved == ()
+        assert rule.source.v4.covers_value(int(ipaddress.ip_address("10.100.5.50")))
+
+    def test_every_rule_in_a_real_acl_now_resolves_its_service(self) -> None:
+        """The property that actually failed: one unresolved entry is a rule that never
+        matches, and an access list whose entries never match reports the path blocked
+        by its implicit deny."""
+        resolvable = [rule for rule in self.rules() if rule.unresolved == ()]
+
+        assert len(resolvable) == 4, "only the deliberate `neq` entry may be unresolved"
 
 
 class TestTheIosRulebase:

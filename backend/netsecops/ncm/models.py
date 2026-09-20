@@ -659,11 +659,36 @@ class AclEntry(NcmBase):
     raw: str = ""
 
 
+class AclBinding(NcmBase):
+    """Where an access list is enforced, normalised across platforms.
+
+    `interface` is whatever the device's own binding names, and that differs: IOS and
+    NX-OS write `ip access-group NAME in` under a physical interface, so it is
+    `GigabitEthernet0/1`; an ASA writes `access-group NAME in interface inside`, naming
+    the *nameif* rather than the hardware. Both are kept verbatim rather than resolved to
+    one of them, because a consumer matching an ingress interface has both names
+    available — the graph records interface names and the interface→zone map — and
+    picking one here would throw away the only key that works on the other platform.
+
+    `interface` is None for an ASA `access-group NAME global`, which applies everywhere.
+    """
+
+    interface: str | None = None
+    #: `in` or `out`. A packet crossing a device is tested against the inbound list on
+    #: the interface it arrives on *and* the outbound list on the interface it leaves by,
+    #: and a deny in either drops it — so the direction is not decoration.
+    direction: str = "in"
+
+
 class Acl(NcmBase):
     name: str
     type: str | None = None
     entries: list[AclEntry] = Field(default_factory=list)
+    #: The raw binding lines, as the device wrote them. Kept for display and evidence.
     applied_to: list[str] = Field(default_factory=list)
+    #: The same bindings, parsed. `applied_to` is unparseable across platforms — see
+    #: `AclBinding` — and this is what anything reasoning about enforcement reads.
+    bindings: list[AclBinding] = Field(default_factory=list)
 
 
 # ──────────────────────── firewall (Phase 4 populates) ──────────────────────
@@ -737,6 +762,11 @@ class Firewall(NcmBase):
     security_rules: list[SecurityRule] = Field(default_factory=list)
     nat_rules: list[NatRule] = Field(default_factory=list)
     profiles: dict[str, Any] = Field(default_factory=dict)
+    #: Rulebase name → where it is enforced. The same information as `Acl.bindings`,
+    #: carried here because the path walk reads the firewall block and never sees
+    #: `ncm.acls` — and without it the walk cannot tell which of a device's access lists
+    #: governs a given hop. Empty on platforms with a single ordered policy.
+    rulebase_bindings: dict[str, list[AclBinding]] = Field(default_factory=dict)
 
 
 # ─────────────────────────── VPN and certificates ───────────────────────────
