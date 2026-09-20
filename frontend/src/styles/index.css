@@ -1401,6 +1401,46 @@ code {
   margin-bottom: 12px;
 }
 
+/* A vertical run of related controls inside a card — the sections of a user's detail
+   panel, or a credential's assignments and test. */
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+/* Multi-select lists: roles, permission scopes, Device Groups.
+
+   Wider minimum than `.form-grid` because each row carries a label and an explanation
+   beside it, and wrapping a role's description under its own checkbox makes a list of
+   five roles read as ten items. */
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.4;
+}
+
+.checkbox input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+/* A row for something that still exists but is not in force — a deactivated account, a
+   revoked token. Dimmed rather than hidden: "this was withdrawn" is an answer, and a
+   disappeared row cannot give it. */
+.row--muted {
+  opacity: 0.55;
+}
+
 /* Path analysis: routing confidence and policy verdict, side by side (FR-TOPO-04).
 
    Deliberately two equal columns rather than a headline and a subtitle. The two axes

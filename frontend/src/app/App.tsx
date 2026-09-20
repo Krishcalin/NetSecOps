@@ -26,6 +26,7 @@ import { CompliancePage } from './CompliancePage';
 import { ReportsPage } from './ReportsPage';
 import { TopologyPage } from './TopologyPage';
 import { JobsPage } from './JobsPage';
+import { UsersPage } from './UsersPage';
 import { SettingsPage } from './SettingsPage';
 import { AuditLogPage } from './AuditLogPage';
 import { ProfilePage } from './ProfilePage';
@@ -114,6 +115,7 @@ export function App() {
               {/* The archive, not a view of it: every report here is frozen at the
                   moment it was generated. */}
               <Route path="reports" element={<ReportsPage />} />
+              <Route path="users" element={<UsersPage />} />
               <Route path="settings" element={<SettingsPage />} />
               <Route path="audit" element={<AuditLogPage />} />
               <Route path="profile" element={<ProfilePage />} />

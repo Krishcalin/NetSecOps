@@ -50,6 +50,10 @@ const NAV_ITEMS: NavItem[] = [
   // `settings:read` rather than a device permission: a channel's configuration decides
   // where security alerts go, and that belongs with the platform owner rather than with
   // the people operating the devices being reported on.
+  // With Settings rather than at the top, though it is the first thing a new deployment
+  // needs: an administration area belongs below the work the product is for, and putting
+  // user administration first would make NetSecOps look like an access-management tool.
+  { label: 'Users', to: '/users', permission: 'user:read' },
   { label: 'Settings', to: '/settings', permission: 'settings:read' },
   { label: 'Audit Log', to: '/audit', permission: 'audit:read' },
 ];

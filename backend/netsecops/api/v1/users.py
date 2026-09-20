@@ -44,6 +44,7 @@ def _to_read(user: User) -> UserRead:
         mfa_enabled=user.mfa_enabled,
         must_change_password=user.must_change_password,
         roles=sorted(user.role_set, key=lambda r: r.value),
+        device_group_ids=sorted((s.device_group_id for s in user.group_scopes), key=str),
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         updated_at=user.updated_at,

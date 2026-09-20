@@ -1,12 +1,13 @@
 # API reachability
 
-**139 operations are published. The console requests 78 of them. 61 it never requests.**
+**141 operations are published. The console requests 91 of them. 50 it never requests.**
 
-Measured 2026-09-19 against the OpenAPI schema `create_app()` produces and every `.ts`
+Measured 2026-09-20 against the OpenAPI schema `create_app()` produces and every `.ts`
 and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed —
-after job cancel, re-run failed, feed import, feed sync and the whole credential vault
-were closed. The count of operations rose by one because closing the vault required
-adding a read path for assignments; see below.
+after job cancel, re-run failed, feed import, feed sync, the whole credential vault, and
+user and API-token administration were closed. The published count has risen twice, both
+times because closing a gap needed an endpoint that did not exist: `GET
+/credentials/{id}/assignments`, then `POST /checks/preview` and `POST /checks/query`.
 
 This exists because unreachable capability is indistinguishable from absent capability.
 The vulnerability engine made the point: it was built, unit-tested, and wired only to a
@@ -28,16 +29,17 @@ constant (`` `${DELIVERIES}/${id}/requeue` ``). If you extend it, check a handfu
 
 ## The finding
 
-**NetSecOps cannot be fully administered from its own console.** Thirty-two operations
+**NetSecOps cannot be fully administered from its own console.** Twenty-three operations
 belong to areas with no page at all. There is no way, through the UI, to:
 
-- create a user, set their roles, scope or password (`/users`, 8 operations)
 - define a policy, set its checks, or make it the default (`/policies`, 6)
-- browse the check library or preview a check (`/checks`, 4)
+- browse the check library, preview a check or run a query (`/checks`, 6)
 - create or edit a schedule (`/schedules`, 4)
-- issue or revoke an API token (`/api-tokens`, 3)
 - file or withdraw a risk-acceptance exception (`/exceptions`, 3)
 - manage sites, tags or device-group nesting (4)
+
+~~create a user, set their roles, scope or password (`/users`, 8 operations)~~ and
+~~issue or revoke an API token (`/api-tokens`, 3)~~ are closed; see below.
 
 Every one of these is a normal operator task, and every one currently requires a REST
 client. Three of them — the exception register, the check library and policy authoring —
@@ -46,7 +48,7 @@ An advantage nobody can reach is not one.
 
 Only **two** of the 61 are correctly machine-only: `GET /metrics` and `GET /readyz`.
 
-### One endpoint was added rather than surfaced
+### Endpoints added rather than surfaced
 
 Closing the credential vault needed `GET /credentials/{id}/assignments`, which did not
 exist. `DELETE /credentials/assignments/{id}` takes an assignment id and nothing emitted
@@ -54,9 +56,16 @@ one except the response to the POST that created it — so a binding made last m
 not be withdrawn at all, from any client. For a credential vault that is the wrong way
 round: granting access is recoverable, being unable to withdraw it is not.
 
+Closing user administration needed no new endpoint but did need a new **field**.
+`PUT /users/{id}/scope` wrote a Device Group scope that no response carried, so an
+administrator could set one and had no way to read back what a user's scope currently
+was. A checkbox cannot render state the API will not return, and an editor that opens
+empty would silently clear the scope on save. `UserRead.device_group_ids` closes it.
+
 Worth noting as a pattern. An operation being unreachable from the console is sometimes a
-missing page, and sometimes a gap in the API that no page could paper over. This triage
-does not distinguish the two until someone tries to build the surface.
+missing page, sometimes a gap in the API that no page could paper over, and sometimes a
+write whose result is unreadable. This triage does not distinguish them until someone
+tries to build the surface.
 
 ---
 
@@ -73,15 +82,13 @@ capability, and the gap is entirely missing UI.
 | `GET /metrics` | Prometheus scrape target. |
 | `GET /readyz` | Container readiness probe. |
 
-### No console page exists — 32 · `surface`
+### No console page exists — 23 · `surface`
 
 | Area | Ops | Note |
 |---|---:|---|
-| `/users` | 8 | Roles, scope and password administration. |
 | `/policies` | 6 | Policy authoring and assignment. |
-| `/checks` | 4 | The 103-check library is not browsable; `POST /checks/{id}/preview` is how an author sees a check's verdict before assigning it. |
+| `/checks` | 6 | The 103-check library is not browsable; `POST /checks/{id}/preview` is how an author sees a check's verdict before assigning it, and `POST /checks/query` asks where an expression holds across the estate. |
 | `/schedules` | 4 | Schedules can be created only by API, though the scheduler process that fires them ships. |
-| `/api-tokens` | 3 | Token issuance and revocation. |
 | `/exceptions` | 3 | The waiver register — justification, approver, expiry. |
 | `/sites`, `/tags`, `/device-groups/{id}/parent` | 4 | Reference data and grouping. |
 
@@ -94,8 +101,11 @@ capability, and the gap is entirely missing UI.
 | `POST /vulnerabilities/feeds/import` | Bundle upload in the feed panel, with digest, vendor and product. |
 | `POST /vulnerabilities/feeds/sync` | Sync from publishers, in the same panel. |
 | The 8 `/credentials` operations, plus a new `GET …/assignments` | A Credentials page: store, list, assign to a device or group, revoke, test against a chosen device, delete. |
+| The 8 `/users` operations, plus `GET /auth/roles` | A Users page: create, search, roles, Device Group scope, password reset, deactivate, delete. The role picker is built from the served catalogue rather than a list in the browser. |
+| The 3 `/api-tokens` operations | On the profile page, not an admin one: the server classes them as self-service, and a token carries a subset of *your* permissions. The scope picker offers exactly those. |
+| `DELETE /auth/mfa` | Turn off MFA, on the profile page beside enrolment. Without it, someone who loses their phone after spending their recovery codes needs a Super Admin editing the database. |
 
-### A page exists but does not use the operation — 27 · `surface`
+### A page exists but does not use the operation — 25 · `surface`
 
 Ordered by how much the absence costs.
 
@@ -112,7 +122,6 @@ Ordered by how much the absence costs.
 | `GET /artifacts/{id}`, `/raw`, `GET /collections/{id}`, `/artifacts` | Device config | Raw evidence — the audit trail an assessor asks for. |
 | `GET /audit-log/export` | Audit log | Export button. |
 | `GET /settings/{key}`, `PUT /settings/{key}` | Settings | Per-key read and write; the page uses the collection endpoint only. |
-| `GET /auth/roles`, `DELETE /auth/mfa` | — | Reference data for a user-admin page, and MFA reset. |
 | `GET /aaa/correlation` | AAA | Correlation view. |
 
 ---
@@ -124,7 +133,7 @@ Ordered by how much the absence costs.
    weigh.~~ **Done.**
 3. ~~Credentials — a credential that fails is currently discovered by a job failing
    against a live device.~~ **Done.**
-4. **Users and API tokens** — first-run administration.
+4. ~~Users and API tokens — first-run administration.~~ **Done.**
 5. **Exceptions, checks and policies** — the differentiators.
 6. Everything else.
 

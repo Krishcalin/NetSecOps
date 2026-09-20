@@ -78,6 +78,18 @@ class UserRead(BaseModel):
     mfa_enabled: bool
     must_change_password: bool
     roles: list[Role] = Field(default_factory=list)
+    #: The Device Groups *assigned* to this user (FR-AUTH-05) — what `PUT
+    #: /users/{id}/scope` last wrote, not necessarily what is in force. An unrestricted
+    #: role ignores the assignment, so read this beside `roles`; empty on a group-scoped
+    #: role means they see nothing, because the scope filter fails closed.
+    #:
+    #: ``/auth/me`` is the exception and reports the scope actually in force, with
+    #: `unrestricted_scope` beside it to say which of the two an empty list means.
+    #:
+    #: Present at all because `PUT /users/{id}/scope` wrote something no endpoint
+    #: returned: an administrator could set a scope and had no way to read back what a
+    #: user's scope currently was, which makes it effectively a write-only setting.
+    device_group_ids: list[uuid.UUID] = Field(default_factory=list)
     last_login_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
@@ -87,7 +99,6 @@ class CurrentUserResponse(UserRead):
     """``/auth/me`` — adds the effective permission set so the SPA can gate its UI."""
 
     permissions: list[Permission] = Field(default_factory=list)
-    device_group_ids: list[uuid.UUID] = Field(default_factory=list)
     unrestricted_scope: bool = True
 
 
