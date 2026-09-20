@@ -22,6 +22,9 @@ import { AaaPage } from './AaaPage';
 import { FindingsPage } from './FindingsPage';
 import { VulnerabilitiesPage } from './VulnerabilitiesPage';
 import { DiscoveryPage } from './DiscoveryPage';
+import { ChecksPage } from './ChecksPage';
+import { PoliciesPage } from './PoliciesPage';
+import { ExceptionsPage } from './ExceptionsPage';
 import { CompliancePage } from './CompliancePage';
 import { ReportsPage } from './ReportsPage';
 import { TopologyPage } from './TopologyPage';
@@ -111,6 +114,12 @@ export function App() {
                   is usually on many devices, so the question is rarely per-device. */}
               <Route path="vulnerabilities" element={<VulnerabilitiesPage />} />
               <Route path="discovery" element={<DiscoveryPage />} />
+              {/* The rules, where they apply, and where they were deliberately not
+                  applied. Three pages rather than one because they are edited by
+                  different people at different times, but they read as a sequence. */}
+              <Route path="checks" element={<ChecksPage />} />
+              <Route path="policies" element={<PoliciesPage />} />
+              <Route path="exceptions" element={<ExceptionsPage />} />
               <Route path="compliance" element={<CompliancePage />} />
               {/* The archive, not a view of it: every report here is frozen at the
                   moment it was generated. */}

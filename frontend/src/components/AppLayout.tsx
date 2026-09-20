@@ -42,6 +42,15 @@ const NAV_ITEMS: NavItem[] = [
   // A conclusion about the estate rather than configuration, so it sits behind the
   // findings permission — unlike the rulebase viewer directly above it.
   { label: 'AAA Posture', to: '/aaa', permission: 'finding:read' },
+  // The three sit together and in this order because that is the sequence: a check is
+  // the rule, a policy is where it applies, and an exception is where it applies and is
+  // knowingly not met. Above Compliance, because compliance is what they add up to.
+  { label: 'Checks', to: '/checks', permission: 'check:read' },
+  { label: 'Policies', to: '/policies', permission: 'policy:read' },
+  // Behind `policy:read` rather than `exception:write`: the register is worth reading by
+  // anyone who reads findings — an auditor especially — and filing one is the part that
+  // needs the write permission.
+  { label: 'Exceptions', to: '/exceptions', permission: 'policy:read' },
   { label: 'Compliance', to: '/compliance', permission: 'report:read' },
   // Below Compliance because it is the archive of what the pages above said, and reads
   // oddly as an entry point: someone arriving with a question wants the live page first.

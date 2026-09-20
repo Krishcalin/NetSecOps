@@ -1,13 +1,14 @@
 # API reachability
 
-**141 operations are published. The console requests 91 of them. 50 it never requests.**
+**141 operations are published. The console requests 106 of them. 35 it never requests.**
 
 Measured 2026-09-20 against the OpenAPI schema `create_app()` produces and every `.ts`
 and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed —
-after job cancel, re-run failed, feed import, feed sync, the whole credential vault, and
-user and API-token administration were closed. The published count has risen twice, both
-times because closing a gap needed an endpoint that did not exist: `GET
-/credentials/{id}/assignments`, then `POST /checks/preview` and `POST /checks/query`.
+after job cancel, re-run failed, feed import, feed sync, the credential vault, user and
+API-token administration, and the check library, policies and the exception register were
+closed. The published count has risen twice, both times because closing a gap needed an
+endpoint that did not exist: `GET /credentials/{id}/assignments`, then `POST
+/checks/preview` and `POST /checks/query`.
 
 This exists because unreachable capability is indistinguishable from absent capability.
 The vulnerability engine made the point: it was built, unit-tested, and wired only to a
@@ -29,22 +30,19 @@ constant (`` `${DELIVERIES}/${id}/requeue` ``). If you extend it, check a handfu
 
 ## The finding
 
-**NetSecOps cannot be fully administered from its own console.** Twenty-three operations
-belong to areas with no page at all. There is no way, through the UI, to:
+**NetSecOps could not be fully administered from its own console.** Thirty-two operations
+belonged to areas with no page at all. Eight remain:
 
-- define a policy, set its checks, or make it the default (`/policies`, 6)
-- browse the check library, preview a check or run a query (`/checks`, 6)
 - create or edit a schedule (`/schedules`, 4)
-- file or withdraw a risk-acceptance exception (`/exceptions`, 3)
 - manage sites, tags or device-group nesting (4)
 
-~~create a user, set their roles, scope or password (`/users`, 8 operations)~~ and
-~~issue or revoke an API token (`/api-tokens`, 3)~~ are closed; see below.
+Closed since: ~~users (8)~~, ~~policies (6)~~, ~~checks (6, two of them added in the
+course of closing it)~~, ~~API tokens (3)~~, ~~exceptions (3)~~.
 
-Every one of these is a normal operator task, and every one currently requires a REST
-client. Three of them — the exception register, the check library and policy authoring —
-are capabilities the AlgoSec and FireMon dossiers cite as advantages over the incumbents.
-An advantage nobody can reach is not one.
+Three of those — the exception register, the check library and policy authoring — are
+capabilities the AlgoSec and FireMon dossiers cite as advantages over the incumbents. An
+advantage nobody can reach is not one, which is why they went first once first-run
+administration was done.
 
 Only **two** of the 61 are correctly machine-only: `GET /metrics` and `GET /readyz`.
 
@@ -62,10 +60,18 @@ administrator could set one and had no way to read back what a user's scope curr
 was. A checkbox cannot render state the API will not return, and an editor that opens
 empty would silently clear the scope on save. `UserRead.device_group_ids` closes it.
 
+The check library turned up a third shape, left open. `GET /checks/{id}` returns a
+check's rationale, remediation and expression but not its `applicability` or its
+assertion — so the console can show what a check looks at and cannot show the whole
+definition. The practical cost is that a shipped check cannot be copied as the starting
+point for a custom one, which is how anybody would actually write the hundred-and-fourth
+check. The draft editor seeds a template instead. Closing it properly means returning the
+definition, and that is an API change rather than a page.
+
 Worth noting as a pattern. An operation being unreachable from the console is sometimes a
-missing page, sometimes a gap in the API that no page could paper over, and sometimes a
-write whose result is unreadable. This triage does not distinguish them until someone
-tries to build the surface.
+missing page, sometimes a gap in the API that no page could paper over, sometimes a write
+whose result is unreadable, and sometimes a read that returns less than the surface needs.
+This triage does not distinguish them until someone tries to build the surface.
 
 ---
 
@@ -82,14 +88,11 @@ capability, and the gap is entirely missing UI.
 | `GET /metrics` | Prometheus scrape target. |
 | `GET /readyz` | Container readiness probe. |
 
-### No console page exists — 23 · `surface`
+### No console page exists — 8 · `surface`
 
 | Area | Ops | Note |
 |---|---:|---|
-| `/policies` | 6 | Policy authoring and assignment. |
-| `/checks` | 6 | The 103-check library is not browsable; `POST /checks/{id}/preview` is how an author sees a check's verdict before assigning it, and `POST /checks/query` asks where an expression holds across the estate. |
 | `/schedules` | 4 | Schedules can be created only by API, though the scheduler process that fires them ships. |
-| `/exceptions` | 3 | The waiver register — justification, approver, expiry. |
 | `/sites`, `/tags`, `/device-groups/{id}/parent` | 4 | Reference data and grouping. |
 
 ### Closed
@@ -104,6 +107,9 @@ capability, and the gap is entirely missing UI.
 | The 8 `/users` operations, plus `GET /auth/roles` | A Users page: create, search, roles, Device Group scope, password reset, deactivate, delete. The role picker is built from the served catalogue rather than a list in the browser. |
 | The 3 `/api-tokens` operations | On the profile page, not an admin one: the server classes them as self-service, and a token carries a subset of *your* permissions. The scope picker offers exactly those. |
 | `DELETE /auth/mfa` | Turn off MFA, on the profile page beside enrolment. Without it, someone who loses their phone after spending their recovery codes needs a Super Admin editing the database. |
+| The 6 `/checks` operations | A Checks page: browse the library filtered by platform and framework, read a check's rationale, remediation and the expression it evaluates, run it against a chosen device, ask where an expression holds across the estate, and draft a new check with a preview that writes nothing. |
+| The 6 `/policies` operations | A Policies page: create, open, enable or re-grade each check in it, apply it to a device group, make it the default. States the difference between disabling a check here and filing an exception, because losing either the finding or the audit trail turns on it. |
+| The 3 `/exceptions` operations | An Exceptions page: the register first — check, scope, justification, approver and days remaining — with filing and revoking beneath it. |
 
 ### A page exists but does not use the operation — 25 · `surface`
 
@@ -134,8 +140,10 @@ Ordered by how much the absence costs.
 3. ~~Credentials — a credential that fails is currently discovered by a job failing
    against a live device.~~ **Done.**
 4. ~~Users and API tokens — first-run administration.~~ **Done.**
-5. **Exceptions, checks and policies** — the differentiators.
-6. Everything else.
+5. ~~Exceptions, checks and policies — the differentiators.~~ **Done.**
+6. **Schedules** — the scheduler process ships and nothing can create work for it.
+7. Everything else: reference data, the discovery-to-inventory promotion path, raw
+   evidence, and the operations on pages that already exist.
 
 ## Re-running it
 
