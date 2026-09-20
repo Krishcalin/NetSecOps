@@ -175,6 +175,186 @@ def equal_cost_estate():
     return build_graph([core, permissive, strict])
 
 
+class TestTranslationIsDeclaredNotModelled:
+    """A path that continues past a device which may rewrite the packet (FR-TOPO-04).
+
+    Translation is not modelled, and the reason is data rather than effort: `original`
+    holds the *source* members on PAN-OS whatever the rule translates, a VIP's *external*
+    address on FortiOS, several joined originals on Check Point, and nothing at all on
+    Cisco ASA, which records only the raw line and an interface pair. `direction` collides
+    the same way. A matcher built on that is wrong differently on each platform, and a
+    wrong path verdict is somebody opening a firewall.
+
+    So the engine reports that translation *could* apply and declines to say whether it
+    does — which still beats the alternative, because the alternative was reporting a
+    clean end-to-end permit across a boundary that may have rewritten the packet.
+    """
+
+    @staticmethod
+    def _estate(nat_on_middle: bool):
+        edge = node(
+            "edge-fw",
+            addresses={"lan": "10.10.0.1/24", "up": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "up"),
+                static("10.20.0.0/24", "10.0.1.2", "up"),
+            ],
+            firewall=permit_all(),
+        )
+        middle = node(
+            "mid-fw",
+            addresses={"down": "10.0.1.2/30", "up": "10.0.2.1/30"},
+            routes=[
+                connected("10.0.1.0/30", "down"),
+                connected("10.0.2.0/30", "up"),
+                static("10.20.0.0/24", "10.0.2.2", "up"),
+            ],
+            firewall={
+                **permit_all(),
+                **(
+                    {"nat_rules": [{"order": 1, "name": "hide-behind-outside"}]}
+                    if nat_on_middle
+                    else {}
+                ),
+            },
+        )
+        far = node(
+            "dmz-fw",
+            addresses={"down": "10.0.2.2/30", "dmz": "10.20.0.1/24"},
+            routes=[connected("10.0.2.0/30", "down"), connected("10.20.0.0/24", "dmz")],
+            firewall=permit_all(),
+        )
+        return build_graph([edge, middle, far])
+
+    def test_a_permit_past_a_translating_device_is_not_reported_as_allowed(self) -> None:
+        """The regression. Every hop permits and the path reaches the destination.
+
+        The devices after `mid-fw` were asked about the addresses in the query, and if
+        `mid-fw` rewrites them, they answered about a packet that does not exist.
+        """
+        result = walk(
+            self._estate(nat_on_middle=True),
+            source="10.10.0.5",
+            destination="10.20.0.5",
+            port=443,
+        )
+
+        assert result.routing is RoutingConfidence.ROUTED
+        assert result.policy is PolicyVerdict.PARTIALLY_ALLOWED
+        assert result.translated_at
+        assert "mid-fw" in result.translated_at[0]
+
+    def test_the_same_estate_without_nat_is_plainly_allowed(self) -> None:
+        """The caveat must attach to translation, not to having three hops."""
+        result = walk(
+            self._estate(nat_on_middle=False),
+            source="10.10.0.5",
+            destination="10.20.0.5",
+            port=443,
+        )
+
+        assert result.policy is PolicyVerdict.ALLOWED
+        assert result.translated_at == []
+
+    def test_nat_on_the_final_device_does_not_degrade_the_verdict(self) -> None:
+        """A translating firewall at the end invalidates nothing.
+
+        The trace is over, and the addresses it reasoned about are the ones asked for.
+        Degrading here would hedge nearly every path through an internet edge, and a
+        caveat on every answer is one nobody reads.
+        """
+        core = node(
+            "core-rtr",
+            addresses={"lan": "10.10.0.1/24", "dmz": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "dmz"),
+                static("10.20.0.0/24", "10.0.1.2", "dmz"),
+            ],
+        )
+        edge = node(
+            "dmz-fw",
+            addresses={"up": "10.0.1.2/30", "dmz": "10.20.0.1/24"},
+            routes=[connected("10.0.1.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+            firewall={**permit_all(), "nat_rules": [{"order": 1, "name": "vip"}]},
+        )
+
+        result = walk(
+            build_graph([core, edge]), source="10.10.0.5", destination="10.20.0.5", port=443
+        )
+
+        assert result.policy is PolicyVerdict.ALLOWED
+        assert result.translated_at == []
+
+    def test_a_denial_still_stands_over_a_translating_device(self) -> None:
+        """Blocked stays definitive. The packet died before the uncertainty mattered."""
+        edge = node(
+            "edge-fw",
+            addresses={"lan": "10.10.0.1/24", "up": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "up"),
+                static("10.20.0.0/24", "10.0.1.2", "up"),
+            ],
+            firewall={
+                **deny_to("10.20.0.0/24", name="no-dmz"),
+                "nat_rules": [{"order": 1, "name": "hide"}],
+            },
+        )
+
+        result = walk(build_graph([edge]), source="10.10.0.5", destination="10.20.0.5", port=443)
+
+        assert result.policy is PolicyVerdict.BLOCKED
+
+    def test_a_path_that_branches_and_translates_reports_both(self) -> None:
+        """Two caveats on one path, and the reader needs both.
+
+        They degrade the verdict to the same thing, so whichever is checked first can
+        return and the other is silently dropped — leaving a `partially-allowed` whose
+        note explains only half of why. An operator reading "one of two equal-cost
+        paths" would reasonably conclude that narrowing the route settles it, and it
+        does not.
+        """
+        core = node(
+            "core-rtr",
+            addresses={"lan": "10.10.0.1/24", "a": "10.0.1.1/30", "b": "10.0.2.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "a"),
+                connected("10.0.2.0/30", "b"),
+                static("10.20.0.0/24", "10.0.1.2", "a"),
+                static("10.20.0.0/24", "10.0.2.2", "b"),
+            ],
+            firewall={**permit_all(), "nat_rules": [{"order": 1, "name": "hide-behind-core"}]},
+        )
+        left = node(
+            "dmz-fw-a",
+            addresses={"up": "10.0.1.2/30", "dmz": "10.20.0.1/24"},
+            routes=[connected("10.0.1.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+            firewall=permit_all(),
+        )
+        right = node(
+            "dmz-fw-b",
+            addresses={"up": "10.0.2.2/30", "dmz": "10.20.0.2/24"},
+            routes=[connected("10.0.2.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+            firewall=permit_all(),
+        )
+
+        result = walk(
+            build_graph([core, left, right]),
+            source="10.10.0.5",
+            destination="10.20.0.5",
+            port=443,
+        )
+        notes = " ".join(result.notes)
+
+        assert result.policy is PolicyVerdict.PARTIALLY_ALLOWED
+        assert result.branched_at and result.translated_at
+        assert "equal-cost" in notes
+        assert "translate addresses" in notes
+
+
 class TestSegmentationQueries:
     """Asking about subnets rather than hosts (FR-TOPO-03, extended).
 

@@ -133,6 +133,10 @@ class PathResult:
     #: trace follows one; a real router picks per flow by a hash this cannot see, so the
     #: others are paths this answer does not describe.
     branched_at: list[str] = field(default_factory=list)
+    #: Devices the path continued past that carry NAT rules. Translation is not modelled,
+    #: so the hops after one of these were asked about the addresses in the query rather
+    #: than the ones the packet may actually have been carrying.
+    translated_at: list[str] = field(default_factory=list)
 
     @property
     def devices_traversed(self) -> int:
@@ -214,6 +218,27 @@ def _protocol_number(protocol: str) -> int:
             f"Use one of: {', '.join(sorted(PROTOCOL_NUMBERS))}, or a protocol number."
         )
     return number
+
+
+def _nat_rule_count(node: DeviceNode) -> int:
+    """How many NAT rules this device carries, or zero.
+
+    **Presence, not matching, and that is a deliberate limit.** Deciding whether a
+    particular packet is translated would mean reading each rule's original and
+    translated addresses, and those fields do not mean the same thing across platforms:
+    PAN-OS puts the *source* members in `original` whatever the rule translates, FortiOS
+    puts a VIP's *external* address there, Check Point joins several originals into one
+    string, and Cisco ASA sets neither field — only the raw configuration line and an
+    interface pair. `direction` collides the same way: "source"/"destination" on PAN-OS
+    and FortiOS, an interface pair on ASA.
+
+    A matcher built on that would be wrong differently on each platform, and a wrong path
+    verdict is somebody opening a firewall. Normalising NAT across the four parsers is
+    the prerequisite and is its own piece of work; until then this reports that
+    translation *could* apply and declines to say whether it does.
+    """
+    rules = node.firewall.get("nat_rules") if node.firewall else None
+    return len(rules) if isinstance(rules, list) else 0
 
 
 def _describe(route: Route) -> str:
@@ -536,6 +561,20 @@ def walk(
             )
             return _finalise(result)
 
+        # The packet is about to leave a device that may have rewritten it. Recorded here
+        # rather than when the hop was built, because a translating device at the *end*
+        # of the path does not invalidate anything: the trace is over, and the addresses
+        # it reasoned about were the ones asked for. It is carrying on past one that
+        # makes every hop after this about a packet that may differ.
+        translators = _nat_rule_count(current)
+        if translators:
+            result.translated_at.append(
+                f"{current.hostname} carries {translators} NAT rule(s), and translation "
+                "is not modelled. If any of them rewrites this traffic, the devices after "
+                "it were asked about the original addresses rather than the ones the "
+                "packet actually carried."
+            )
+
         arrived_from = _address(route.next_hop, "next hop") if route.next_hop else arrived_from
         current = graph.nodes[adjacency.next_device_id]
     else:
@@ -604,12 +643,15 @@ def _finalise(result: PathResult) -> PathResult:
         return result
 
     if result.routing is RoutingConfidence.ROUTED:
+        # Traced end to end, and every device consulted permits it. Two things can still
+        # stop that being a plain `allowed`, and they can both hold at once — so both are
+        # reported, rather than whichever happened to be checked first. Each says the
+        # same thing in a different way: the permit is real for the devices actually
+        # consulted about the addresses actually asked, and something about the trace
+        # makes that a narrower claim than "this traffic gets through".
         if result.branched_at:
-            # Traced end to end, but only down one of several equal-cost paths. The
-            # permit is real for the devices consulted and says nothing about the
-            # firewalls on the paths not taken — which is exactly what
-            # `partially-allowed` means, so it needs no new verdict of its own.
-            result.policy = PolicyVerdict.PARTIALLY_ALLOWED
+            # Only one of several equal-cost paths was followed. The firewalls on the
+            # others were never consulted.
             result.notes.append(
                 "This path was traced end to end, but the packet could take more than "
                 "one route: "
@@ -617,9 +659,27 @@ def _finalise(result: PathResult) -> PathResult:
                 + " A router picks between equal-cost paths per flow, so a firewall on "
                 "a path not followed here could still deny this traffic."
             )
-            return result
 
-        result.policy = PolicyVerdict.ALLOWED
+        if result.translated_at:
+            # The path continued past a device that may have rewritten the packet, so
+            # the hops after it were asked about addresses the packet may no longer have
+            # been carrying.
+            #
+            # Only a device the path *continued past* counts. A translating firewall at
+            # the end of the path invalidates nothing: the trace is over and the
+            # addresses it reasoned about were the ones asked for. Degrading on any NAT
+            # anywhere would hedge nearly every path through an internet edge and teach
+            # a reader to ignore the caveat.
+            result.notes.append(
+                "The path continues past a device that may translate addresses: "
+                + " ".join(result.translated_at)
+            )
+
+        result.policy = (
+            PolicyVerdict.PARTIALLY_ALLOWED
+            if result.branched_at or result.translated_at
+            else PolicyVerdict.ALLOWED
+        )
         return result
 
     result.policy = PolicyVerdict.PARTIALLY_ALLOWED

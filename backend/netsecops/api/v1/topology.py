@@ -98,6 +98,7 @@ async def query_path(request: PathRequest, topology: ServiceDep) -> PathResponse
         stopped_at_next_hop=result.stopped_at_next_hop,
         stopped_at_device=result.stopped_at_device,
         branched_at=list(result.branched_at),
+        translated_at=list(result.translated_at),
         notes=list(result.notes),
     )
 

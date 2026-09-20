@@ -78,6 +78,12 @@ class PathResponse(BaseModel):
     stopped_at_next_hop: str | None = None
     stopped_at_device: str | None = None
 
+    #: Devices the path continued past that carry NAT rules. Translation is not
+    #: modelled — the fields differ in meaning across platforms — so the hops after one
+    #: of these were asked about the queried addresses rather than the ones the packet
+    #: may have carried. Non-empty implies `policy` is `partially-allowed`.
+    translated_at: list[str] = Field(default_factory=list)
+
     #: Devices where the packet had more than one equal-cost route and this trace
     #: followed one of them. Structured beside the note for the same reason
     #: `stopped_at_*` is: a caveat a UI can render as a branch is one somebody acts on.
