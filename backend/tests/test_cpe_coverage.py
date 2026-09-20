@@ -33,7 +33,7 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.db.models.vulnerability import VulnAdvisory
-from netsecops.services.cpe_coverage import Corroboration, CpeCoverageService
+from netsecops.services.cpe_coverage import Corroboration, CpeCoverageService, as_dict
 from netsecops.vuln.cpe import PRODUCTS, unverified_products
 
 
@@ -250,3 +250,36 @@ class TestUnreadableInput:
         coverage = await CpeCoverageService(session).build()
 
         assert coverage.contradicted == []
+
+
+class TestTheSerialisedShape:
+    """What the API and the report actually carry.
+
+    The check itself was tested on the dataclass and the serialiser was not, which is how
+    `closest_match` came to be computed correctly and dropped on the way out — for the
+    field whose entire purpose is to say what the name should be rather than only that
+    something is wrong. A consumer cannot use what it is not sent.
+    """
+
+    async def test_a_contradiction_carries_its_near_miss(self, session: AsyncSession) -> None:
+        await advisory(
+            session,
+            advisory_id="CVE-2024-NXOS",
+            affected=[{"cpe": "cpe:2.3:o:cisco:nx_os:10.3:*:*:*:*:*:*:*"}],
+        )
+
+        payload = as_dict(await CpeCoverageService(session).build())
+
+        nxos = next(row for row in payload["products"] if row["platform"] == "cisco_nxos")
+        assert nxos["status"] == "contradicted"
+        assert nxos["closest_match"] == "nx_os"
+
+    async def test_every_row_carries_the_key_even_when_there_is_no_near_miss(
+        self, session: AsyncSession
+    ) -> None:
+        """A key that appears only sometimes makes the consumer's type optional in a way
+        that hides its absence. It is always present and sometimes null."""
+        payload = as_dict(await CpeCoverageService(session).build())
+
+        assert payload["products"]
+        assert all("closest_match" in row for row in payload["products"])
