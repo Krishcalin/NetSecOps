@@ -175,6 +175,132 @@ def equal_cost_estate():
     return build_graph([core, permissive, strict])
 
 
+class TestSegmentationQueries:
+    """Asking about subnets rather than hosts (FR-TOPO-03, extended).
+
+    "Can anything in the user VLAN reach anything in the DMZ on 443" is the question a
+    segmentation review runs on, and until now it could only be asked one host pair at a
+    time — 65,536 queries for a pair of /24s, answering whether one arbitrary pair gets
+    through rather than whether the boundary holds.
+
+    The interesting answer is the non-uniform one. A boundary that is open except for one
+    address is the finding; a host-by-host query lands on that address once in 256 tries.
+    """
+
+    def test_a_subnet_pair_is_traced_like_a_host_pair(self, estate) -> None:
+        result = walk(estate, source="10.10.0.0/24", destination="10.20.0.0/24", port=443)
+
+        assert result.routing is RoutingConfidence.ROUTED
+        assert [hop.hostname for hop in result.hops] == ["core-rtr", "dmz-fw"]
+        assert result.policy is PolicyVerdict.ALLOWED
+
+    def test_a_host_query_still_answers_the_same_way(self, estate) -> None:
+        """Ranges must not change the answer to the question that already worked."""
+        ranged = walk(estate, source="10.10.0.0/24", destination="10.20.0.0/24", port=443)
+        single = walk(estate, source="10.10.0.5", destination="10.20.0.5", port=443)
+
+        assert single.policy is ranged.policy
+        assert [h.hostname for h in single.hops] == [h.hostname for h in ranged.hops]
+
+    def test_a_single_denied_host_makes_the_range_verdict_not_allowed(self) -> None:
+        """The finding the whole feature exists for.
+
+        The DMZ firewall permits the subnet except one server. Asked host by host, 255
+        of 256 queries say "allowed" and the boundary looks uniformly open.
+        """
+        core = node(
+            "core-rtr",
+            addresses={"lan": "10.10.0.1/24", "dmz": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "dmz"),
+                static("10.20.0.0/24", "10.0.1.2", "dmz"),
+            ],
+        )
+        dmz = node(
+            "dmz-fw",
+            addresses={"up": "10.0.1.2/30", "dmz": "10.20.0.1/24"},
+            routes=[connected("10.0.1.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+            firewall={
+                "security_rules": [
+                    {"order": 1, "name": "protect-db", "action": "deny", "dst": ["10.20.0.5"]},
+                    {"order": 2, "name": "permit-rest", "action": "allow"},
+                ]
+            },
+        )
+        graph = build_graph([core, dmz])
+
+        result = walk(graph, source="10.10.0.0/24", destination="10.20.0.0/24", port=443)
+
+        assert result.policy is not PolicyVerdict.ALLOWED
+        assert result.policy is PolicyVerdict.PARTIALLY_ALLOWED
+        assert "protect-db" in " ".join(result.notes)
+
+    def test_the_note_says_how_to_get_a_definite_answer(self) -> None:
+        """A hedge that does not say what to do next is barely better than a wrong answer."""
+        core = node(
+            "core-rtr",
+            addresses={"lan": "10.10.0.1/24", "dmz": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "dmz"),
+                static("10.20.0.0/24", "10.0.1.2", "dmz"),
+            ],
+        )
+        dmz = node(
+            "dmz-fw",
+            addresses={"up": "10.0.1.2/30", "dmz": "10.20.0.1/24"},
+            routes=[connected("10.0.1.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+            firewall={
+                "security_rules": [
+                    {"order": 1, "name": "protect-db", "action": "deny", "dst": ["10.20.0.5"]},
+                    {"order": 2, "name": "permit-rest", "action": "allow"},
+                ]
+            },
+        )
+        result = walk(
+            build_graph([core, dmz]), source="10.10.0.0/24", destination="10.20.0.0/24", port=443
+        )
+
+        assert "Narrow the range" in " ".join(result.notes)
+
+    def test_a_range_split_across_two_routes_is_not_traced_as_one(self) -> None:
+        """Half the range goes one way and half another, so one trace describes neither.
+
+        The routing axis catches this before the policy axis is reached: a single walk
+        cannot stand for a range the tables subdivide.
+        """
+        core = node(
+            "core-rtr",
+            addresses={"lan": "10.10.0.1/24", "a": "10.0.1.1/30", "b": "10.0.2.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "a"),
+                connected("10.0.2.0/30", "b"),
+                static("10.20.0.0/25", "10.0.1.2", "a"),
+                static("10.20.0.128/25", "10.0.2.2", "b"),
+            ],
+        )
+        result = walk(
+            build_graph([core]), source="10.10.0.0/24", destination="10.20.0.0/24", port=443
+        )
+
+        assert result.routing is RoutingConfidence.UNKNOWN
+        notes = " ".join(result.notes)
+        assert "more than one prefix" in notes
+        assert "10.20.0.0/25" in notes
+
+    def test_an_ipv6_range_is_refused_rather_than_guessed(self) -> None:
+        """Forwarding tables are parsed for IPv4 only, so v6 has nothing to walk."""
+        with pytest.raises(ValidationProblem, match="IPv6"):
+            walk(build_graph([]), source="2001:db8::/32", destination="2001:db8:1::/48")
+
+    def test_a_name_is_still_refused(self) -> None:
+        """Names are not resolved, so that what was analysed is what was asked."""
+        with pytest.raises(ValidationProblem, match="not an IP address or CIDR"):
+            walk(build_graph([]), source="webserver", destination="10.20.0.5")
+
+
 class TestEqualCostPaths:
     """A packet with more than one way to go (FR-TOPO-04).
 

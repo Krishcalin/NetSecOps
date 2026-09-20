@@ -11,13 +11,22 @@ rule from a firewall, and being wrong about it takes production down.
 
 from __future__ import annotations
 
+import ipaddress
 import itertools
 
 import pytest
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from netsecops.firewall.analysis import Relationship, analyse, first_match, summarise
+from netsecops.firewall.analysis import (
+    RangeOutcome,
+    Relationship,
+    analyse,
+    first_match,
+    first_match_over_range,
+    summarise,
+)
+from netsecops.firewall.intervals import parse_address
 from netsecops.firewall.model import resolve_rulebase
 
 
@@ -52,6 +61,249 @@ def rule(
 def analyse_rules(*raw: dict, **kwargs: object):
     rules, _ = resolve_rulebase({"security_rules": list(raw)})
     return analyse(rules, **kwargs)  # type: ignore[arg-type]
+
+
+def verdict_over(*raw: dict, source: str, destination: str, port: int = 443, protocol: int = 6):
+    """What a rulebase does across two ranges, built the way the product builds one."""
+    rules, _ = resolve_rulebase({"security_rules": list(raw)})
+    src, _ = parse_address(source)
+    dst, _ = parse_address(destination)
+    return first_match_over_range(rules, source=src, destination=dst, protocol=protocol, port=port)
+
+
+class TestTheSegmentationQuestion:
+    """ "Can anything in A reach anything in B" — which `first_match` cannot answer.
+
+    It decides one packet, so asking about a pair of /24s means 65,536 queries and, worse,
+    answers a question nobody asked: whether one arbitrary host pair gets through, rather
+    than whether the boundary holds. A single denial inside an otherwise-permitted range
+    is exactly what a segmentation review is looking for, and it is invisible unless the
+    query happens to land on it.
+    """
+
+    def test_a_rule_covering_both_ranges_decides_the_whole_range(self) -> None:
+        result = verdict_over(
+            rule(1, src="10.10.0.0/24", dst="10.20.0.0/24", action="allow"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+        )
+
+        assert result.outcome is RangeOutcome.ALLOWED
+        assert result.decided_by is not None
+        assert result.decided_by.order == 1
+
+    def test_a_broad_deny_blocks_the_whole_range(self) -> None:
+        result = verdict_over(
+            rule(1, action="deny"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+        )
+
+        assert result.outcome is RangeOutcome.BLOCKED
+
+    def test_one_denied_host_inside_a_permitted_range_is_not_reported_as_allowed(self) -> None:
+        """The finding a host-by-host query would miss 255 times out of 256.
+
+        The boundary is open for almost the whole range, and a segmentation review that
+        reports "allowed" has described it accurately and uselessly — the interesting
+        fact is that one address is treated differently.
+        """
+        result = verdict_over(
+            rule(1, dst="10.20.0.5", action="deny"),
+            rule(2, action="allow"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+        )
+
+        assert result.outcome is RangeOutcome.MIXED
+        assert result.outcome is not RangeOutcome.ALLOWED
+        assert [r.order for r in result.split_by] == [1]
+
+    def test_a_partial_permit_inside_a_denied_range_is_also_mixed(self) -> None:
+        """Mixed is not a synonym for "mostly allowed" — it points both ways."""
+        result = verdict_over(
+            rule(1, dst="10.20.0.0/25", action="allow"),
+            rule(2, action="deny"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+        )
+
+        assert result.outcome is RangeOutcome.MIXED
+        assert [r.order for r in result.split_by] == [1]
+
+    def test_a_partial_source_also_splits_the_range(self) -> None:
+        """Both axes matter. Half the source VLAN permitted is not "permitted"."""
+        result = verdict_over(
+            rule(1, src="10.10.0.0/25", dst="10.20.0.0/24", action="allow"),
+            rule(2, action="deny"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+        )
+
+        assert result.outcome is RangeOutcome.MIXED
+
+    def test_a_rule_that_misses_the_range_neither_decides_nor_splits(self) -> None:
+        """An unrelated rule must not make every answer "mixed".
+
+        This is what would make the verdict useless in practice: a real rulebase holds
+        hundreds of rules about other subnets, and if each one counted as a split the
+        answer would never be uniform.
+        """
+        result = verdict_over(
+            rule(1, src="192.168.0.0/24", dst="172.16.0.0/24", action="deny"),
+            rule(2, src="10.10.0.0/24", dst="10.20.0.0/24", action="allow"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+        )
+
+        assert result.outcome is RangeOutcome.ALLOWED
+        assert result.split_by == ()
+
+    def test_a_rule_on_another_port_does_not_split_the_range(self) -> None:
+        """It reaches these addresses and not this service, so it does not apply."""
+        result = verdict_over(
+            rule(1, dst="10.20.0.5", service="tcp/22", action="deny"),
+            rule(2, action="allow"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+            port=443,
+        )
+
+        assert result.outcome is RangeOutcome.ALLOWED
+
+    def test_an_empty_rulebase_reports_no_match_rather_than_allowed(self) -> None:
+        """The implicit default decides it, and that is not this function's to assume."""
+        result = verdict_over(
+            rule(1, src="192.168.0.0/24", dst="172.16.0.0/24"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+        )
+
+        assert result.outcome is RangeOutcome.NO_MATCH
+
+    def test_a_disabled_rule_does_not_split(self) -> None:
+        result = verdict_over(
+            rule(1, dst="10.20.0.5", action="deny", enabled=False),
+            rule(2, action="allow"),
+            source="10.10.0.0/24",
+            destination="10.20.0.0/24",
+        )
+
+        assert result.outcome is RangeOutcome.ALLOWED
+
+    def test_a_single_host_pair_agrees_with_first_match(self) -> None:
+        """A range of one must not answer differently from the packet query.
+
+        Two engines that disagree on the same question is worse than one that cannot
+        answer it, so the degenerate case is pinned.
+        """
+        rules, _ = resolve_rulebase(
+            {
+                "security_rules": [
+                    rule(1, dst="10.20.0.5", action="deny"),
+                    rule(2, action="allow"),
+                ]
+            }
+        )
+        packet = first_match(
+            rules,
+            source=int(ipaddress.ip_address("10.10.0.9")),
+            destination=int(ipaddress.ip_address("10.20.0.5")),
+            protocol=6,
+            port=443,
+        )
+        ranged = verdict_over(
+            rule(1, dst="10.20.0.5", action="deny"),
+            rule(2, action="allow"),
+            source="10.10.0.9",
+            destination="10.20.0.5",
+        )
+
+        assert packet.matched is not None
+        assert packet.matched.order == 1
+        assert ranged.outcome is RangeOutcome.BLOCKED
+        assert ranged.decided_by is not None
+        assert ranged.decided_by.order == packet.matched.order
+
+
+class TestTheRangeVerdictAgreesWithEveryPacket:
+    """Checked against brute force, because a uniform verdict is a strong claim.
+
+    "Allowed" over a range asserts something about every packet in it, and a segmentation
+    review acts on that. So the range answer is verified by enumerating the packets and
+    confirming `first_match` agrees on all of them — the same discipline the shadowing
+    analysis is held to in this file, and for the same reason.
+    """
+
+    @staticmethod
+    def _rules(raw: list[dict]):
+        rules, _ = resolve_rulebase({"security_rules": raw})
+        return rules
+
+    @settings(max_examples=60, suppress_health_check=[HealthCheck.too_slow], deadline=None)
+    @given(
+        deny_host=st.integers(min_value=0, max_value=7),
+        deny_first=st.booleans(),
+        broad_action=st.sampled_from(["allow", "deny"]),
+    )
+    def test_a_uniform_verdict_holds_for_every_packet_in_the_range(
+        self, deny_host: int, deny_first: bool, broad_action: str
+    ) -> None:
+        specific = rule(1 if deny_first else 2, dst=f"10.20.0.{deny_host}", action="deny")
+        broad = rule(2 if deny_first else 1, action=broad_action)
+        raw = [specific, broad] if deny_first else [broad, specific]
+        rules = self._rules(sorted(raw, key=lambda r: r["order"]))
+
+        source = "10.10.0.0/29"
+        destination = "10.20.0.0/29"
+        src_set, _ = parse_address(source)
+        dst_set, _ = parse_address(destination)
+        ranged = first_match_over_range(
+            rules, source=src_set, destination=dst_set, protocol=6, port=443
+        )
+
+        actions = set()
+        for s in range(8):
+            for d in range(8):
+                packet = first_match(
+                    rules,
+                    source=int(ipaddress.ip_address(f"10.10.0.{s}")),
+                    destination=int(ipaddress.ip_address(f"10.20.0.{d}")),
+                    protocol=6,
+                    port=443,
+                )
+                actions.add(packet.matched.action if packet.matched else None)
+
+        if ranged.outcome is RangeOutcome.ALLOWED:
+            assert actions == {"allow"}, "a uniform permit covered a packet that was denied"
+        elif ranged.outcome is RangeOutcome.BLOCKED:
+            assert actions == {"deny"}, "a uniform deny covered a packet that was permitted"
+        elif ranged.outcome is RangeOutcome.MIXED:
+            # Mixed is allowed to be conservative — it may report a split where the
+            # packets happen to agree — but it must never hide a genuine disagreement.
+            pass
+        else:
+            assert actions == {None}
+
+    @settings(max_examples=40, suppress_health_check=[HealthCheck.too_slow], deadline=None)
+    @given(host=st.integers(min_value=0, max_value=7))
+    def test_a_genuine_disagreement_is_never_reported_as_uniform(self, host: int) -> None:
+        """The direction that matters. Over-reporting MIXED is noise; under-reporting is
+        a segmentation review that missed the exception it was run to find."""
+        rules = self._rules(
+            [
+                rule(1, dst=f"10.20.0.{host}", action="deny"),
+                rule(2, action="allow"),
+            ]
+        )
+        src_set, _ = parse_address("10.10.0.0/29")
+        dst_set, _ = parse_address("10.20.0.0/29")
+
+        ranged = first_match_over_range(
+            rules, source=src_set, destination=dst_set, protocol=6, port=443
+        )
+
+        assert ranged.outcome is RangeOutcome.MIXED
 
 
 class TestTheTaxonomy:

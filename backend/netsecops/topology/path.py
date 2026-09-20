@@ -35,10 +35,12 @@ import ipaddress
 import uuid
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 from netsecops.core.errors import ValidationProblem
 from netsecops.core.logging import get_logger
-from netsecops.firewall.analysis import first_match
+from netsecops.firewall.analysis import RangeOutcome, first_match, first_match_over_range
+from netsecops.firewall.intervals import IntervalSet
 from netsecops.firewall.model import PROTOCOL_NUMBERS, resolve_rulebase
 from netsecops.ncm.models import Route
 from netsecops.topology.graph import DeviceNode, TopologyGraph
@@ -151,6 +153,56 @@ def _address(value: str, label: str) -> int:
         ) from None
 
 
+@dataclass(frozen=True, slots=True)
+class Endpoint:
+    """One side of a query: a single host, or a whole subnet.
+
+    A subnet is the form a segmentation review actually asks in — "can anything in the
+    user VLAN reach anything in the card-data environment" — and asking it host by host
+    is both 65,536 queries and the wrong question, because it answers whether one
+    arbitrary pair gets through rather than whether the boundary holds.
+
+    `representative` is what the *routing* walk uses. Routing is decided by longest-prefix
+    match on the destination, so every address in a range that no route subdivides takes
+    the same path; `splits` is where that assumption is checked rather than assumed.
+    """
+
+    text: str
+    addresses: Any
+    representative: int
+    is_range: bool
+
+    @property
+    def size(self) -> int:
+        return int(self.addresses.size)
+
+
+def _endpoint(value: str, label: str) -> Endpoint:
+    """Parse one side of a query, accepting a host or a CIDR range."""
+    text = (value or "").strip()
+    try:
+        network = ipaddress.ip_network(text, strict=False)
+    except ValueError:
+        raise ValidationProblem(
+            f"'{value}' is not an IP address or CIDR range. A path query needs a literal "
+            f"{label} — names are not resolved, so that what was analysed is what was asked."
+        ) from None
+
+    if network.version != 4:
+        raise ValidationProblem(
+            f"'{value}' is IPv6. Path analysis reasons over IPv4 forwarding tables only, "
+            "and answering for a protocol whose tables are not collected would be a guess."
+        )
+
+    low, high = int(network.network_address), int(network.broadcast_address)
+    return Endpoint(
+        text=text,
+        addresses=IntervalSet.of((low, high)),
+        representative=low,
+        is_range=low != high,
+    )
+
+
 def _protocol_number(protocol: str) -> int:
     text = (protocol or "").strip().lower()
     if text.isdigit():
@@ -180,6 +232,8 @@ def _evaluate(
     destination: int,
     protocol: int,
     port: int,
+    src_range: Any = None,
+    dst_range: Any = None,
 ) -> None:
     """Ask one device's rulebase about the packet, and record what it said.
 
@@ -187,6 +241,11 @@ def _evaluate(
     router forwards without an opinion, and rendering that as "allowed" would count it as
     a control that was checked — the same mistake as reporting an unevaluated check as a
     pass.
+
+    Where either side of the query is a range, the rulebase is asked about the range
+    rather than about one address in it. A rule that permits most of a subnet and denies
+    one host inside it produces no single action, and picking a representative address
+    would answer confidently for whichever host the query happened to name.
     """
     if not node.has_rulebase:
         return
@@ -202,6 +261,42 @@ def _evaluate(
         return
 
     if not rules:
+        return
+
+    if src_range is not None and dst_range is not None:
+        ranged = first_match_over_range(
+            rules,
+            source=src_range,
+            destination=dst_range,
+            protocol=protocol,
+            port=port,
+            src_zone=hop.ingress_zone,
+            dst_zone=hop.egress_zone,
+        )
+        if ranged.outcome is RangeOutcome.MIXED:
+            hop.action = "mixed"
+            hop.rule_name = ", ".join(r.name for r in ranged.split_by[:3])
+            hop.limitations = ranged.notes
+            return
+        if ranged.outcome is RangeOutcome.NO_MATCH:
+            hop.action = "deny"
+            hop.rule_name = "(implicit deny)"
+            return
+        decided = ranged.decided_by
+        if decided is None:
+            # Unreachable as the verdict is constructed, and left as a gap rather than
+            # an assumed permit: a uniform outcome with no deciding rule would mean the
+            # range analysis contradicted itself, and inventing an action here would
+            # bury that behind a confident answer.
+            hop.limitations = (
+                f"{node.hostname} returned a uniform verdict with no deciding rule, so "
+                "its decision is unknown and is not counted as a permit.",
+            )
+            return
+
+        hop.action = decided.action
+        hop.rule_name = decided.name
+        hop.rule_order = decided.order
         return
 
     result = first_match(
@@ -237,9 +332,17 @@ def walk(
     protocol: str = "tcp",
     port: int = 443,
 ) -> PathResult:
-    """Trace a packet across the estate and report both axes (FR-TOPO-03)."""
-    src = _address(source, "source")
-    dst = _address(destination, "destination")
+    """Trace a packet across the estate and report both axes (FR-TOPO-03).
+
+    `source` and `destination` may each be a host or a CIDR range. A range is the form a
+    segmentation review asks in, and it changes what the policy axis can honestly say: a
+    rulebase that permits most of a range and denies one address inside it has no single
+    verdict, and `partially-allowed` is what that is.
+    """
+    src_endpoint = _endpoint(source, "source")
+    dst_endpoint = _endpoint(destination, "destination")
+    src = src_endpoint.representative
+    dst = dst_endpoint.representative
     proto = _protocol_number(protocol)
 
     result = PathResult(
@@ -300,7 +403,16 @@ def walk(
         if current.serves(dst):
             hop.egress_zone = current.zone_containing(dst)
             hop.matched_route = "connected"
-            _evaluate(current, hop, source=src, destination=dst, protocol=proto, port=port)
+            _evaluate(
+                current,
+                hop,
+                source=src,
+                destination=dst,
+                protocol=proto,
+                port=port,
+                src_range=src_endpoint.addresses,
+                dst_range=dst_endpoint.addresses,
+            )
             result.hops.append(hop)
             result.routing = RoutingConfidence.ROUTED
             return _finalise(result)
@@ -343,6 +455,26 @@ def walk(
                 )
             return _finalise(result)
 
+        # A range that one of this device's prefixes cuts across does not take one path,
+        # so a single trace cannot describe it. Checked per hop rather than once, because
+        # a range can be whole on the first device and subdivided three hops later.
+        if dst_endpoint.is_range:
+            subdividing = current.routes_subdividing(
+                int(dst_endpoint.addresses.intervals[0][0]),
+                int(dst_endpoint.addresses.intervals[-1][1]),
+            )
+            if subdividing:
+                result.hops.append(hop)
+                result.routing = RoutingConfidence.UNKNOWN
+                result.stopped_at_device = current.hostname
+                result.notes.append(
+                    f"{current.hostname} routes {destination} through more than one "
+                    f"prefix ({', '.join(subdividing)}), so different parts of that range "
+                    "take different paths. Narrow the query to one of those prefixes to "
+                    "get a single answer."
+                )
+                return _finalise(result)
+
         # More than one route ties for best. A router chooses per flow by hashing the
         # header, and nothing in a configuration says which way this flow goes — so the
         # trace continues down one of them and the result has to say the others exist.
@@ -370,7 +502,16 @@ def walk(
         hop.next_hop = route.next_hop
         hop.egress_interface = route.interface
         hop.egress_zone = current.zone_for(route.interface)
-        _evaluate(current, hop, source=src, destination=dst, protocol=proto, port=port)
+        _evaluate(
+            current,
+            hop,
+            source=src,
+            destination=dst,
+            protocol=proto,
+            port=port,
+            src_range=src_endpoint.addresses,
+            dst_range=dst_endpoint.addresses,
+        )
         result.hops.append(hop)
 
         # A rule that denies ends the path here, definitively. Continuing to trace would
@@ -446,6 +587,20 @@ def _finalise(result: PathResult) -> PathResult:
                 "No device on this path carries a firewall rulebase, so nothing "
                 "inspected the traffic. 'Allowed' here means unfiltered, not permitted."
             )
+        return result
+
+    if any(hop.action == "mixed" for hop in consulted):
+        # A range whose answer is not uniform. Not `allowed`, because part of it is not;
+        # not `blocked`, because part of it is not either. `partially-allowed` already
+        # carries "this does not settle the question", which is exactly the state.
+        result.policy = PolicyVerdict.PARTIALLY_ALLOWED
+        splitters = [hop for hop in consulted if hop.action == "mixed"]
+        result.notes.append(
+            "This query covers a range, and "
+            + ", ".join(f"{hop.hostname} ({hop.rule_name})" for hop in splitters)
+            + " treats part of it differently from the rest. Narrow the range to the "
+            "prefixes those rules name to get a verdict that holds for all of it."
+        )
         return result
 
     if result.routing is RoutingConfidence.ROUTED:

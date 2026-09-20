@@ -533,6 +533,134 @@ def first_match(
     return QueryResult(matched=winner, shadowed_by_match=tuple(later_matches))
 
 
+class RangeOutcome(StrEnum):
+    """What a rulebase does across a whole range of addresses."""
+
+    #: Every packet in the range is permitted, decided by one rule.
+    ALLOWED = "allowed"
+    #: Every packet in the range is denied, decided by one rule.
+    BLOCKED = "blocked"
+    #: Different packets in the range meet different rules, so there is no single
+    #: answer. This is the honest verdict for a segmentation question whose answer is
+    #: "mostly, except…", and it is the one a host-by-host query can never surface.
+    MIXED = "mixed"
+    #: No rule matches any packet in the range; the implicit default applies.
+    NO_MATCH = "no-match"
+
+
+@dataclass(frozen=True, slots=True)
+class RangeVerdict:
+    """What one rulebase does with a whole source range talking to a whole destination.
+
+    `decided_by` is set only for a uniform answer. For MIXED, `split_by` names the rules
+    that make it non-uniform, which is what an operator acts on — "rule 12 permits half
+    of it" is a finding; "it depends" is not.
+    """
+
+    outcome: RangeOutcome
+    decided_by: ResolvedRule | None = None
+    split_by: tuple[ResolvedRule, ...] = ()
+    notes: tuple[str, ...] = ()
+
+
+def first_match_over_range(
+    rules: Sequence[ResolvedRule],
+    *,
+    source: Any,
+    destination: Any,
+    protocol: int,
+    port: int,
+    src_zone: str | None = None,
+    dst_zone: str | None = None,
+) -> RangeVerdict:
+    """What the rulebase does across two address *ranges* rather than two addresses.
+
+    The segmentation question — "can anything in the user VLAN reach anything in the
+    card-data environment on 443" — has no answer in :func:`first_match`, which decides
+    one packet. Asking it host by host is 65,536 queries for a pair of /24s, and worse,
+    it answers the question nobody asked: an operator wants to know whether the boundary
+    holds, not whether one arbitrary host pair gets through.
+
+    **The verdict is uniform only when it is uniform.** Walking in order, a rule that
+    fully contains both ranges and matches the service decides the whole range. A rule
+    that overlaps either range *partially* splits it — some packets meet that rule and
+    some meet whatever comes later — and no single action is true of the range any more.
+    That is reported as MIXED with the offending rules named, rather than resolved by
+    picking a representative address, which is how a "permitted" verdict gets issued for
+    a range containing a denial.
+
+    Rules that miss either range entirely are skipped: they cannot match any packet in
+    it, so they neither decide nor split.
+    """
+    from netsecops.firewall.model import ANY_PROTOCOL
+
+    splitters: list[ResolvedRule] = []
+
+    for rule in rules:
+        if not rule.enabled:
+            continue
+        if src_zone and rule.src_zones and src_zone not in rule.src_zones:
+            continue
+        if dst_zone and rule.dst_zones and dst_zone not in rule.dst_zones:
+            continue
+
+        src_overlap = rule.source.v4.intersection(source)
+        if not src_overlap.intervals:
+            continue
+        dst_overlap = rule.destination.v4.intersection(destination)
+        if not dst_overlap.intervals:
+            continue
+
+        ports = rule.services.by_protocol.get(protocol) or rule.services.by_protocol.get(
+            ANY_PROTOCOL
+        )
+        if ports is None or not ports.covers_value(port):
+            # The rule reaches these addresses but not this service, so it does not
+            # apply and does not split anything.
+            continue
+
+        covers_all = rule.source.v4.contains_set(source) and rule.destination.v4.contains_set(
+            destination
+        )
+        if covers_all:
+            if splitters:
+                # A rule above this one already claimed part of the range, so this rule
+                # decides only what is left. Reporting its action as the verdict would
+                # be the exact failure this function exists to prevent: a catch-all
+                # permit below a specific deny reads as "allowed" while one address in
+                # the range is denied.
+                break
+            return RangeVerdict(
+                outcome=(
+                    RangeOutcome.ALLOWED
+                    if rule.action.lower() in ("allow", "permit", "accept")
+                    else RangeOutcome.BLOCKED
+                ),
+                decided_by=rule,
+            )
+
+        splitters.append(rule)
+
+    if splitters:
+        return RangeVerdict(
+            outcome=RangeOutcome.MIXED,
+            split_by=tuple(splitters),
+            notes=(
+                f"{len(splitters)} rule(s) match part of this range and not the rest, so "
+                "no single verdict is true of it. The range has to be narrowed, or these "
+                "rules read, before the boundary can be called open or closed.",
+            ),
+        )
+
+    return RangeVerdict(
+        outcome=RangeOutcome.NO_MATCH,
+        notes=(
+            "No rule in this rulebase matches any packet in the range, so the implicit "
+            "default decides it.",
+        ),
+    )
+
+
 def summarise(result: AnalysisResult) -> dict[str, Any]:
     """A compact form for storing on a finding or returning from the API."""
     return {

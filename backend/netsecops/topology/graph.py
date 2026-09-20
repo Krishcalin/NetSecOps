@@ -168,6 +168,33 @@ class DeviceNode:
         winners = sorted(set(hops[best_key]))
         return winners if len(winners) > 1 else []
 
+    def routes_subdividing(self, low: int, high: int, vrf: str | None = None) -> list[str]:
+        """Prefixes that cover part of this range and not the rest.
+
+        A range query walks the path once, using one address to stand for the whole
+        range. That is sound only while every address in it takes the same route — and a
+        route whose prefix cuts across the range breaks exactly that. Half the subnet
+        would go one way and half another, and a single traced path would describe one
+        half while reporting on both.
+
+        Returns the prefixes responsible, so the answer can name them rather than merely
+        hedge.
+        """
+        found: list[str] = []
+        for route in self.routes:
+            if route.vrf != vrf:
+                continue
+            network = _network(route.destination)
+            if network is None:
+                continue
+            net_low = int(network.network_address)
+            net_high = int(network.broadcast_address)
+            overlaps = net_low <= high and net_high >= low
+            contains_all = net_low <= low and net_high >= high
+            if overlaps and not contains_all:
+                found.append(route.destination)
+        return sorted(set(found))
+
     def other_vrfs_matching(self, address: int) -> list[str]:
         """VRFs *other than the global table* that hold a route to this address.
 

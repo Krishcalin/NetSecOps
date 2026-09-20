@@ -17,8 +17,14 @@ from pydantic import BaseModel, Field
 class PathRequest(BaseModel):
     """A packet to trace. Nothing is sent; this is simulation over stored snapshots."""
 
-    #: Literal addresses. Names are not resolved, so that what was analysed is what was
-    #: asked and the audit record names the address actually reasoned about.
+    #: A literal address or a CIDR range. Names are not resolved, so that what was
+    #: analysed is what was asked and the audit record names the addresses actually
+    #: reasoned about.
+    #:
+    #: A range asks the segmentation question — "can anything in here reach anything in
+    #: there" — which a host pair cannot. Where a rulebase treats part of a range
+    #: differently from the rest, the policy verdict is `partially-allowed` and the note
+    #: names the rules responsible, rather than answering for a representative address.
     source: str = Field(min_length=1, max_length=45)
     destination: str = Field(min_length=1, max_length=45)
     protocol: str = Field(default="tcp", max_length=16)
