@@ -387,7 +387,13 @@ async def create_site(
     payload: SiteCreate, inventory: InventoryDep, principal: PrincipalDep
 ) -> SiteRead:
     site = await inventory.create_site(
-        name=payload.name, actor=principal, description=payload.description
+        name=payload.name,
+        actor=principal,
+        description=payload.description,
+        # Passed through explicitly because it was not: `SiteCreate` accepted a location,
+        # `SiteRead` returned one, the column existed, and nothing in between carried it —
+        # so a location submitted was silently discarded and always read back as null.
+        location=payload.location,
     )
     return SiteRead.model_validate(site)
 

@@ -25,6 +25,9 @@ const NAV_ITEMS: NavItem[] = [
   // command is sent, and that is the first thing a new deployment hits.
   { label: 'Credentials', to: '/credentials', permission: 'credential:read' },
   { label: 'Assessments', to: '/jobs', permission: 'job:read' },
+  // Directly below the run history, because it is the same subject asked forwards: that
+  // page says what has run, this says what will.
+  { label: 'Schedules', to: '/schedules', permission: 'job:read' },
   { label: 'Findings', to: '/findings', permission: 'finding:read' },
   { label: 'Vulnerabilities', to: '/vulnerabilities', permission: 'vuln:read' },
   // Sits with Inventory conceptually — it answers "what is on my network that I did not

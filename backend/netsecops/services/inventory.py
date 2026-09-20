@@ -460,7 +460,13 @@ class InventoryService:
     # ──────────────────────────── sites and tags ────────────────────────
 
     async def create_site(
-        self, *, name: str, actor: Principal, description: str | None = None, org_id: int = 1
+        self,
+        *,
+        name: str,
+        actor: Principal,
+        description: str | None = None,
+        location: str | None = None,
+        org_id: int = 1,
     ) -> Site:
         existing = (
             await self.session.execute(select(Site).where(Site.org_id == org_id, Site.name == name))
@@ -468,7 +474,7 @@ class InventoryService:
         if existing is not None:
             raise ConflictError(f"A site named '{name}' already exists.")
 
-        site = Site(org_id=org_id, name=name, description=description)
+        site = Site(org_id=org_id, name=name, description=description, location=location)
         self.session.add(site)
         await self.session.flush()
         return site

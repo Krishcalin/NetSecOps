@@ -84,6 +84,11 @@ export function InventoryPage() {
             Import CSV
           </NavLink>
         )}
+        {/* Not behind `device:write`: the group filter directly above this is useless
+            until groups exist, and seeing what they are is a read. */}
+        <NavLink className="button button--ghost button--small" to="/inventory/organisation">
+          Sites, groups and tags
+        </NavLink>
       </div>
 
       {devices.isLoading ? (

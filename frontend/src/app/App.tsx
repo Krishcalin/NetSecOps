@@ -15,6 +15,8 @@ import { AppLayout } from '../components/AppLayout';
 import { DashboardPage } from './DashboardPage';
 import { InventoryPage } from './InventoryPage';
 import { ImportPage } from './ImportPage';
+import { OrganisationPage } from './OrganisationPage';
+import { SchedulesPage } from './SchedulesPage';
 import { DeviceConfigPage } from './DeviceConfigPage';
 import { CredentialsPage } from './CredentialsPage';
 import { FirewallPage } from './FirewallPage';
@@ -96,6 +98,9 @@ export function App() {
               <Route index element={<DashboardPage />} />
               <Route path="inventory" element={<InventoryPage />} />
               <Route path="inventory/import" element={<ImportPage />} />
+              {/* Reached from Inventory rather than the sidebar: it is what the estate is
+                  divided up with, not a place anybody goes to start work. */}
+              <Route path="inventory/organisation" element={<OrganisationPage />} />
               <Route path="inventory/:deviceId/config" element={<DeviceConfigPage />} />
               <Route path="credentials" element={<CredentialsPage />} />
               {/* Both spellings reach the same page: the nav entry has no device yet and
@@ -109,6 +114,7 @@ export function App() {
                   devices and the AAA servers disagree about. */}
               <Route path="aaa" element={<AaaPage />} />
               <Route path="jobs" element={<JobsPage />} />
+              <Route path="schedules" element={<SchedulesPage />} />
               <Route path="findings" element={<FindingsPage />} />
               {/* Estate-wide: a CVE is about a software version, and the same version
                   is usually on many devices, so the question is rarely per-device. */}

@@ -1,14 +1,17 @@
 # API reachability
 
-**141 operations are published. The console requests 106 of them. 35 it never requests.**
+**141 operations are published. The console requests 114 of them. 27 it never requests.**
+
+**Every area of the API now has a page.** The original finding — thirty-two operations in
+areas the console could not reach at all — is closed. What remains is twenty-five
+operations on pages that exist but do not call them, plus `GET /metrics` and `GET
+/readyz`, which are correctly machine-only.
 
 Measured 2026-09-20 against the OpenAPI schema `create_app()` produces and every `.ts`
-and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed —
-after job cancel, re-run failed, feed import, feed sync, the credential vault, user and
-API-token administration, and the check library, policies and the exception register were
-closed. The published count has risen twice, both times because closing a gap needed an
-endpoint that did not exist: `GET /credentials/{id}/assignments`, then `POST
-/checks/preview` and `POST /checks/query`.
+and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed.
+The published count has risen twice, both times because closing a gap needed an endpoint
+that did not exist: `GET /credentials/{id}/assignments`, then `POST /checks/preview` and
+`POST /checks/query`.
 
 This exists because unreachable capability is indistinguishable from absent capability.
 The vulnerability engine made the point: it was built, unit-tested, and wired only to a
@@ -31,20 +34,42 @@ constant (`` `${DELIVERIES}/${id}/requeue` ``). If you extend it, check a handfu
 ## The finding
 
 **NetSecOps could not be fully administered from its own console.** Thirty-two operations
-belonged to areas with no page at all. Eight remain:
-
-- create or edit a schedule (`/schedules`, 4)
-- manage sites, tags or device-group nesting (4)
-
-Closed since: ~~users (8)~~, ~~policies (6)~~, ~~checks (6, two of them added in the
-course of closing it)~~, ~~API tokens (3)~~, ~~exceptions (3)~~.
+belonged to areas with no page at all — users (8), policies (6), checks (6, two of them
+added in the course of closing it), schedules (4), reference data (4), API tokens (3) and
+exceptions (3). All of them now have one.
 
 Three of those — the exception register, the check library and policy authoring — are
 capabilities the AlgoSec and FireMon dossiers cite as advantages over the incumbents. An
 advantage nobody can reach is not one, which is why they went first once first-run
 administration was done.
 
+Closing them turned up four defects that no test had caught, each invisible for the same
+reason: nothing exercised the path, so the wrong behaviour looked exactly like the right
+one. They are listed below.
+
 Only **two** of the 61 are correctly machine-only: `GET /metrics` and `GET /readyz`.
+
+### What building the surfaces found
+
+Four defects, none of which any test caught, and each one invisible in the same way: the
+wrong behaviour and the right one produced identical output as long as nobody looked.
+
+**A write nothing could read back.** `PUT /users/{id}/scope` set a user's Device Group
+scope and no response carried it. A checkbox cannot render state the API will not return,
+and an editor that opens empty would silently clear the scope on save.
+
+**A field accepted, returned, and never stored.** `SiteCreate` took a `location`,
+`SiteRead` returned one, `sites.location` existed — and `create_site` did not pass it.
+Every site read back with `location: null`, which looks exactly like a field nobody has
+filled in.
+
+**A read that returns less than a surface needs.** `GET /checks/{id}` gives a check's
+expression but not its `applicability` or assertion, so a shipped check cannot be copied
+as the starting point for a custom one — which is how anybody would write the
+hundred-and-fourth check. Left open: closing it means returning the definition, which is
+an API change rather than a page.
+
+**Two endpoints that did not exist at all.** See below.
 
 ### Endpoints added rather than surfaced
 
@@ -54,24 +79,15 @@ one except the response to the POST that created it — so a binding made last m
 not be withdrawn at all, from any client. For a credential vault that is the wrong way
 round: granting access is recoverable, being unable to withdraw it is not.
 
-Closing user administration needed no new endpoint but did need a new **field**.
-`PUT /users/{id}/scope` wrote a Device Group scope that no response carried, so an
-administrator could set one and had no way to read back what a user's scope currently
-was. A checkbox cannot render state the API will not return, and an editor that opens
-empty would silently clear the scope on save. `UserRead.device_group_ids` closes it.
-
-The check library turned up a third shape, left open. `GET /checks/{id}` returns a
-check's rationale, remediation and expression but not its `applicability` or its
-assertion — so the console can show what a check looks at and cannot show the whole
-definition. The practical cost is that a shipped check cannot be copied as the starting
-point for a custom one, which is how anybody would actually write the hundred-and-fourth
-check. The draft editor seeds a template instead. Closing it properly means returning the
-definition, and that is an API change rather than a page.
+The check library needed two that did not exist either — `POST /checks/preview` for a
+definition that has not been saved, and `POST /checks/query` to ask where an expression
+holds — both added while closing the draft-a-check surface.
 
 Worth noting as a pattern. An operation being unreachable from the console is sometimes a
 missing page, sometimes a gap in the API that no page could paper over, sometimes a write
-whose result is unreadable, and sometimes a read that returns less than the surface needs.
-This triage does not distinguish them until someone tries to build the surface.
+whose result is unreadable, sometimes a read that returns less than the surface needs, and
+sometimes a field the service quietly drops. This triage does not distinguish them until
+someone tries to build the surface, which is the argument for building it.
 
 ---
 
@@ -88,12 +104,9 @@ capability, and the gap is entirely missing UI.
 | `GET /metrics` | Prometheus scrape target. |
 | `GET /readyz` | Container readiness probe. |
 
-### No console page exists — 8 · `surface`
+### No console page exists — 0
 
-| Area | Ops | Note |
-|---|---:|---|
-| `/schedules` | 4 | Schedules can be created only by API, though the scheduler process that fires them ships. |
-| `/sites`, `/tags`, `/device-groups/{id}/parent` | 4 | Reference data and grouping. |
+Closed. Every area of the API has a page.
 
 ### Closed
 
@@ -110,6 +123,8 @@ capability, and the gap is entirely missing UI.
 | The 6 `/checks` operations | A Checks page: browse the library filtered by platform and framework, read a check's rationale, remediation and the expression it evaluates, run it against a chosen device, ask where an expression holds across the estate, and draft a new check with a preview that writes nothing. |
 | The 6 `/policies` operations | A Policies page: create, open, enable or re-grade each check in it, apply it to a device group, make it the default. States the difference between disabling a check here and filing an exception, because losing either the finding or the audit trail turns on it. |
 | The 3 `/exceptions` operations | An Exceptions page: the register first — check, scope, justification, approver and days remaining — with filing and revoking beneath it. |
+| The 4 `/schedules` operations | A Schedules page beside Assessments: create with a cron and a timezone, pause, resume, remove. The list leads with `next_run_at`, which the server computes from the expression, because a cron that means something other than what was intended is otherwise undetectable. |
+| `GET`/`POST /sites`, `GET /tags`, `PUT /device-groups/{id}/parent` | "Sites, groups and tags", reached from Inventory. Device Groups are what user scope, policy assignment and schedule coverage are all expressed in — three pages depended on this one and none could create what they depended on. Building it found that `POST /sites` discarded the `location` it accepted. |
 
 ### A page exists but does not use the operation — 25 · `surface`
 
@@ -141,9 +156,13 @@ Ordered by how much the absence costs.
    against a live device.~~ **Done.**
 4. ~~Users and API tokens — first-run administration.~~ **Done.**
 5. ~~Exceptions, checks and policies — the differentiators.~~ **Done.**
-6. **Schedules** — the scheduler process ships and nothing can create work for it.
-7. Everything else: reference data, the discovery-to-inventory promotion path, raw
-   evidence, and the operations on pages that already exist.
+6. ~~Schedules — the scheduler process ships and nothing could create work for it.~~
+   **Done**, along with the reference data three other pages depend on.
+7. **The 25 operations on pages that already exist.** The two worth doing first are on
+   Vulnerabilities: the KEV-first upgrade ranking the README describes, and
+   `cpe-coverage`, which says which platforms have no CPE mapping and therefore report
+   zero vulnerabilities whether or not they have any. The discovery-to-inventory
+   promotion path is next — discovery finds hosts and nothing promotes them.
 
 ## Re-running it
 
