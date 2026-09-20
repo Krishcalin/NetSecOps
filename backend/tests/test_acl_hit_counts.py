@@ -279,3 +279,140 @@ class TestPanOsHitCounts:
 
         commands = " ".join(command.command for command in get_profile("panos").commands)
         assert "<counter><global>" not in commands
+
+
+# ═════════════════════ the third state, and why it exists ════════════════════
+
+
+def examine_rules(raw: list[dict]):
+    """Run the policy checks over a rulebase given as plain dicts."""
+    from netsecops.firewall.model import resolve_rulebase
+    from netsecops.firewall.policy import examine
+
+    rules, _ = resolve_rulebase({"security_rules": raw})
+    return examine(rules)
+
+
+def permit(order: int, name: str, dst: str, **extra) -> dict:
+    return {
+        "order": order,
+        "name": name,
+        "action": "allow",
+        "src": ["10.0.0.0/8"],
+        "dst": [dst],
+        "services": ["tcp/443"],
+        **extra,
+    }
+
+
+class TestUsageHasThreeStates:
+    """`used`, `unused`, and the one that stops a cleanup going wrong.
+
+    A two-state model has to put every rule in one bucket or the other, and rules with no
+    counter data land in "unused" — an instruction to delete a rule nobody has watched.
+    That is the reported failure mode of the market leader\'s unused-rule analysis: rules
+    removed on its advice were carrying traffic its counters never saw.
+
+    This engine never made that claim, because `hit_count is None` simply failed both
+    branches. The problem was the opposite and quieter: it said *nothing at all*, so a
+    rulebase on a platform that reports no counters produced no usage findings, which
+    reads as "every rule is in use" to anyone doing a cleanup.
+    """
+
+    def test_a_rule_with_no_counter_is_neither_used_nor_unused(self) -> None:
+        from netsecops.firewall.model import resolve_rulebase
+        from netsecops.firewall.policy import RuleUsage, usage_of
+
+        rules, _ = resolve_rulebase({"security_rules": [permit(1, "a", "10.1.0.0/16")]})
+
+        assert usage_of(rules[0]) is RuleUsage.UNKNOWN
+
+    def test_zero_hits_is_unused_and_a_counter_is_used(self) -> None:
+        from netsecops.firewall.model import resolve_rulebase
+        from netsecops.firewall.policy import RuleUsage, usage_of
+
+        rules, _ = resolve_rulebase(
+            {
+                "security_rules": [
+                    permit(1, "cold", "10.1.0.0/16", hit_count=0),
+                    permit(2, "hot", "10.2.0.0/16", hit_count=7),
+                ]
+            }
+        )
+
+        assert usage_of(rules[0]) is RuleUsage.UNUSED
+        assert usage_of(rules[1]) is RuleUsage.USED
+
+    def test_a_rulebase_with_no_counters_says_so_rather_than_staying_silent(self) -> None:
+        """The regression. An empty unused-rule list must not read as a clean one."""
+        report = examine_rules([permit(1, "a", "10.1.0.0/16"), permit(2, "b", "10.2.0.0/16")])
+
+        assert report.usage.unknown == 2
+        assert report.usage.evidence_complete is False
+        assert "was not asked" in report.usage.summary
+
+    def test_a_fully_counted_rulebase_reports_complete_evidence(self) -> None:
+        report = examine_rules(
+            [
+                permit(1, "cold", "10.1.0.0/16", hit_count=0),
+                permit(2, "hot", "10.2.0.0/16", hit_count=7),
+            ]
+        )
+
+        assert report.usage.evidence_complete is True
+        assert (report.usage.used, report.usage.unused, report.usage.unknown) == (1, 1, 0)
+
+    def test_partial_evidence_is_not_rounded_either_way(self) -> None:
+        report = examine_rules(
+            [
+                permit(1, "hot", "10.1.0.0/16", hit_count=7),
+                permit(2, "cold", "10.2.0.0/16", hit_count=0),
+                permit(3, "silent", "10.3.0.0/16"),
+            ]
+        )
+
+        assert (report.usage.used, report.usage.unused, report.usage.unknown) == (1, 1, 1)
+        assert report.usage.evidence_complete is False
+        assert "must not be read as either" in report.usage.summary
+
+    def test_coverage_counts_rules_the_findings_loop_skips(self) -> None:
+        """A deny rule and an any/any/any rule have a usage state too.
+
+        Both are `continue`d past before the unused-rule checks, so counting usage there
+        would have understated how much of the rulebase has no evidence behind it — and
+        understating that is the whole failure this exists to prevent.
+        """
+        report = examine_rules(
+            [
+                {"order": 1, "name": "wide-open", "action": "allow"},
+                {"order": 2, "name": "cleanup", "action": "deny"},
+            ]
+        )
+
+        assert report.usage.unknown == 2
+
+    def test_a_disabled_rule_is_left_out_of_the_denominator(self) -> None:
+        """It matches nothing by construction, so no counter is not a gap in evidence."""
+        report = examine_rules(
+            [
+                permit(1, "live", "10.1.0.0/16", hit_count=3),
+                permit(2, "shelved", "10.2.0.0/16", enabled=False),
+            ]
+        )
+
+        assert report.usage.examined == 1
+        assert report.usage.evidence_complete is True
+
+    def test_the_never_hit_finding_says_what_the_counter_cannot_see(self) -> None:
+        """The outage was caused by counters that missed traffic, not by wrong counters.
+
+        VPN traffic unobserved, UDP uncounted, cluster members counting separately — the
+        finding names that limit so the number is read as evidence rather than proof.
+        """
+        from netsecops.firewall.policy import RuleIssue
+
+        report = examine_rules([permit(1, "cold", "10.1.0.0/16", hit_count=0)])
+        finding = report.by_issue(RuleIssue.NEVER_HIT)[0]
+
+        assert "cluster member" in finding.message
+        assert "bypassed" in finding.message

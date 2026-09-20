@@ -134,10 +134,93 @@ class RuleFinding:
         return ISSUE_SEVERITY[self.issue]
 
 
+class RuleUsage(StrEnum):
+    """What is known about whether a rule matches traffic (FR-FW-02).
+
+    Three states, not two, and the third is the point. A cleanup report that offers only
+    *used* and *unused* has to put every rule in one of them, and rules with no counter
+    data land in "unused" — which is an instruction to delete a rule nobody has watched.
+
+    That is not a hypothetical failure. It is the reported experience of the market
+    leader's unused-rule analysis: rules removed on its advice turned out to be carrying
+    traffic the counters never saw, because VPN traffic went unobserved, UDP rules went
+    uncounted, and cluster members reported separately. Every one of those is the same
+    mistake — treating an absence of evidence as evidence of absence.
+    """
+
+    #: Counters were captured and this rule has matched traffic.
+    USED = "used"
+    #: Counters were captured and this rule has matched nothing. A real finding.
+    UNUSED = "unused"
+    #: No counters reached this rule. Not a finding, and not a clean bill of health —
+    #: the question was never asked.
+    UNKNOWN = "unknown"
+
+
+def usage_of(rule: ResolvedRule) -> RuleUsage:
+    """The three-state usage verdict for one rule."""
+    if not rule.usage_known:
+        return RuleUsage.UNKNOWN
+    return RuleUsage.UNUSED if rule.hit_count == 0 else RuleUsage.USED
+
+
+@dataclass(frozen=True, slots=True)
+class UsageCoverage:
+    """How much of a rulebase the usage verdict actually rests on.
+
+    Reported alongside the findings rather than folded into them, because the two answer
+    different questions. A finding says "this rule is unused"; this says "and here is how
+    many rules that claim could not be made about at all".
+
+    Without it the absence of unused-rule findings is ambiguous in the worst direction:
+    a rulebase on a platform that reports no counters produces no usage findings at all,
+    which reads as "every rule is in use" to anyone doing a cleanup.
+    """
+
+    used: int = 0
+    unused: int = 0
+    unknown: int = 0
+
+    @property
+    def examined(self) -> int:
+        return self.used + self.unused + self.unknown
+
+    @property
+    def evidence_complete(self) -> bool:
+        """Whether a cleanup decision can rest on this at all."""
+        return self.examined > 0 and self.unknown == 0
+
+    @property
+    def summary(self) -> str:
+        if self.examined == 0:
+            return "No rules were examined for usage."
+        if self.unknown == 0:
+            return (
+                f"Traffic counters were captured for all {self.examined} rules: "
+                f"{self.used} have matched traffic and {self.unused} have not."
+            )
+        if self.used == 0 and self.unused == 0:
+            return (
+                f"No traffic counters were captured for any of the {self.examined} rules, "
+                "so nothing here says whether any of them is in use. An empty unused-rule "
+                "list means the question was not asked, not that every rule is needed."
+            )
+        one = self.unknown == 1
+        return (
+            f"Traffic counters were captured for {self.used + self.unused} of "
+            f"{self.examined} rules; {self.unknown} "
+            + ("has none. That rule is" if one else "have none. Those rules are")
+            + " neither used nor unused on this evidence, and must not be read as either."
+        )
+
+
 @dataclass(slots=True)
 class PolicyReport:
     findings: list[RuleFinding] = field(default_factory=list)
     rules_examined: int = 0
+    #: Three-state usage across the rulebase. Its `unknown` count is what stops an empty
+    #: unused-rule list reading as a clean one.
+    usage: UsageCoverage = field(default_factory=UsageCoverage)
 
     def by_issue(self, issue: RuleIssue) -> list[RuleFinding]:
         return [f for f in self.findings if f.issue is issue]
@@ -191,6 +274,7 @@ def examine(
 ) -> PolicyReport:
     """Find what is wrong with each rule in its own right (FR-FW-02)."""
     report = PolicyReport(rules_examined=len(rules))
+    used = unused = unknown = 0
 
     def add(
         issue: RuleIssue, rule: ResolvedRule, message: str, threshold: str | None = None
@@ -216,6 +300,22 @@ def examine(
                 "never completed or never reverted.",
             )
             continue
+
+        # Counted here, above every `continue` below it. Usage coverage is a statement
+        # about the rulebase, not about the rules that happen to reach the bottom of this
+        # loop — a deny rule and an any/any/any rule have a usage state too, and omitting
+        # them would understate how much of the rulebase has no evidence behind it.
+        #
+        # Disabled rules are excluded from the denominator rather than counted unknown:
+        # they match nothing by construction, so "no counter" is not a gap in evidence
+        # about them. They are already reported in their own right above.
+        state = usage_of(rule)
+        if state is RuleUsage.USED:
+            used += 1
+        elif state is RuleUsage.UNUSED:
+            unused += 1
+        else:
+            unknown += 1
 
         if rule.unresolved:
             add(
@@ -328,14 +428,16 @@ def examine(
                 ),
             )
 
-        if rule.hit_count == 0:
+        if usage_of(rule) is RuleUsage.UNUSED:
             add(
                 RuleIssue.NEVER_HIT,
                 rule,
                 "This rule has never matched any traffic since its counters were last "
-                "cleared. It may be obsolete, or it may be shadowed by a rule above it.",
+                "cleared. It may be obsolete, or it may be shadowed by a rule above it. "
+                "Counters record only what this device observed: traffic that bypassed "
+                "it, or that another cluster member counted, is not reflected here.",
             )
-        else:
+        elif usage_of(rule) is RuleUsage.USED:
             idle_days = _days_since(rule.last_hit)
             if idle_days is not None and idle_days > thresholds.unused_rule_days:
                 add(
@@ -345,6 +447,7 @@ def examine(
                     threshold=f"unused_rule_days={thresholds.unused_rule_days}",
                 )
 
+    report.usage = UsageCoverage(used=used, unused=unused, unknown=unknown)
     return report
 
 

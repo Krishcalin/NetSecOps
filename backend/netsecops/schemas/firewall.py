@@ -114,6 +114,14 @@ class RulebaseSummary(BaseModel):
     policy_issues: dict[str, int] = Field(default_factory=dict)
     hygiene_issues: dict[str, int] = Field(default_factory=dict)
     nat_issues: dict[str, int] = Field(default_factory=dict)
+    #: Three-state rule usage: `used`, `unused`, `unknown`, and `evidence_complete`.
+    #:
+    #: `unknown` is the count that makes the other two readable. A rulebase on a platform
+    #: that reports no traffic counters produces no unused-rule findings at all, and an
+    #: empty list reads as "every rule is in use" to anyone doing a cleanup. Rules are
+    #: never placed in `unused` for want of evidence — that is the mistake that gets a
+    #: rule carrying live traffic deleted.
+    rule_usage: dict[str, int | bool] = Field(default_factory=dict)
     analysis_ms: int = 0
     #: True when the pairwise analysis hit its cap. The counts above are still exact.
     truncated: bool = False

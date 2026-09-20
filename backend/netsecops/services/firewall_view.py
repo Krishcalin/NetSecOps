@@ -186,12 +186,24 @@ class FirewallViewService:
         summary.policy_issues = policy.counts
         summary.hygiene_issues = hygiene.counts
         summary.nat_issues = nat.counts
+        summary.rule_usage = {
+            "used": policy.usage.used,
+            "unused": policy.usage.unused,
+            "unknown": policy.usage.unknown,
+            "evidence_complete": policy.usage.evidence_complete,
+        }
         summary.analysis_ms = analysis.duration_ms
         summary.truncated = analysis.truncated
         summary.exposure_analysed = nat.exposure_analysed
         summary.external_zones = list(self._external)
         summary.external_zones_inferred = self._zones_inferred and bool(self._external)
         summary.limitations = list(analysis.limitations)
+        if not policy.usage.evidence_complete:
+            # A limitation rather than a finding: it is not a defect in the rulebase, it
+            # is the reader's warning that the unused-rule list is shorter than the
+            # truth, and by how much. Appended after `limitations` is assigned, not
+            # before — an earlier append is silently discarded by that assignment.
+            summary.limitations.append(policy.usage.summary)
         if not nat.exposure_analysed and self.firewall.get("nat_rules"):
             summary.limitations.append(
                 "No zone was identified as facing an untrusted network, so NAT exposure "

@@ -226,6 +226,23 @@ class ResolvedRule:
         return self.log_start is not None or self.log_end is not None
 
     @property
+    def usage_known(self) -> bool:
+        """Whether this rule's traffic counters were captured at all.
+
+        The same rule as `logging_known`, for the field where getting it wrong is most
+        expensive. `hit_count is None` means no counter reached this rule — the platform
+        does not report them, or the collection did not capture them — and it must never
+        read as zero.
+
+        Zero and unknown look identical on a cleanup report and mean opposite things:
+        one is a rule nothing has matched, the other a rule nobody has watched. Removing
+        a rule on the strength of the second is how a firewall change takes production
+        down, which is not hypothetical — it is the reported failure mode of the market
+        leader's unused-rule analysis.
+        """
+        return self.hit_count is not None
+
+    @property
     def has_profiles(self) -> bool:
         return any(value for value in self.profiles.values())
 
