@@ -481,6 +481,60 @@ list first and a round trip per VRF, where NX-OS returns every table in one resp
 IOS collects the global table only, and a path that depends on an IOS VRF resolves to
 `unknown` naming the VRF rather than guessing.
 
+**Address translation is declared, not modelled**, and for the same kind of reason. A
+trace that crossed a translating firewall and reached the far side used to report
+`routed` / `allowed`, when the devices after that firewall had been asked about the
+addresses in the *query* rather than the ones the packet was carrying. Deciding whether a
+given packet is translated means reading each NAT rule's original and translated
+addresses, and those fields do not mean the same thing across the four parsers: PAN-OS
+puts the rule's *source* members in `original` whatever it translates, FortiOS puts a
+VIP's *external* address there, Check Point joins several originals into one string, and
+Cisco ASA sets neither — only the raw line and an interface pair. A matcher built on that
+would be wrong differently on each platform, and a wrong path verdict is somebody opening
+a firewall on the strength of it. So a path that *continues past* a device carrying NAT
+rules reports `partially-allowed` with the device named, and says that translation was not
+evaluated. A translating firewall at the end of the path changes nothing: the trace is
+over and the addresses it reasoned about were the ones asked for. Normalising NAT across
+the parsers is the prerequisite and is its own piece of work.
+
+### The console reaches the product
+
+Unreachable capability is indistinguishable from absent capability, and this codebase had
+already paid for that once: the vulnerability engine was built, unit-tested, and wired only
+to a job type nothing created, so for three phases it never ran and nobody noticed —
+"assessed and found nothing" and "never assessed" look identical on a dashboard.
+
+So the API is audited against the console. [`scripts/api_reachability.py`](scripts/api_reachability.py)
+reconciles every published operation against every path literal in `frontend/src`, and
+[`docs/api-reachability.md`](docs/api-reachability.md) records the result and the triage.
+The first run found **61 of 139 operations the console never requested, 32 of them in
+areas with no page at all** — no way to create a user, define a policy, browse the check
+library, schedule an assessment, issue an API token or file a risk-acceptance exception
+without a REST client.
+
+Those 32 are now closed, along with the credential vault, job cancellation and feed import
+before them. What remains is 27: 25 operations on pages that exist and do not yet call
+them, plus `GET /metrics` and `GET /readyz`, which are correctly machine-only.
+
+Building the surfaces found four defects that no test had caught, each invisible for the
+same reason — the wrong behaviour and the right one produced identical output while
+nothing exercised the path:
+
+- `DELETE /credentials/assignments/{id}` took an id **nothing but the creating POST ever
+  emitted**, so a credential binding made last month could not be withdrawn from any
+  client. Granting access is recoverable; being unable to withdraw it is not.
+- `PUT /users/{id}/scope` wrote a Device Group scope **no response carried**, so an
+  administrator could set one and never read it back.
+- `POST /sites` accepted a `location`, returned one, had a column for it, and **never
+  stored it** — every site read back `null`, which looks exactly like a field nobody
+  filled in.
+- `GET /checks/{id}` returns a check's expression but not its applicability or assertion,
+  so a shipped check **cannot be copied** as the starting point for a custom one. Left
+  open and recorded: closing it is an API change, not a page.
+
+Treat a rise in the unreferenced count on a pull request the way you would treat a drop in
+coverage.
+
 ### What Phase 5 delivers
 
 - **Wireless from three controllers into one vocabulary** — Cisco WLC AireOS, Catalyst
@@ -713,6 +767,7 @@ netsecops/
 │     └─ fixtures/     # anonymised configs and operational output, by platform
 ├─ frontend/           # Vite + React 18 + TypeScript SPA
 ├─ scripts/            # smoke_test.py — post-deployment verification
+│                      #   api_reachability.py — the console-vs-API audit
 ├─ tools/              # build_brand_assets.py — derives the served brand assets
 ├─ deploy/             # Dockerfiles, docker-compose, Caddy, Postgres init
 └─ docs/
@@ -857,10 +912,10 @@ and deletes it afterwards, so it never alters the account it signs in with.
 The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at
 `/api/v1/docs` outside production.
 
-**The console does not yet reach all of it.** 139 operations are published and the
-console requests 78; the rest — user, policy, schedule, token and exception
-administration among them — are API-only for now. That is measured rather than estimated
-(`scripts/api_reachability.py`) and tracked in
+**The console reaches every area of it.** 141 operations are published and the console
+requests 114; the 27 it does not are individual operations on pages that already exist,
+plus the two probe endpoints, and each is named with what its absence costs. That is
+measured rather than estimated (`scripts/api_reachability.py`) and tracked in
 [docs/api-reachability.md](docs/api-reachability.md), because capability nobody can reach
 is indistinguishable from capability that does not exist.
 
