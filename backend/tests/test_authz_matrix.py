@@ -264,6 +264,21 @@ MATRIX: list[Case] = [
     Case("GET", "/api/v1/checks/{check_id}", _CHECK_READERS),
     Case("POST", "/api/v1/checks", _CHECK_AUTHORS, body={"definition": {}}),
     Case("POST", "/api/v1/checks/{check_id}/preview", _CHECK_READERS),
+    # Reading, not authoring: both run an expression and write nothing, so they sit
+    # behind the same permission as the rest of the library rather than behind
+    # CHECK_WRITE. Drafting a check is not the same act as adding one.
+    Case(
+        "POST",
+        "/api/v1/checks/preview",
+        _CHECK_READERS,
+        body={"definition": {}, "device_id": "00000000-0000-0000-0000-000000000000"},
+    ),
+    Case(
+        "POST",
+        "/api/v1/checks/query",
+        _CHECK_READERS,
+        body={"expression": "device.vendor"},
+    ),
     Case("GET", "/api/v1/policies", _CHECK_READERS),
     Case(
         "POST",

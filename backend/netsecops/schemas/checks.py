@@ -117,6 +117,63 @@ class CustomCheckCreate(BaseModel):
     definition: dict[str, Any]
 
 
+class DraftPreviewRequest(BaseModel):
+    """Run a check that has not been saved (FR-CHK-06).
+
+    Preview by id can only run a check that already exists, so tuning one meant creating
+    it first and editing it in place — leaving a trail of half-finished checks in the
+    library, which is the thing the dry run was meant to avoid. The definition travels in
+    the request instead, and nothing is written.
+    """
+
+    definition: dict[str, Any]
+    device_id: uuid.UUID
+
+
+class EstateQueryRequest(BaseModel):
+    """One expression, asked of every device in scope.
+
+    The same JMESPath the check library is written in, run as an ad-hoc question rather
+    than as a saved control: "which devices have this set, and to what". A check answers
+    pass or fail for one device; this answers "where does this hold" across the estate,
+    which is the question asked while an operator is still working out what the check
+    should say.
+    """
+
+    expression: str = Field(min_length=1, max_length=500)
+    #: Narrow by platform, for an expression that only means something on some of them.
+    platforms: list[str] = Field(default_factory=list)
+    #: Return only devices where the expression selected something.
+    matching_only: bool = False
+    limit: int = Field(default=200, ge=1, le=1000)
+
+
+class EstateQueryRow(BaseModel):
+    """What one device answered."""
+
+    device_id: uuid.UUID
+    hostname: str | None = None
+    platform: str | None = None
+    #: What the expression selected. `null` means it selected nothing, which is a real
+    #: answer and different from the device below not having been asked.
+    value: Any = None
+    #: Set when the device could not be asked at all — no snapshot, or one this
+    #: expression could not be run against. Never silently omitted: a query for "which
+    #: devices have X" that drops the devices it could not read answers a narrower
+    #: question than the one asked, and reads as though it answered the whole estate.
+    not_evaluated: str | None = None
+
+
+class EstateQueryResponse(BaseModel):
+    expression: str
+    #: Devices in scope that the query considered, before `matching_only` filtering.
+    devices_considered: int = 0
+    #: How many could not be asked. A non-zero count here is the reader's warning that
+    #: the rows below do not describe the whole estate.
+    devices_not_evaluated: int = 0
+    rows: list[EstateQueryRow] = Field(default_factory=list)
+
+
 class CustomCheckRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

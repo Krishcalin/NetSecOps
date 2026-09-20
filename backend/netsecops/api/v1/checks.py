@@ -5,7 +5,10 @@ from __future__ import annotations
 import uuid
 from typing import Annotated, Any
 
+import jmespath
 from fastapi import APIRouter, Depends, Query, status
+from jmespath.exceptions import JMESPathError
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import func, select
 
 from netsecops.api.deps import PrincipalDep, SessionDep, require, verify_csrf
@@ -26,6 +29,10 @@ from netsecops.schemas.checks import (
     ComplianceRead,
     CustomCheckCreate,
     CustomCheckRead,
+    DraftPreviewRequest,
+    EstateQueryRequest,
+    EstateQueryResponse,
+    EstateQueryRow,
     ExceptionCreate,
     ExceptionRead,
     FindingDetail,
@@ -168,6 +175,66 @@ async def create_custom_check(
 
 
 @router.post(
+    "/checks/preview",
+    response_model=AssessmentPreview,
+    dependencies=[Depends(require(Permission.CHECK_READ)), Depends(verify_csrf)],
+    summary="Run an unsaved check definition against a device (FR-CHK-06)",
+)
+async def preview_draft_check(
+    payload: DraftPreviewRequest, policies: PolicyDep, principal: PrincipalDep
+) -> AssessmentPreview:
+    """The dry run, before the check exists.
+
+    Preview by id can only run something already in the library, so tuning a new check
+    meant saving it and editing in place — which leaves a trail of half-finished checks,
+    the exact cost the dry run was introduced to avoid. This takes the definition in the
+    request and writes nothing at all: no check, no result row, no finding, no risk
+    score.
+
+    The definition is validated against the same schema the YAML loader uses, so an
+    expression that would be rejected on save is rejected here rather than appearing to
+    work and failing later.
+    """
+    try:
+        definition = CheckDefinition.model_validate(payload.definition)
+    except PydanticValidationError as exc:
+        raise ValidationProblem(
+            "This check definition is not valid, so it was not run: "
+            f"{'; '.join(str(error.get('msg', '')) for error in exc.errors()[:3])}"
+        ) from exc
+
+    device = await InventoryService(policies.session).get_device(
+        payload.device_id, scope=principal.scope
+    )
+    snapshot = await SnapshotService(policies.session).latest(device)
+    if snapshot is None:
+        raise ValidationProblem(
+            "This device has no configuration snapshot to test against. Collect from "
+            "it, or upload a configuration, first."
+        )
+
+    result = evaluate(
+        definition,
+        snapshot.ncm,
+        device=DeviceContext.from_ncm(
+            snapshot.ncm, device_class=device.device_class, hostname=device.hostname
+        ),
+        config_text=snapshot.config_redacted,
+    )
+
+    from netsecops.services.assessment import _evidence_payload
+
+    return AssessmentPreview(
+        check_id=result.check_id,
+        outcome=result.outcome,
+        severity=result.severity,
+        message=result.message,
+        reason=result.reason,
+        evidence=_evidence_payload(result),
+    )
+
+
+@router.post(
     "/checks/{check_id}/preview",
     response_model=AssessmentPreview,
     dependencies=[Depends(require(Permission.CHECK_READ)), Depends(verify_csrf)],
@@ -220,6 +287,114 @@ async def preview_check(
         message=result.message,
         reason=result.reason,
         evidence=_evidence_payload(result),
+    )
+
+
+@router.post(
+    "/checks/query",
+    response_model=EstateQueryResponse,
+    dependencies=[Depends(require(Permission.CHECK_READ)), Depends(verify_csrf)],
+    summary="Run one expression across the estate (FR-CHK-06)",
+)
+async def query_estate(
+    payload: EstateQueryRequest, policies: PolicyDep, principal: PrincipalDep
+) -> EstateQueryResponse:
+    """Ask the check library's own language as a question rather than as a control.
+
+    A check answers pass or fail for one device. This answers "where does this hold",
+    which is the question somebody is actually asking while working out what the check
+    should say — and the one that otherwise means writing a check, assigning it, running
+    an assessment and reading the results.
+
+    It is the same JMESPath the shipped library is written in, deliberately: a query that
+    finds the devices you care about is a predicate you can paste into a check, and one
+    language for both is the whole point. An expression that selects nothing here selects
+    nothing there.
+
+    **Devices that could not be asked are returned, not dropped.** A device with no
+    snapshot cannot answer, and omitting it would turn "no device has X" into a claim
+    about an estate that was never fully read.
+    """
+    try:
+        compiled = jmespath.compile(payload.expression)
+    except JMESPathError as exc:
+        raise ValidationProblem(
+            f"'{payload.expression}' is not a valid JMESPath expression: {exc}"
+        ) from exc
+
+    inventory = InventoryService(policies.session)
+    snapshots = SnapshotService(policies.session)
+    candidates, _ = await inventory.list_devices(scope=principal.scope, limit=payload.limit)
+    # Filtered here rather than in the query because `list_devices` takes one platform and
+    # this takes a set; narrowing after the fetch can return fewer than `limit`, which is
+    # the honest behaviour for a filter the database did not apply.
+    wanted = {platform.strip().lower() for platform in payload.platforms if platform.strip()}
+    devices = [
+        device for device in candidates if not wanted or (device.platform or "").lower() in wanted
+    ]
+
+    rows: list[EstateQueryRow] = []
+    not_evaluated = 0
+
+    for device in devices:
+        snapshot = await snapshots.latest(device)
+        if snapshot is None:
+            not_evaluated += 1
+            rows.append(
+                EstateQueryRow(
+                    device_id=device.id,
+                    hostname=device.hostname,
+                    platform=device.platform,
+                    not_evaluated=(
+                        "No configuration has been collected from this device, so the "
+                        "expression could not be run against it."
+                    ),
+                )
+            )
+            continue
+
+        try:
+            value = compiled.search(dict(snapshot.ncm or {}))
+        except JMESPathError as exc:
+            # A valid expression can still fail on a particular document — indexing into
+            # a scalar, say. That is this device's answer being unavailable, not the
+            # query being wrong, so it is reported per device rather than failing the lot.
+            not_evaluated += 1
+            rows.append(
+                EstateQueryRow(
+                    device_id=device.id,
+                    hostname=device.hostname,
+                    platform=device.platform,
+                    not_evaluated=f"The expression could not be run against this device: {exc}",
+                )
+            )
+            continue
+
+        rows.append(
+            EstateQueryRow(
+                device_id=device.id,
+                hostname=device.hostname,
+                platform=device.platform,
+                value=value,
+            )
+        )
+
+    considered = len(rows)
+    if payload.matching_only:
+        # Devices that could not be asked survive the filter. They are not matches, but
+        # they are also not evidence of absence, and dropping them here would quietly
+        # narrow the estate the answer describes.
+        rows = [
+            row
+            for row in rows
+            if row.not_evaluated is not None or row.value not in (None, [], {}, False)
+        ]
+
+    return EstateQueryResponse(
+        expression=payload.expression,
+        devices_considered=considered,
+        devices_not_evaluated=not_evaluated,
+        rows=rows,
     )
 
 
