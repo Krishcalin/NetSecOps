@@ -279,6 +279,11 @@ def as_dict(coverage: CpeCoverage) -> dict[str, Any]:
                 "status": entry.status.value,
                 "vendor_products_seen": entry.vendor_products_seen,
                 "advisories_for_vendor": entry.advisories_for_vendor,
+                # The most actionable field of the lot, and it was not being serialised:
+                # the near-miss is what turns "this name is probably wrong" into "it is
+                # probably meant to be this". Its own docstring says that is why it
+                # exists, and neither the API nor the report was carrying it.
+                "closest_match": entry.closest_match,
             }
             for entry in coverage.products
         ],

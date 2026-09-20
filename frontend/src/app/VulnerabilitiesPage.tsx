@@ -21,14 +21,18 @@ import { NavLink } from 'react-router-dom';
 import { api, request } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type {
+  Corroboration,
+  CpeCoverage,
   CveDetail,
   FeedStatus,
+  UpgradeReport,
   Vulnerability,
   VulnerabilitySummary,
 } from '../features/vulnerabilities/types';
 import {
   CONFIDENCE_LABELS,
   CONFIDENCE_MEANINGS,
+  CORROBORATION_LABELS,
   formatEpss,
   kevLabel,
 } from '../features/vulnerabilities/types';
@@ -36,6 +40,19 @@ import type { Paginated } from '../features/inventory/types';
 
 const PAGE_SIZE = 25;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
+
+/** Contradictions first — they are the only rows anybody has to act on. */
+const COVERAGE_ORDER: Record<Corroboration, number> = {
+  contradicted: 0,
+  corroborated: 1,
+  'no-evidence': 2,
+};
+
+const COVERAGE_PILL: Record<Corroboration, string> = {
+  contradicted: 'critical',
+  corroborated: 'success',
+  'no-evidence': 'unknown',
+};
 
 /** What `POST /vulnerabilities/feeds/import` reports back (FR-VUL-08).
  *
@@ -378,6 +395,254 @@ function renderFeedTable(rows: FeedStatus[]) {
   );
 }
 
+/** FR-VUL-02 — whether the CPE product names are backed by the advisories imported.
+ *
+ * The check this page most needs and the hardest to motivate, because it reports on the
+ * product rather than on the estate. A wrong CPE product name fails *silently*: no error,
+ * no unparsed record, just a device that matches nothing — which on every other screen is
+ * indistinguishable from a device with no vulnerabilities. This is the only place that
+ * distinction is visible.
+ *
+ * Three verdicts and the third is why it needs reading carefully. *Contradicted* means
+ * advisories for that vendor exist and none uses this name. *Nothing to check against*
+ * means no advisory for that vendor has been imported at all — a gap in the corpus, not
+ * a fault in the name, and chasing it as one wastes the reader's time.
+ */
+function CoveragePanel() {
+  const coverage = useQuery({
+    queryKey: ['cpe-coverage'],
+    queryFn: () => api.get<CpeCoverage>('/vulnerabilities/cpe-coverage'),
+  });
+
+  if (coverage.isLoading) {
+    return <p className="page-loading">Loading…</p>;
+  }
+  if (!coverage.data) {
+    return <p className="empty">The coverage check could not be run.</p>;
+  }
+
+  const { products, advisories_examined, limitations } = coverage.data;
+  const contradicted = products.filter((entry) => entry.status === 'contradicted');
+  const unchecked = products.filter((entry) => entry.status === 'no-evidence');
+
+  return (
+    <div className="stack">
+      <p className="field__help">
+        Checked {products.length} platform name{products.length === 1 ? '' : 's'} against{' '}
+        {advisories_examined.toLocaleString()} imported advisor
+        {advisories_examined === 1 ? 'y' : 'ies'}.
+      </p>
+
+      {contradicted.length > 0 && (
+        <div className="alert alert--error" role="alert">
+          <strong>
+            {contradicted.length} platform{contradicted.length === 1 ? '' : 's'} may be matching
+            nothing.
+          </strong>{' '}
+          Advisories exist for {contradicted.length === 1 ? 'that vendor' : 'those vendors'} and
+          none of them uses the product name below. A device on such a platform reports zero
+          vulnerabilities whether or not it has any.
+        </div>
+      )}
+
+      {limitations.map((note) => (
+        // Not styled as an error: these say the corpus is thin, which is a fact about
+        // what has been imported rather than a defect to chase.
+        <p className="field__help" key={note}>
+          {note}
+        </p>
+      ))}
+
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Platform</th>
+              <th>CPE name</th>
+              <th>Verdict</th>
+              <th>Evidence</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[...products]
+              // Contradictions first: they are the only rows anybody has to act on.
+              .sort((a, b) => COVERAGE_ORDER[a.status] - COVERAGE_ORDER[b.status])
+              .map((entry) => (
+                <tr
+                  key={entry.platform}
+                  className={entry.status === 'no-evidence' ? 'row--muted' : undefined}
+                >
+                  <td className="mono">{entry.platform}</td>
+                  <td className="mono">
+                    {entry.vendor}:{entry.product}
+                  </td>
+                  <td>
+                    <span className={`pill pill--${COVERAGE_PILL[entry.status]}`}>
+                      {CORROBORATION_LABELS[entry.status]}
+                    </span>
+                  </td>
+                  <td>
+                    {entry.status === 'contradicted' ? (
+                      <>
+                        {entry.closest_match && (
+                          <div>
+                            Did you mean <span className="mono">{entry.closest_match}</span>?
+                          </div>
+                        )}
+                        <div className="muted">
+                          {entry.advisories_for_vendor} advisor
+                          {entry.advisories_for_vendor === 1 ? 'y' : 'ies'} for this vendor name{' '}
+                          {entry.vendor_products_seen.slice(0, 4).join(', ')}
+                          {entry.vendor_products_seen.length > 4 && ' …'}
+                        </div>
+                      </>
+                    ) : entry.status === 'corroborated' ? (
+                      <span className="muted">
+                        {entry.advisories_for_vendor} advisor
+                        {entry.advisories_for_vendor === 1 ? 'y' : 'ies'} use this exact name
+                      </span>
+                    ) : (
+                      <span className="muted">
+                        No advisory for this vendor has been imported, so the name is unconfirmed
+                        rather than wrong.
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+          </tbody>
+        </table>
+      </div>
+
+      {unchecked.length === products.length && products.length > 0 && (
+        <p className="field__help">
+          Nothing could be checked at all. Import advisories for the platforms you run — the feed
+          panel above does it — and this becomes meaningful.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** FR-VUL-10 — what each release this device could move to would actually close.
+ *
+ * The README describes this and nothing could reach it. The ranking is the point: an
+ * engineer gets one maintenance window, and "upgrade to the latest" is not a plan when
+ * the latest closes eleven CVEs and the release two steps back closes nine of them
+ * including both known-exploited ones.
+ *
+ * Candidates come only from versions the device's own advisories name as fixed. Nothing
+ * is synthesised, because recommending a release that may not exist costs an engineer a
+ * window they do not get back.
+ */
+function UpgradePanel({ deviceId, onClose }: { deviceId: string; onClose: () => void }) {
+  const report = useQuery({
+    queryKey: ['upgrade-path', deviceId],
+    queryFn: () => api.get<UpgradeReport>(`/vulnerabilities/devices/${deviceId}/upgrade-path`),
+  });
+
+  if (report.isLoading) {
+    return <p className="page-loading">Loading…</p>;
+  }
+  if (!report.data) {
+    return <p className="empty">No upgrade path could be built for that device.</p>;
+  }
+
+  const data = report.data;
+
+  return (
+    <section className="card">
+      <div className="card__header">
+        <h2 className="card__title">
+          Upgrade path — {data.hostname ?? data.device_id.slice(0, 8)}
+        </h2>
+        <button className="button button--ghost button--small" onClick={onClose}>
+          Close
+        </button>
+      </div>
+
+      <p className="field__help">
+        Running <span className="mono">{data.current_version ?? 'an unknown version'}</span> on{' '}
+        <span className="mono">{data.platform ?? 'an unknown platform'}</span>, with{' '}
+        {data.total_open_cves} open CVE{data.total_open_cves === 1 ? '' : 's'}. Candidates are only
+        versions this device's own advisories name as fixed — nothing is synthesised.
+      </p>
+
+      {data.current_version_unparsed && (
+        <div className="alert alert--error" role="alert">
+          This device's installed version could not be parsed, so no candidate below was filtered
+          against it. Read the list as "these releases carry fixes", not as "these are upgrades from
+          where you are".
+        </div>
+      )}
+
+      {data.candidates.length === 0 ? (
+        <p className="empty">
+          No advisory affecting this device names a fixed version, so there is no release to
+          recommend. That is a gap in the advisories, not a device with nothing to fix.
+        </p>
+      ) : (
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Release</th>
+                <th>Closes</th>
+                <th>Known exploited closed</th>
+                <th>Still open</th>
+                <th>Undetermined</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.candidates.map((candidate) => (
+                <tr key={candidate.version}>
+                  <td className="mono">{candidate.version}</td>
+                  <td>
+                    <strong>{candidate.eliminates_count}</strong>
+                    {candidate.eliminates.length > 0 && (
+                      <div className="muted mono">
+                        {candidate.eliminates.slice(0, 3).join(', ')}
+                        {candidate.eliminates.length > 3 &&
+                          ` and ${candidate.eliminates.length - 3} more`}
+                      </div>
+                    )}
+                  </td>
+                  <td>
+                    {candidate.kev_eliminated > 0 ? (
+                      <span className="pill pill--critical">{candidate.kev_eliminated}</span>
+                    ) : (
+                      <span className="muted">none</span>
+                    )}
+                  </td>
+                  <td>{candidate.remaining_count}</td>
+                  <td>
+                    {/* Never folded into the other two. Two Cisco IOS trains have
+                        independent fix schedules, so `15.2(7)E3` is not later than
+                        `15.2(4)M5` — counting an undetermined CVE as closed would be
+                        the one rounding error that sends somebody to a release that
+                        does not fix their problem. */}
+                    {candidate.undetermined_count > 0 ? (
+                      <span className="pill pill--unknown">{candidate.undetermined_count}</span>
+                    ) : (
+                      <span className="muted">0</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="field__help">
+        <strong>Undetermined is not closed.</strong> It means the candidate release and the version
+        the advisory names as fixed are on parallel trains with independent fix schedules, so
+        neither is later than the other and moving there may or may not help.
+      </p>
+    </section>
+  );
+}
+
 function DeviceList({
   devices,
   emptyText,
@@ -493,6 +758,8 @@ export function VulnerabilitiesPage() {
   const [offset, setOffset] = useState(0);
   const [selectedCve, setSelectedCve] = useState<string | null>(null);
   const [showFeeds, setShowFeeds] = useState(false);
+  const [showCoverage, setShowCoverage] = useState(false);
+  const [upgradeDevice, setUpgradeDevice] = useState<string | null>(null);
 
   const summary = useQuery({
     queryKey: ['vuln-summary'],
@@ -590,6 +857,13 @@ export function VulnerabilitiesPage() {
         >
           {showFeeds ? 'Hide feed status' : 'Feed status'}
         </button>
+
+        <button
+          className="button button--ghost button--small"
+          onClick={() => setShowCoverage(!showCoverage)}
+        >
+          {showCoverage ? 'Hide coverage check' : 'Coverage check'}
+        </button>
       </div>
 
       {showFeeds && (
@@ -598,6 +872,15 @@ export function VulnerabilitiesPage() {
             <h2 className="card__title">Feed synchronisation</h2>
           </div>
           <FeedPanel />
+        </section>
+      )}
+
+      {showCoverage && (
+        <section className="card">
+          <div className="card__header">
+            <h2 className="card__title">Can these platforms match anything?</h2>
+          </div>
+          <CoveragePanel />
         </section>
       )}
 
@@ -651,7 +934,7 @@ export function VulnerabilitiesPage() {
                   <td>
                     <KevBadge kev={row.kev} />
                   </td>
-                  <td>
+                  <td className="table__actions">
                     {row.cve_ids[0] && (
                       <button
                         className="button button--ghost button--small"
@@ -664,6 +947,17 @@ export function VulnerabilitiesPage() {
                         {selectedCve === row.cve_ids[0] ? 'Hide' : 'Details'}
                       </button>
                     )}
+                    {/* Per device rather than per finding: the question "what should I
+                        upgrade this box to" is asked once and answered against every
+                        CVE open on it, not against the row that happened to be clicked. */}
+                    <button
+                      className="button button--ghost button--small"
+                      onClick={() =>
+                        setUpgradeDevice(upgradeDevice === row.device_id ? null : row.device_id)
+                      }
+                    >
+                      {upgradeDevice === row.device_id ? 'Hide upgrades' : 'Upgrades'}
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -673,6 +967,14 @@ export function VulnerabilitiesPage() {
       )}
 
       {selectedCve && <CvePanel cveId={selectedCve} onClose={() => setSelectedCve(null)} />}
+
+      {upgradeDevice && (
+        <UpgradePanel
+          key={upgradeDevice}
+          deviceId={upgradeDevice}
+          onClose={() => setUpgradeDevice(null)}
+        />
+      )}
 
       <div className="pager">
         <button

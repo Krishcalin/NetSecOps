@@ -134,6 +134,71 @@ export const CONFIDENCE_MEANINGS: Record<MatchConfidence, string> = {
     'The question could not be asked — no version was collected, the affected range was unreadable, or the release trains are not comparable. This device is neither affected nor clear.',
 };
 
+// ───────────────────── upgrade path (FR-VUL-10) ──────────────────────────────
+
+/** One release this device could move to, and what moving there would close. */
+export interface UpgradeCandidate {
+  version: string;
+  eliminates: string[];
+  remaining: string[];
+  /** Neither closed nor left open: the two releases are not comparable. Never folded
+   *  into the other two, because Cisco IOS trains have independent fix schedules and
+   *  `15.2(7)E3` is not later than `15.2(4)M5`. */
+  undetermined: string[];
+  eliminates_count: number;
+  remaining_count: number;
+  undetermined_count: number;
+  kev_eliminated: number;
+  advisories_closed: number;
+}
+
+export interface UpgradeReport {
+  device_id: string;
+  hostname: string | null;
+  platform: string | null;
+  current_version: string | null;
+  /** The device's own version could not be parsed, so no candidate was filtered
+   *  against it. The difference between a caveated answer and a wrong one. */
+  current_version_unparsed: boolean;
+  total_open_cves: number;
+  candidates: UpgradeCandidate[];
+}
+
+// ──────────────────── CPE coverage (FR-VUL-02) ───────────────────────────────
+
+export type Corroboration = 'corroborated' | 'contradicted' | 'no-evidence';
+
+/** One platform's CPE product name, and whether the imported corpus backs it up. */
+export interface ProductCoverage {
+  platform: string;
+  vendor: string;
+  product: string;
+  status: Corroboration;
+  /** The product names the corpus *does* carry for this vendor. On a contradiction the
+   *  right name is usually visibly among them. */
+  vendor_products_seen: string[];
+  advisories_for_vendor: number;
+  /** The near-miss that triggered a contradiction. */
+  closest_match: string | null;
+}
+
+export interface CpeCoverage {
+  advisories_examined: number;
+  products: ProductCoverage[];
+  limitations: string[];
+}
+
+/** What each verdict means, spelled out where somebody will act on it.
+ *
+ * `no-evidence` is the one that must not be chased as a fault: it says the corpus holds
+ * no advisory for that vendor at all, which is a gap in what has been imported rather
+ * than a wrong name. */
+export const CORROBORATION_LABELS: Record<Corroboration, string> = {
+  corroborated: 'Confirmed by an advisory',
+  contradicted: 'Probably wrong',
+  'no-evidence': 'Nothing to check against',
+};
+
 /** KEV has three states and the third is the one that matters. */
 export function kevLabel(kev: boolean | null): string {
   if (kev === true) return 'Known exploited';

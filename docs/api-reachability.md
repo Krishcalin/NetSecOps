@@ -1,9 +1,9 @@
 # API reachability
 
-**141 operations are published. The console requests 114 of them. 27 it never requests.**
+**141 operations are published. The console requests 116 of them. 25 it never requests.**
 
 **Every area of the API now has a page.** The original finding — thirty-two operations in
-areas the console could not reach at all — is closed. What remains is twenty-five
+areas the console could not reach at all — is closed. What remains is twenty-three
 operations on pages that exist but do not call them, plus `GET /metrics` and `GET
 /readyz`, which are correctly machine-only.
 
@@ -125,15 +125,15 @@ Closed. Every area of the API has a page.
 | The 3 `/exceptions` operations | An Exceptions page: the register first — check, scope, justification, approver and days remaining — with filing and revoking beneath it. |
 | The 4 `/schedules` operations | A Schedules page beside Assessments: create with a cron and a timezone, pause, resume, remove. The list leads with `next_run_at`, which the server computes from the expression, because a cron that means something other than what was intended is otherwise undetectable. |
 | `GET`/`POST /sites`, `GET /tags`, `PUT /device-groups/{id}/parent` | "Sites, groups and tags", reached from Inventory. Device Groups are what user scope, policy assignment and schedule coverage are all expressed in — three pages depended on this one and none could create what they depended on. Building it found that `POST /sites` discarded the `location` it accepted. |
+| `GET /vulnerabilities/cpe-coverage` | A "Can these platforms match anything?" panel on Vulnerabilities. It answers the one question no other screen can: whether a platform reports zero CVEs because it is clean or because its CPE product name matches nothing. Contradictions sort first; "no evidence" is rendered as a thin corpus rather than a fault. Building it found that `closest_match` — the field that says what the name is probably meant to be — was computed and never serialised. |
+| `GET /vulnerabilities/devices/{id}/upgrade-path` | An "Upgrades" action on each Vulnerabilities row. Ranks the releases the device could move to by what each closes, with the known-exploited count separate, because one maintenance window is the constraint. `undetermined` is never folded into `eliminates`: two Cisco trains have independent fix schedules, so neither is later than the other. |
 
-### A page exists but does not use the operation — 25 · `surface`
+### A page exists but does not use the operation — 23 · `surface`
 
 Ordered by how much the absence costs.
 
 | Operation | Page | Cost of the gap |
 |---|---|---|
-| `GET /vulnerabilities/devices/{id}/upgrade-path` | Vulnerabilities | KEV-first upgrade ranking, described in the README, reachable only by API. |
-| `GET /vulnerabilities/cpe-coverage` | Vulnerabilities | The coverage honesty check — which platforms have no CPE mapping and so silently report zero. |
 | `GET /devices/pending-review`, `POST /devices/{id}/approve`, `/archive` | Inventory, Discovery | The discovery-to-inventory promotion path. Discovery finds hosts; nothing promotes them. |
 | `GET /discovery/pending/{host_id}`, `DELETE /discovery/scopes/{id}` | Discovery | Per-host detail and scope removal. |
 | `GET /jobs/{id}/progress` | Jobs | Live progress. Low value while the list already refreshes every five seconds. |
@@ -158,11 +158,12 @@ Ordered by how much the absence costs.
 5. ~~Exceptions, checks and policies — the differentiators.~~ **Done.**
 6. ~~Schedules — the scheduler process ships and nothing could create work for it.~~
    **Done**, along with the reference data three other pages depend on.
-7. **The 25 operations on pages that already exist.** The two worth doing first are on
-   Vulnerabilities: the KEV-first upgrade ranking the README describes, and
-   `cpe-coverage`, which says which platforms have no CPE mapping and therefore report
-   zero vulnerabilities whether or not they have any. The discovery-to-inventory
-   promotion path is next — discovery finds hosts and nothing promotes them.
+7. ~~The two Vulnerabilities gaps: the KEV-first upgrade ranking, and `cpe-coverage`.~~
+   **Done.**
+8. **The 23 operations on pages that already exist.** The discovery-to-inventory
+   promotion path is the one worth doing next — discovery finds hosts and nothing
+   promotes them — followed by the five `/notifications` operations, which decide who
+   gets told what and are API-only.
 
 ## Re-running it
 
