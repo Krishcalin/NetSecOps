@@ -1,0 +1,373 @@
+<?xml version="1.0"?>
+<config version="11.0.0" urldb="paloaltonetworks">
+  <mgt-config>
+    <users>
+      <entry name="admin">
+        <phash>$1$abcdefgh$ijklmnopqrstuvwxyz012345</phash>
+        <permissions>
+          <role-based>
+            <superuser>yes</superuser>
+          </role-based>
+        </permissions>
+      </entry>
+      <entry name="netsecops">
+        <phash>$5$qrstuvwx$yzabcdefghijklmnopqrstuv0123</phash>
+        <permissions>
+          <role-based>
+            <devicereader>yes</devicereader>
+          </role-based>
+        </permissions>
+      </entry>
+    </users>
+    <password-complexity>
+      <enabled>yes</enabled>
+      <minimum-length>12</minimum-length>
+    </password-complexity>
+  </mgt-config>
+  <shared>
+    <certificate>
+      <entry name="demo-dmz-mgmt">
+        <subject>CN=fw.example.com</subject>
+        <issuer>CN=Internal Issuing CA</issuer>
+        <not-valid-before>2026/01/01 00:00:00</not-valid-before>
+        <not-valid-after>2027/01/01 00:00:00</not-valid-after>
+        <ca>no</ca>
+      </entry>
+    </certificate>
+    <log-settings>
+      <syslog>
+        <entry name="siem">
+          <server>
+            <entry name="siem-01">
+              <server>10.100.5.10</server>
+              <transport>TCP</transport>
+              <port>514</port>
+              <facility>LOG_LOCAL7</facility>
+            </entry>
+          </server>
+        </entry>
+      </syslog>
+    </log-settings>
+  </shared>
+  <devices>
+    <entry name="localhost.localdomain">
+      <deviceconfig>
+        <system>
+          <hostname>demo-dmz-fw-01</hostname>
+          <domain>example.com</domain>
+          <timezone>Europe/London</timezone>
+          <idle-timeout>60</idle-timeout>
+          <login-banner>Authorised users only. Activity is monitored.</login-banner>
+          <permitted-ip>
+            <entry name="10.100.0.0/24"/>
+          </permitted-ip>
+          <service>
+            <disable-telnet>yes</disable-telnet>
+            <disable-http>no</disable-http>
+            <disable-https>no</disable-https>
+            <disable-ssh>no</disable-ssh>
+            <disable-snmp>no</disable-snmp>
+          </service>
+          <ntp-servers>
+            <primary-ntp-server>
+              <ntp-server-address>10.100.5.40</ntp-server-address>
+              <authentication-type>
+                <none/>
+              </authentication-type>
+            </primary-ntp-server>
+            <secondary-ntp-server>
+              <ntp-server-address>10.100.5.41</ntp-server-address>
+              <authentication-type>
+                <none/>
+              </authentication-type>
+            </secondary-ntp-server>
+          </ntp-servers>
+          <snmp-setting>
+            <access-setting>
+              <version>
+                <v2c>
+                  <snmp-community-string>public</snmp-community-string>
+                </v2c>
+              </version>
+            </access-setting>
+          </snmp-setting>
+        </system>
+        <high-availability>
+          <enabled>yes</enabled>
+        </high-availability>
+      </deviceconfig>
+      <network>
+        <interface>
+          <ethernet>
+            <entry name="ethernet1/1">
+              <comment>TRANSIT TO demo-edge-fw-01</comment>
+              <layer3>
+                <ip>
+                  <entry name="10.0.2.2/30"/>
+                </ip>
+              </layer3>
+            </entry>
+            <entry name="ethernet1/2">
+              <comment>DMZ</comment>
+              <layer3>
+                <ip>
+                  <entry name="10.20.0.1/24"/>
+                </ip>
+              </layer3>
+            </entry>
+            <entry name="ethernet1/3">
+              <comment>INTERNAL SERVERS</comment>
+              <layer3>
+                <ip>
+                  <entry name="10.10.0.1/24"/>
+                </ip>
+              </layer3>
+            </entry>
+          </ethernet>
+        </interface>
+      </network>
+      <vsys>
+        <entry name="vsys1">
+          <zone>
+            <entry name="untrust">
+              <network>
+                <layer3>
+                  <member>ethernet1/1</member>
+                </layer3>
+              </network>
+            </entry>
+            <entry name="dmz">
+              <network>
+                <layer3>
+                  <member>ethernet1/2</member>
+                </layer3>
+              </network>
+            </entry>
+            <entry name="trust">
+              <network>
+                <layer3>
+                  <member>ethernet1/3</member>
+                </layer3>
+              </network>
+            </entry>
+          </zone>
+          <address>
+            <entry name="web-01">
+              <ip-netmask>10.20.0.10/32</ip-netmask>
+            </entry>
+            <entry name="web-02">
+              <ip-netmask>10.20.0.11/32</ip-netmask>
+            </entry>
+            <entry name="web-01-copy">
+              <ip-netmask>10.20.0.10/32</ip-netmask>
+            </entry>
+            <entry name="dmz-net">
+              <ip-netmask>10.20.0.0/24</ip-netmask>
+            </entry>
+            <entry name="internal-net">
+              <ip-netmask>10.10.0.0/24</ip-netmask>
+            </entry>
+            <entry name="mgmt-net">
+              <ip-netmask>10.100.0.0/24</ip-netmask>
+            </entry>
+            <entry name="partner-range">
+              <ip-range>198.51.100.10-198.51.100.20</ip-range>
+            </entry>
+            <entry name="never-used">
+              <ip-netmask>192.0.2.0/24</ip-netmask>
+            </entry>
+          </address>
+          <address-group>
+            <entry name="web-servers">
+              <static>
+                <member>web-01</member>
+                <member>web-02</member>
+              </static>
+            </entry>
+          </address-group>
+          <service>
+            <entry name="svc-https">
+              <protocol>
+                <tcp>
+                  <port>443</port>
+                </tcp>
+              </protocol>
+            </entry>
+            <entry name="svc-http">
+              <protocol>
+                <tcp>
+                  <port>80</port>
+                </tcp>
+              </protocol>
+            </entry>
+            <entry name="svc-ssh">
+              <protocol>
+                <tcp>
+                  <port>22</port>
+                </tcp>
+              </protocol>
+            </entry>
+            <entry name="svc-rdp">
+              <protocol>
+                <tcp>
+                  <port>3389</port>
+                </tcp>
+              </protocol>
+            </entry>
+            <entry name="svc-unused">
+              <protocol>
+                <udp>
+                  <port>161</port>
+                </udp>
+              </protocol>
+            </entry>
+          </service>
+          <service-group>
+            <entry name="web-services">
+              <members>
+                <member>svc-https</member>
+                <member>svc-http</member>
+              </members>
+            </entry>
+          </service-group>
+          <rulebase>
+            <security>
+              <rules>
+                <entry name="Mgmt to DMZ">
+                  <from><member>trust</member></from>
+                  <to><member>dmz</member></to>
+                  <source><member>mgmt-net</member></source>
+                  <destination><member>dmz-net</member></destination>
+                  <service><member>svc-ssh</member></service>
+                  <application><member>ssh</member></application>
+                  <action>allow</action>
+                  <log-end>yes</log-end>
+                  <profile-setting>
+                    <group><member>default</member></group>
+                  </profile-setting>
+                </entry>
+                <entry name="Block inbound RDP">
+                  <from><member>untrust</member></from>
+                  <to><member>dmz</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>any</member></destination>
+                  <service><member>svc-rdp</member></service>
+                  <application><member>any</member></application>
+                  <action>deny</action>
+                  <log-end>yes</log-end>
+                </entry>
+                <entry name="Partner RDP to web">
+                  <from><member>untrust</member></from>
+                  <to><member>dmz</member></to>
+                  <source><member>partner-range</member></source>
+                  <destination><member>web-01</member></destination>
+                  <service><member>svc-rdp</member></service>
+                  <application><member>any</member></application>
+                  <action>allow</action>
+                  <log-end>yes</log-end>
+                </entry>
+                <entry name="Inbound web">
+                  <from><member>untrust</member></from>
+                  <to><member>dmz</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>web-servers</member></destination>
+                  <service><member>web-services</member></service>
+                  <application><member>web-browsing</member><member>ssl</member></application>
+                  <action>allow</action>
+                  <log-end>yes</log-end>
+                  <profile-setting>
+                    <profiles>
+                      <virus><member>default</member></virus>
+                      <vulnerability><member>strict</member></vulnerability>
+                      <url-filtering><member>default</member></url-filtering>
+                    </profiles>
+                  </profile-setting>
+                </entry>
+                <entry name="Outbound any">
+                  <from><member>trust</member></from>
+                  <to><member>untrust</member></to>
+                  <source><member>internal-net</member></source>
+                  <destination><member>any</member></destination>
+                  <service><member>any</member></service>
+                  <application><member>any</member></application>
+                  <action>allow</action>
+                  <log-end>no</log-end>
+                </entry>
+                <entry name="Old migration rule">
+                  <from><member>trust</member></from>
+                  <to><member>dmz</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>any</member></destination>
+                  <service><member>any</member></service>
+                  <application><member>any</member></application>
+                  <action>allow</action>
+                  <log-end>yes</log-end>
+                  <disabled>yes</disabled>
+                </entry>
+                <entry name="Permit all internal to dmz">
+                  <from><member>trust</member></from>
+                  <to><member>dmz</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>any</member></destination>
+                  <service><member>any</member></service>
+                  <application><member>any</member></application>
+                  <action>allow</action>
+                  <log-end>no</log-end>
+                </entry>
+                <entry name="Cleanup deny">
+                  <from><member>any</member></from>
+                  <to><member>any</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>any</member></destination>
+                  <service><member>any</member></service>
+                  <application><member>any</member></application>
+                  <action>deny</action>
+                  <log-end>yes</log-end>
+                </entry>
+              </rules>
+            </security>
+            <nat>
+              <rules>
+                <entry name="Inbound web NAT">
+                  <from><member>untrust</member></from>
+                  <to><member>untrust</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>198.51.100.10</member></destination>
+                  <service>svc-https</service>
+                  <destination-translation>
+                    <translated-address>10.20.0.10</translated-address>
+                    <translated-port>443</translated-port>
+                  </destination-translation>
+                </entry>
+                <entry name="Inbound RDP NAT">
+                  <from><member>untrust</member></from>
+                  <to><member>untrust</member></to>
+                  <source><member>any</member></source>
+                  <destination><member>198.51.100.11</member></destination>
+                  <service>svc-rdp</service>
+                  <destination-translation>
+                    <translated-address>10.20.0.11</translated-address>
+                    <translated-port>3389</translated-port>
+                  </destination-translation>
+                </entry>
+                <entry name="Outbound PAT">
+                  <from><member>trust</member></from>
+                  <to><member>untrust</member></to>
+                  <source><member>internal-net</member></source>
+                  <destination><member>any</member></destination>
+                  <source-translation>
+                    <dynamic-ip-and-port>
+                      <interface-address>
+                        <interface>ethernet1/1</interface>
+                      </interface-address>
+                    </dynamic-ip-and-port>
+                  </source-translation>
+                </entry>
+              </rules>
+            </nat>
+          </rulebase>
+        </entry>
+      </vsys>
+    </entry>
+  </devices>
+</config>

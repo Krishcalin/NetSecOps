@@ -435,6 +435,97 @@ def cmd_worker(
         console.print("Stopped.")
 
 
+# ──────────────────────────── demonstration ─────────────────────────────────
+
+
+@app.command("demo-seed")
+def cmd_demo_seed(
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Seed even though this installation already holds devices it did not create.",
+        ),
+    ] = False,
+) -> None:
+    """Stand up a demonstration estate, so the product can be evaluated without a device.
+
+    Four devices across three vendors, each with a configuration ingested through the
+    same path an operator's upload uses and assessed by the same check engine against
+    the same shipped library. Nothing is contacted and nothing is fabricated: the
+    findings are the product's actual opinion of those configurations.
+
+    It refuses to run if the inventory already holds a device it did not create, because
+    demonstration devices in a real estate are reported on, counted in compliance
+    percentages, and eventually collected from. `demo-purge` removes exactly what this
+    created, identified by tag.
+    """
+    configure_logging()
+
+    async def _run() -> None:
+        from netsecops.db.session import session_scope
+        from netsecops.demo import seed_demo_estate
+
+        async with session_scope() as session:
+            report = await seed_demo_estate(session, force=force)
+
+        if report.devices == 0 and not report.notes:
+            console.print("[yellow]Nothing to do.[/yellow]")
+            return
+
+        console.print(f"[green]Seeded[/green] {report.devices} device(s)")
+        console.print(f"  configurations ingested  {report.snapshots}")
+        console.print(f"  checks run               {report.checks_run}")
+        console.print(f"  findings now open        {report.findings}")
+        console.print(f"  advisories imported      {report.advisories}")
+        console.print(f"  vulnerability matches    {report.vulnerability_matches}")
+        for note in report.notes:
+            console.print(f"  [dim]{note}[/dim]")
+
+        console.print()
+        console.print("Two path queries worth trying, under Path Analysis:")
+        console.print(
+            "  [bold]10.10.10.50 → 10.20.0.10 tcp/443[/bold]  "
+            "every firewall permits it, and one of them may have rewritten the addresses "
+            "the later ones were asked about"
+        )
+        console.print(
+            "  [bold]10.10.10.50 → 10.20.0.10 tcp/22[/bold]   "
+            "blocked, and it names the device and the rule"
+        )
+        console.print()
+        console.print("[dim]Run `netsecops-cli demo-purge` to remove it.[/dim]")
+
+    try:
+        asyncio.run(_run())
+    except Exception as exc:
+        err_console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+
+
+@app.command("demo-purge")
+def cmd_demo_purge() -> None:
+    """Remove every device the demo seeder created, and nothing else.
+
+    Identified by tag, so a device added by hand during the evaluation survives — this
+    runs at exactly the moment somebody is onboarding their first real device, and
+    deleting it then would be the worst possible time. Imported advisories are left in
+    place: they are public data about the world rather than anything about this estate.
+    """
+    configure_logging()
+
+    async def _run() -> None:
+        from netsecops.db.session import session_scope
+        from netsecops.demo import purge_demo_estate
+
+        async with session_scope() as session:
+            removed = await purge_demo_estate(session)
+
+        console.print(f"[green]Removed[/green] {removed} demonstration device(s).")
+
+    asyncio.run(_run())
+
+
 @app.command("version")
 def cmd_version() -> None:
     from netsecops import __version__

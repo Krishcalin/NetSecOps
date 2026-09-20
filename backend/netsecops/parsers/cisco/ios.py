@@ -938,6 +938,14 @@ class CiscoIosParser(CiscoStyleParser):
             if bindings := applied.get(acl.name):
                 acl.applied_to = bindings
 
+        # Carried onto the rules as well as the ACL, because the path walk reads the
+        # rulebase and never sees `ncm.acls`. Without it, an ACL applied to nothing —
+        # a vty filter, an SNMP filter, a leftover — is evaluated against transit
+        # traffic and its trailing `deny any` reports the path blocked.
+        for rule in result.ncm.firewall.security_rules:
+            if rule.rulebase is not None:
+                rule.applied = rule.rulebase in applied
+
     # ───────────────────────────── features ─────────────────────────────
 
     def _parse_features(self, parse: CiscoConfParse, result: ParseResult) -> None:

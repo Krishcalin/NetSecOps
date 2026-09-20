@@ -285,7 +285,52 @@ def _evaluate(
         )
         return
 
+    # Rules in an ACL bound to no interface filter nothing. They are frequently vty or
+    # SNMP filters, and they end in `deny any` — so evaluating them here reported the
+    # path blocked at a switch that forwards the traffic without looking at it. A false
+    # `blocked` is the dangerous direction: it says a control is already in place.
+    #
+    # `ncm.acls` records the binding and the walker never sees it, so the parsers mark
+    # the rules themselves. A platform with no such concept leaves this None and nothing
+    # is filtered out.
+    detached = [rule for rule in rules if rule.applied is False]
+    rules = [rule for rule in rules if rule.applied is not False]
+
+    if detached and not rules:
+        # Every rulebase on the device is unbound, which is not the same as a device
+        # with no rulebase: somebody wrote a policy here and did not apply it. Saying so
+        # is worth more than silently reporting no decision.
+        hop.limitations = (
+            f"{node.hostname} carries {len(detached)} rule(s), all in access lists bound "
+            "to no interface, so none of them filters this traffic. It was treated as "
+            "forwarding without an opinion.",
+        )
+        return
+
     if not rules:
+        return
+
+    # A packet crossing an ASA, an IOS router or a Nexus is tested against *one* ACL —
+    # the one bound inbound on the interface it arrived on. The NCM says so on
+    # `SecurityRule.rulebase`, and the hygiene analysis honours it; evaluating them as
+    # one ordered list does not. On a three-interface ASA that means the first ACL in
+    # the file decides every path, and since every ACL ends in `deny ip any any`, every
+    # path is reported blocked by a rule governing traffic in a different direction.
+    #
+    # Which ACL governs this hop needs the ingress *interface*, and the binding is
+    # recorded per platform in shapes that do not agree — the same collision that keeps
+    # NAT declared rather than modelled. Until that is normalised, a device with more
+    # than one rulebase in play gets no verdict rather than a confident wrong one: a
+    # false `blocked` says a control is already in place, and somebody stops looking.
+    contexts = {rule.rulebase for rule in rules if rule.rulebase is not None}
+    if len(contexts) > 1:
+        hop.limitations = (
+            f"{node.hostname} carries {len(contexts)} access lists bound to different "
+            "interfaces, and which of them governs this hop depends on the interface "
+            "the packet arrives on — which is not yet recorded in a form this can read. "
+            "Its decision is unknown and is not counted as a permit. Ask the rule query "
+            "against the specific access list to settle it.",
+        )
         return
 
     if src_range is not None and dst_range is not None:

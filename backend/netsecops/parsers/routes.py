@@ -144,7 +144,21 @@ def parse_ios_static_route(line: str) -> Route | None:
     if match is None:
         return None
 
-    destination = to_cidr(match.group("dest"), match.group("mask"))
+    dest = match.group("dest") or ""
+    mask = match.group("mask")
+    rest = match.group("rest") or ""
+
+    if "/" in dest and mask:
+        # The destination already carried its prefix length, so the token the pattern
+        # took for a mask is really the first argument after it — on NX-OS, the next hop.
+        # `ip route 10.20.0.0/24 10.0.1.2` otherwise parsed the destination correctly and
+        # dropped 10.0.1.2 on the floor, leaving a route that points nowhere: the path
+        # walk stops at that device, reports the destination unreachable, and nothing
+        # anywhere records that a route was read and then discarded.
+        rest = f" {mask}{rest}"
+        mask = None
+
+    destination = to_cidr(dest, mask)
     if destination is None:
         return None
 
@@ -152,7 +166,7 @@ def parse_ios_static_route(line: str) -> Route | None:
     interface: str | None = None
     distance: int | None = None
 
-    tokens = (match.group("rest") or "").split()
+    tokens = rest.split()
     index = 0
     while index < len(tokens):
         token = tokens[index]

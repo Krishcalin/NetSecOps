@@ -54,6 +54,7 @@ up: env ## Build and start the full stack, run migrations, print the URL
 	@echo "    API docs http://localhost:8000/api/v1/docs"
 	@echo ""
 	@echo "  Create the first administrator with:  make create-admin"
+	@echo "  Then, for something to look at:       make demo-seed"
 
 .PHONY: down
 down: ## Stop the stack (data volume is kept)
@@ -70,6 +71,14 @@ logs: ## Follow logs from all services
 .PHONY: create-admin
 create-admin: ## Create the initial Super Admin
 	$(COMPOSE) exec api netsecops-cli create-admin
+
+.PHONY: demo-seed
+demo-seed: ## Seed a demonstration estate — no device contacted, no credential needed
+	$(COMPOSE) exec api netsecops-cli demo-seed
+
+.PHONY: demo-purge
+demo-purge: ## Remove the demonstration estate, leaving any real device alone
+	$(COMPOSE) exec api netsecops-cli demo-purge
 
 # ───────────────────────────── development ─────────────────────────────
 

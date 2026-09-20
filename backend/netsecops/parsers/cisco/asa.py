@@ -498,12 +498,23 @@ class CiscoAsaParser(CiscoStyleParser):
                 )
             )
 
+        bound: set[str] = set()
         for name, acl in acls.items():
             applied = parse.find_objects(rf"^access-group\s+{re.escape(name)}\s")
             acl.applied_to = [obj.text.strip() for obj in applied]
+            if applied:
+                bound.add(name)
             for obj in applied:
                 result.consume(self.line_number(obj))
             result.ncm.acls.append(acl)
+
+        # An ASA ACL with no `access-group` filters nothing. Recorded on the rules
+        # because the path walk reads those and never sees `ncm.acls` — and on an ASA a
+        # detached ACL is common, since one is written before the change window that
+        # binds it.
+        for rule in firewall.security_rules:
+            if rule.rulebase is not None:
+                rule.applied = rule.rulebase in bound
 
         for obj in parse.find_objects(r"^access-group\s"):
             result.consume(self.line_number(obj))

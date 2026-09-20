@@ -205,6 +205,13 @@ class ResolvedRule:
     #: single ordered policy. Rules in different contexts are never compared, because
     #: they are never applied to the same packet.
     rulebase: str | None = None
+    #: False where the rulebase is bound to no interface and so filters nothing. `None`
+    #: where the platform has no such concept. See `SecurityRule.applied`.
+    #:
+    #: Read by the path walk only. Hygiene analysis deliberately still reports on an
+    #: unapplied rule: a rulebase somebody wrote and never bound is worth surfacing, and
+    #: is a different observation from what happens to a packet.
+    applied: bool | None = None
 
     @property
     def permits(self) -> bool:
@@ -539,6 +546,7 @@ def resolve_rulebase(firewall: Mapping[str, Any]) -> tuple[list[ResolvedRule], O
                 last_hit=raw.get("last_hit"),
                 unresolved=tuple(missing_src + missing_dst + missing_svc),
                 rulebase=raw.get("rulebase"),
+                applied=raw.get("applied"),
             )
         )
 

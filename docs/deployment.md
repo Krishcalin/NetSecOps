@@ -48,10 +48,18 @@ them across origins would force `SameSite=None` and weaken CSRF defence.
 Collections are IO-bound — most of a device session is spent waiting on the device, not
 on CPU. Scale `NETSECOPS_WORKER_CONCURRENCY` and worker replicas before adding cores.
 
+**The small tier is the same product.** No capability is withheld from it: the check
+library, path analysis, the vulnerability engine, the API and the report generator behave
+identically at 20 devices and at 2,000. Worth stating because it is not the norm in this
+category — see [commercial.md](commercial.md).
+
 **Database growth** is driven by artefacts and snapshots, not by findings. A 500-device
 estate collecting daily with 90-day artefact retention lands in the low tens of GB.
-Tune retention in Administration → Settings (FR-ADM-01); findings history and the audit
-log are never purged (DATA-02).
+Identical configurations are stored once, so a stable estate grows far more slowly than
+device-count × days suggests, and an estate under active change grows faster — the figure
+above is an order of magnitude, not a measurement of your estate. Tune retention in
+Administration → Settings (FR-ADM-01); findings history and the audit log are never
+purged (DATA-02).
 
 ---
 

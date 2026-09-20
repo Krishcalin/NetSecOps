@@ -558,5 +558,12 @@ class CiscoNxosParser(CiscoStyleParser):
             if bindings := applied.get(acl.name):
                 acl.applied_to = bindings
 
+        # As on IOS: the path walk reads `firewall.security_rules` and never sees
+        # `ncm.acls`, so an ACL bound to nothing would otherwise be enforced against
+        # transit traffic by the walker and by nothing else.
+        for rule in result.ncm.firewall.security_rules:
+            if rule.rulebase is not None:
+                rule.applied = rule.rulebase in applied
+
 
 __all__ = ["CiscoNxosParser"]

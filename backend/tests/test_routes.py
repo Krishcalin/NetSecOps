@@ -348,6 +348,55 @@ class TestNxosStaticRoutes:
 
         assert destinations(ncm, "static") == {"10.0.0.0/8", "0.0.0.0/0"}
 
+    def test_the_next_hop_survives_the_prefix_form(self) -> None:
+        """The other half of the same line, and the half that was being thrown away.
+
+        With the destination already carrying `/24`, the optional mask group matched the
+        *next hop* instead and the remainder came back empty — so every NX-OS static
+        route parsed with the right destination and no next hop. A route pointing
+        nowhere is one the path walk cannot follow, so it stops at that device and
+        reports the destination unreachable, with nothing anywhere recording that a
+        perfectly good next hop was read and discarded.
+
+        The test above passed throughout, because it asserts destinations only. That is
+        how this survived: the assertion covered the half that worked.
+        """
+        ncm = parse(
+            "cisco_nxos",
+            "hostname dc-sw\nip route 10.20.0.0/24 10.0.1.2\nip route 0.0.0.0/0 10.0.1.2\n",
+        )
+
+        hops = {route.destination: route.next_hop for route in ncm.routing.routes}
+        assert hops["10.20.0.0/24"] == "10.0.1.2"
+        assert hops["0.0.0.0/0"] == "10.0.1.2"
+
+    def test_the_dotted_form_is_unaffected(self) -> None:
+        """The fix keys off the destination carrying a prefix length, so the IOS form
+        must still consume its mask rather than reading it as a next hop."""
+        ncm = parse(
+            "cisco_nxos",
+            "hostname dc-sw\nip route 10.20.0.0 255.255.255.0 10.0.1.2\n",
+        )
+
+        route = next(r for r in ncm.routing.routes if r.destination == "10.20.0.0/24")
+        assert route.next_hop == "10.0.1.2"
+        assert route.interface is None
+
+    def test_the_prefix_form_still_reads_an_egress_interface(self) -> None:
+        """A discard route names an interface where a next hop would go, and the same
+        token-sorting has to keep working once the mask is handed back to it."""
+        ncm = parse("cisco_nxos", "hostname dc-sw\nip route 10.0.0.0/8 Null0\n")
+
+        route = next(r for r in ncm.routing.routes if r.destination == "10.0.0.0/8")
+        assert route.interface == "Null0"
+        assert route.next_hop is None
+
+    def test_a_distance_after_the_prefix_form_is_still_a_distance(self) -> None:
+        ncm = parse("cisco_nxos", "hostname dc-sw\nip route 10.1.0.0/16 10.0.1.2 250\n")
+
+        route = next(r for r in ncm.routing.routes if r.destination == "10.1.0.0/16")
+        assert (route.next_hop, route.distance) == ("10.0.1.2", 250)
+
 
 class TestAsaRoutes:
     def test_the_first_argument_is_the_interface_not_the_destination(self) -> None:

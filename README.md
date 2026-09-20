@@ -481,6 +481,34 @@ list first and a round trip per VRF, where NX-OS returns every table in one resp
 IOS collects the global table only, and a path that depends on an IOS VRF resolves to
 `unknown` naming the VRF rather than guessing.
 
+**Two defects found by building the demonstration estate**, both producing a confident
+`blocked` where the device forwards the traffic. That is the dangerous direction: a
+blocked verdict says a control is already in place, so somebody stops looking.
+
+The first was in the reader. `ip route 10.20.0.0/24 10.0.1.2` — NX-OS's prefix form —
+parsed its destination correctly and **silently dropped the next hop**, because the
+optional mask group matched `10.0.1.2` instead. Every NX-OS static route therefore
+pointed nowhere, the path walk could not follow it, and it reported the destination
+unreachable with nothing anywhere recording that a perfectly good next hop had been read
+and discarded. The existing test for that grammar asserted destinations only, which is
+how it survived: the assertion covered the half that worked.
+
+The second is in the walk, and is the larger one. A Cisco device's policy is a **set of
+ACLs bound to different interfaces**, not one ordered list. `SecurityRule.rulebase`
+records that and the hygiene analysis honours it — two entries in different ACLs are
+never compared, because they never see the same packet. The path walk was evaluating all
+of them as a single ordered list, so on a three-interface ASA the first ACL in the file
+decided every path; and since each ends in `deny ip any any`, every path came back
+blocked by a rule governing traffic in a different direction.
+
+Half of that is now fixed outright: an ACL bound to no interface — a vty filter, an SNMP
+filter, a leftover — filters nothing, and the parsers mark its rules so the walk skips
+them. The other half is **hedged rather than guessed**: a device with more than one bound
+access list reports its decision as unknown and names the ambiguity, because which ACL
+governs a hop depends on the interface the packet arrives on, and that binding is recorded
+per platform in shapes that do not yet agree. Normalising it is the next piece of work on
+this subject, and until then no confident verdict is produced from an arbitrary choice.
+
 **Address translation is declared, not modelled**, and for the same kind of reason. A
 trace that crossed a translating firewall and reached the far side used to report
 `routed` / `allowed`, when the devices after that firewall had been asked about the
@@ -534,6 +562,42 @@ nothing exercised the path:
 
 Treat a rise in the unreferenced count on a pull request the way you would treat a drop in
 coverage.
+
+### It can be evaluated without a device
+
+The other half of the same problem. A product nobody can reach and a product nobody can
+try are the same failure at different scales, and this category's normal answer to "can I
+see it" is a nine-to-thirteen week implementation — credentials brokered, firewall rules
+opened, collectors sited, a change window found. Nobody evaluates a tool on that budget.
+
+`netsecops-cli demo-seed` stands up four devices across three vendors, ingests a
+configuration for each, assesses them, imports advisories and matches them. It takes
+about ten seconds and contacts nothing.
+
+**The devices are not real; everything said about them is.** The configurations are
+ingested through the same path an operator's upload uses (FR-COL-11), parsed by the same
+parsers, sealed as the same artefacts, and assessed by the same engine against the same
+103-check library. There is no demonstration write path — a demonstration write path is
+how a demo comes to show something the product does not do.
+
+The estate is designed rather than sampled, so that each thing this product does
+differently has something real to show: an ordinary neglected switch for the findings, a
+router with no rulebase that reports *no decision* rather than "allowed", a firewall that
+permits and translates so the path verdict is `partially-allowed` with the translating
+device named, a rulebase carrying a shadowed rule and an any-any permit, and a software
+version old enough for the vulnerability engine to match.
+
+It refuses to run if the inventory holds a device it did not create, every device it makes
+carries the tag `netsecops-demo`, and `demo-purge` removes exactly those — leaving alone
+any device added by hand, because that command runs at the moment somebody is onboarding
+their first real one.
+
+[docs/evaluating.md](docs/evaluating.md) says what to look at and in what order, including
+the limits the demonstration will show you.
+
+Building it found two defects in path analysis that no test had caught, both of them
+false-`blocked` verdicts — the dangerous direction, because a blocked verdict says a
+control is already in place and somebody stops looking. See the Phase 8 section.
 
 ### What Phase 5 delivers
 
@@ -711,9 +775,17 @@ cd NetSecOps
 
 make up              # generates keys, builds, migrates, prints the URL
 make create-admin    # create the first Super Admin
+make demo-seed       # optional: a demonstration estate, so there is something to look at
 ```
 
 Then open <http://localhost:8080>.
+
+`make demo-seed` stands up four devices across three vendors, ingests a configuration for
+each and assesses them — **no device is contacted, no credential is needed**, and the
+findings are the product's real opinion of those configurations rather than fixtures. It
+refuses to run if the inventory already holds a device it did not create, and
+`make demo-purge` removes exactly what it created. [What to look at, and in what
+order](docs/evaluating.md).
 
 > **Back up `MASTER_KEY` separately from the database.** It wraps every stored device
 > credential. Losing it means losing them all; storing it beside a database dump means
@@ -850,6 +922,8 @@ netsecops-cli audit-commands         # print the read-only allow-list per platfo
 netsecops-cli permissions            # print the role × permission matrix
 netsecops-cli health-check           # database reachability + schema revision
 netsecops-cli show-config            # effective configuration, secrets masked
+netsecops-cli demo-seed              # a demonstration estate, no device contacted
+netsecops-cli demo-purge             # remove it, leaving any real device alone
 netsecops-cli version                # build version
 ```
 
@@ -905,6 +979,8 @@ and deletes it afterwards, so it never alters the account it signs in with.
 |---|---|
 | [docs/SRS.md](docs/SRS.md) | Full software requirements specification — the baseline |
 | [docs/device-accounts.md](docs/device-accounts.md) | Recommended read-only accounts per platform |
+| [docs/evaluating.md](docs/evaluating.md) | Ten minutes with no device: the demonstration estate, what to look at, and the known limits |
+| [docs/commercial.md](docs/commercial.md) | Sizing, what the incumbents charge, and what follows |
 | [docs/deployment.md](docs/deployment.md) | Deployment, sizing, backup and key management |
 | [docs/api-reachability.md](docs/api-reachability.md) | Which API operations the console can reach, and which need a surface |
 | [docs/adr/](docs/adr/) | Architecture decision records |

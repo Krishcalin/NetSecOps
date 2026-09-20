@@ -686,6 +686,17 @@ class SecurityRule(NcmBase):
     #: see the same packet — so comparing them for shadowing produces a finding about a
     #: conflict that cannot occur. Rules are only compared with others sharing a value.
     rulebase: str | None = None
+    #: Whether this rule's rulebase is bound to any interface, on the platforms where
+    #: that is a separate act. An ACL that exists and is applied to nothing filters no
+    #: traffic — it is frequently a vty or SNMP filter, or a leftover — so a path walk
+    #: that evaluated it would report traffic blocked that the device forwards. `None`
+    #: where the question does not arise: PAN-OS, FortiOS and Check Point rules are in
+    #: force by existing.
+    #:
+    #: It does not say *which* interface, and the path walk does not yet choose between
+    #: two ACLs that are both applied. That is the remaining half, and it is why this is
+    #: a three-state field rather than a boolean.
+    applied: bool | None = None
     enabled: bool = True
     src_zones: list[str] = Field(default_factory=list)
     src: list[str] = Field(default_factory=list)

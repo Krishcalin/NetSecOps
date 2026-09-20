@@ -68,6 +68,19 @@ def deny_to(prefix: str, name: str = "block-dmz") -> dict[str, Any]:
     }
 
 
+def acl(name: str, *, applied: bool, action: str = "deny") -> list[dict[str, Any]]:
+    """One named access list's worth of rules, marked bound or unbound."""
+    return [
+        {
+            "order": 1,
+            "name": f"{name}-1",
+            "rulebase": name,
+            "applied": applied,
+            "action": action,
+        }
+    ]
+
+
 def node(
     hostname: str,
     *,
@@ -353,6 +366,147 @@ class TestTranslationIsDeclaredNotModelled:
         assert result.branched_at and result.translated_at
         assert "equal-cost" in notes
         assert "translate addresses" in notes
+
+
+class TestWhichRulebaseGoverns:
+    """A Cisco device's policy is a set of ACLs, not one ordered list (FR-TOPO-04).
+
+    `SecurityRule.rulebase` records the enforcement context and the hygiene analysis
+    honours it — two entries in different ACLs are never compared, because they never
+    see the same packet. The path walk was evaluating all of them as one list in file
+    order, which on any device with more than one ACL means the first ACL in the file
+    decides every path. Since each ends in `deny any`, every path came back blocked by a
+    rule governing traffic in a different direction.
+
+    A false `blocked` is the dangerous direction: it says a control is already in place,
+    and somebody stops looking.
+    """
+
+    @staticmethod
+    def _estate(firewall: dict[str, Any]):
+        core = node(
+            "core-rtr",
+            addresses={"lan": "10.10.0.1/24", "up": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "up"),
+                static("10.20.0.0/24", "10.0.1.2", "up"),
+            ],
+        )
+        edge = node(
+            "edge-fw",
+            addresses={"up": "10.0.1.2/30", "dmz": "10.20.0.1/24"},
+            routes=[connected("10.0.1.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+            firewall=firewall,
+        )
+        return build_graph([core, edge])
+
+    def test_two_bound_access_lists_produce_no_verdict_rather_than_a_wrong_one(self) -> None:
+        """The regression.
+
+        `OUTSIDE-IN` denies everything inbound from the internet and `INSIDE-IN` permits
+        the user network outbound. Flattened, the outbound query is decided by the
+        inbound list and reported blocked. Which one governs depends on the interface
+        the packet arrives on, and that binding is not yet recorded in a form this can
+        read — so the honest answer is that the decision is unknown.
+        """
+        firewall = {
+            "security_rules": [
+                *acl("OUTSIDE-IN", applied=True, action="deny"),
+                *acl("INSIDE-IN", applied=True, action="allow"),
+            ]
+        }
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action is None, "a device with two bound ACLs must not pick one arbitrarily"
+        assert result.policy is not PolicyVerdict.BLOCKED
+        assert hop.limitations and "access lists bound to different interfaces" in " ".join(
+            hop.limitations
+        )
+
+    def test_one_access_list_still_decides(self) -> None:
+        """The hedge must not spread to the ordinary case: a device with a single
+        rulebase has no ambiguity to report."""
+        firewall = {"security_rules": [*acl("INSIDE-IN", applied=True, action="deny")]}
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "edge-fw")
+
+        assert hop.action == "deny"
+        assert result.policy is PolicyVerdict.BLOCKED
+
+    def test_a_platform_with_one_policy_is_unaffected(self) -> None:
+        """PAN-OS, FortiOS and Check Point rules carry no rulebase and are all in force.
+        Grouping by a field that is None everywhere must leave one context, not many."""
+        result = walk(
+            self._estate(deny_to("10.20.0.0/24")),
+            source="10.10.0.5",
+            destination="10.20.0.5",
+            port=443,
+        )
+
+        assert result.policy is PolicyVerdict.BLOCKED
+
+
+class TestAnUnappliedAccessListFiltersNothing:
+    """An ACL bound to no interface is a vty filter, an SNMP filter, or a leftover.
+
+    It ends in `deny any` like every other, and evaluating it reported traffic blocked
+    at a switch that forwards it without looking. The parsers mark the rules, because
+    `ncm.acls` records the binding and the path walk never sees it.
+    """
+
+    @staticmethod
+    def _estate(firewall: dict[str, Any]):
+        access = node(
+            "access-sw",
+            addresses={"vlan10": "10.10.0.2/24"},
+            routes=[connected("10.10.0.0/24", "vlan10"), static("0.0.0.0/0", "10.10.0.1")],
+            firewall=firewall,
+        )
+        core = node(
+            "core-rtr",
+            addresses={"lan": "10.10.0.1/24", "dmz": "10.20.0.1/24"},
+            routes=[connected("10.10.0.0/24", "lan"), connected("10.20.0.0/24", "dmz")],
+        )
+        return build_graph([access, core])
+
+    def test_it_does_not_block_the_path(self) -> None:
+        firewall = {"security_rules": [*acl("99", applied=False, action="deny")]}
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "access-sw")
+
+        assert hop.action is None
+        assert result.policy is not PolicyVerdict.BLOCKED
+
+    def test_the_device_says_it_carries_an_unapplied_policy(self) -> None:
+        """Silence would be wrong in the other direction: somebody wrote a policy here
+        and did not apply it, and that is worth seeing."""
+        firewall = {"security_rules": [*acl("99", applied=False, action="deny")]}
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "access-sw")
+
+        assert hop.limitations and "bound to no interface" in " ".join(hop.limitations)
+
+    def test_a_bound_access_list_on_the_same_device_still_decides(self) -> None:
+        """The filter must remove the unapplied rules and then get out of the way —
+        not leave one bound ACL looking like an ambiguous pair."""
+        firewall = {
+            "security_rules": [
+                *acl("99", applied=False, action="allow"),
+                *acl("TRANSIT-IN", applied=True, action="deny"),
+            ]
+        }
+
+        result = walk(self._estate(firewall), source="10.10.0.5", destination="10.20.0.5", port=443)
+        hop = next(h for h in result.hops if h.hostname == "access-sw")
+
+        assert hop.action == "deny"
+        assert hop.rule_name == "TRANSIT-IN-1"
 
 
 class TestSegmentationQueries:
