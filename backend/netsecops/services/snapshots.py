@@ -366,7 +366,10 @@ class SnapshotService:
         drift detection — so an uploaded configuration is not a second-class citizen
         with its own quietly different behaviour.
         """
-        platform = platform or device.effective_platform or device.platform
+        # The device's own platform, never its policy key: expert mode and sudo reads
+        # widen the command allow-list and do not change the configuration format, so
+        # `checkpoint_gaia_expert` has no parser and never will.
+        platform = platform or device.platform
         if not platform:
             raise ValidationProblem(
                 "This device has no platform set, so the file cannot be parsed. "

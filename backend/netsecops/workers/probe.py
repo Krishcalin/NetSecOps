@@ -56,7 +56,7 @@ async def probe_credential(
     settings = get_settings()
     credentials = CredentialService(session, vault=vault)
 
-    platform = device.effective_platform
+    platform = device.policy_platform
     if not platform:
         return ProbeResult(
             succeeded=False,

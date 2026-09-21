@@ -158,7 +158,7 @@ def _node_from(device: Device, snapshot: Snapshot | None) -> DeviceNode:
     node = DeviceNode(
         device_id=device.id,
         hostname=device.hostname or str(device.mgmt_ip),
-        platform=device.effective_platform,
+        platform=device.platform,
         vendor=device.vendor,
         snapshot_id=snapshot.id if snapshot else None,
         ncm_version=ncm.get("ncm_version") if snapshot else None,

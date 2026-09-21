@@ -334,7 +334,11 @@ class AssessmentService:
         context = DeviceContext.from_ncm(
             snapshot.ncm,
             device_class=device.device_class,
-            platform=device.effective_platform or device.platform,
+            # The device's platform, not its policy key. Applicability is an exact set
+            # membership test and the library writes `platforms: [checkpoint_gaia]`, so
+            # passing `checkpoint_gaia_expert` here made every Check Point check report
+            # Not Applicable and the gateway assess to nothing.
+            platform=device.platform,
             hostname=device.hostname,
         )
 

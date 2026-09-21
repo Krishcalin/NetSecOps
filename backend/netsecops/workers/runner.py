@@ -667,7 +667,7 @@ async def _collect_with(
     settings = get_settings()
     credentials = CredentialService(session, vault=vault)
 
-    platform = device.effective_platform
+    platform = device.policy_platform
     if not platform:
         raise ValidationProblem(
             f"Device {device.mgmt_ip} has no platform set, so no read-only policy applies."

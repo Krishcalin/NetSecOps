@@ -538,6 +538,40 @@ which marks a rule partial instead of quietly widening it. And the resolver now 
 an object it cannot read** instead of returning nothing, so the next instance of this
 surfaces as an unresolved reference rather than as a rulebase that silently does nothing.
 
+### So every platform was swept for the same thing
+
+The mechanism was in the shared resolver, not in the ASA, so PAN-OS, FortiOS and Check
+Point were equally exposed and had never been checked.
+[`test_silent_emptiness.py`](backend/tests/test_silent_emptiness.py) now parses every
+device fixture in the repository, resolves its rulebase and fails on anything that is
+*silently* nothing: a rule that can never match, an object that stands for nothing, a
+configuration that parses to an almost-empty NCM. It also asserts that every platform
+with a parser has a fixture, because a platform nothing exercises is one whose rulebase
+can go inert unnoticed.
+
+**The rulebases are clean.** That was the question worth asking and the answer is good.
+
+What the sweep did find was one level up: **a platform means three different things and
+they were being conflated.** Three registries key off a platform name — `POLICIES` (what
+may be sent), `PROFILES` (what is sent) and `PARSERS` (how the answer is read) — and
+`Device.effective_platform`, documented as "the policy key to enforce against", was used
+as all three plus the check-applicability platform.
+
+Enabling `allow_expert` on a Check Point gateway is a documented, supported act
+([ADR-002](docs/adr/ADR-002-checkpoint-expert-mode.md)). Doing it broke the device twice:
+no parser is registered for `checkpoint_gaia_expert`, so it could no longer store a
+snapshot; and because applicability is an exact match against `platforms:
+[checkpoint_gaia]`, **every Check Point check reported Not Applicable** and the gateway
+was assessed to nothing. Existing findings stayed open — only a PASS resolves one — but
+nothing new was ever evaluated, and a gateway that is not being assessed looks exactly
+like a gateway with nothing wrong. It is now `policy_platform`, and a rename rather than
+a fix in place because the old name is what invited the misuse.
+
+Separately, five platforms could be **assigned to a device and never collected from**.
+`_validate_platform` checked only for a read-only policy, the narrowest of the three
+registries, while its own docstring said catching this at creation "is far kinder than
+failing mid-collection". It now requires a collection profile or a manager enumerator.
+
 **Address translation is declared, not modelled**, and for the same kind of reason. A
 trace that crossed a translating firewall and reached the far side used to report
 `routed` / `allowed`, when the devices after that firewall had been asked about the

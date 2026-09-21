@@ -30,7 +30,7 @@ deployment permits it at all.
 
 Being permitted for this deployment does not make it the default. The `allow_expert`
 flag on each device stays `false` until an operator sets it, and
-`Device.effective_platform` only then resolves to the `checkpoint_gaia_expert` policy:
+`Device.policy_platform` only then resolves to the `checkpoint_gaia_expert` policy:
 
 ```python
 if self.platform == "checkpoint_gaia" and self.allow_expert:

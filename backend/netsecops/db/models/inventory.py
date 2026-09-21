@@ -234,8 +234,27 @@ class Device(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     )
 
     @property
-    def effective_platform(self) -> str | None:
-        """The policy key to enforce against, honouring per-device escapes."""
+    def policy_platform(self) -> str | None:
+        """The read-only allow-list to enforce against, honouring per-device escapes.
+
+        **This is a policy key and nothing else.** `checkpoint_gaia_expert` and
+        `linux_aaa_sudo` widen which *commands* may be sent (ADR-002: expert mode is a
+        root shell, enabled per device to bound the blast radius). They are not different
+        configuration formats, different collection profiles or different check targets.
+
+        It was called `effective_platform` and used as all four, which broke a device the
+        moment somebody enabled the option:
+
+        * as a parser key, `get_parser("checkpoint_gaia_expert")` raises, so the device
+          could no longer store a snapshot at all;
+        * as the check-applicability platform, the shipped library writes
+          `platforms: [checkpoint_gaia]` and applicability is an exact set membership
+          test — so every Check Point check reported Not Applicable and the gateway was
+          assessed to zero findings. Existing findings stayed open, because only a PASS
+          resolves one, but nothing new was ever evaluated.
+
+        Anything that parses, collects, assesses or displays uses `platform`.
+        """
         if self.platform == "checkpoint_gaia" and self.allow_expert:
             return "checkpoint_gaia_expert"
         if self.platform == "linux_aaa" and self.allow_sudo_read:

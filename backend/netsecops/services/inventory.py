@@ -797,17 +797,43 @@ class InventoryService:
 
     @staticmethod
     def _validate_platform(platform: str) -> None:
-        """Reject a platform with no read-only policy.
+        """Reject a platform this installation cannot actually do anything with.
 
-        A device we cannot describe is a device we must not touch (SRS §8.1). Catching
-        it at creation is far kinder than failing mid-collection.
+        A device we cannot describe is a device we must not touch (SRS §8.1), and
+        catching it at creation is far kinder than failing mid-collection — which is what
+        this used to do for five of the platforms it accepted. It checked only that a
+        read-only *policy* existed, and a policy is the narrowest of the three things a
+        platform needs: an allow-list says what may be sent, a collection profile says
+        what to send, and a parser says how to read the answer.
+
+        `cisco_iosxr`, `cisco_ftd_fmc` and `linux_aaa` had the first and neither of the
+        others, so a device onboarded as one of them passed validation and then failed
+        at its first collection. `checkpoint_gaia_expert` and `linux_aaa_sudo` are not
+        platforms at all — they are per-device escapes derived from
+        `Device.policy_platform`, and setting one directly produces a device whose base
+        platform is a policy key.
+
+        Manager platforms are the exception and are accepted: a FortiManager is
+        enumerated for the devices it manages rather than collected from, so it has no
+        collection profile by design.
         """
+        from netsecops.adapters.children import INTERPRETERS
         from netsecops.adapters.policies import POLICIES
+        from netsecops.adapters.profiles import PROFILES
 
         if platform not in POLICIES:
             raise ValidationProblem(
                 f"Unknown platform '{platform}'. No read-only policy is defined for it.",
                 known_platforms=sorted(POLICIES),
+            )
+
+        usable = sorted(set(PROFILES) | set(INTERPRETERS))
+        if platform not in usable:
+            raise ValidationProblem(
+                f"'{platform}' has a read-only policy but nothing that can collect from "
+                "it: no collection profile and no manager enumerator. A device set to it "
+                "would pass validation here and fail at its first collection.",
+                known_platforms=usable,
             )
 
     async def _assert_ip_free(
