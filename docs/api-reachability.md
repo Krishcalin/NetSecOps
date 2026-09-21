@@ -1,11 +1,11 @@
 # API reachability
 
-**141 operations are published. The console requests 116 of them. 25 it never requests.**
+**141 operations are published. The console requests 121 of them. 20 it never requests.**
 
 **Every area of the API now has a page.** The original finding — thirty-two operations in
-areas the console could not reach at all — is closed. What remains is twenty-three
-operations on pages that exist but do not call them, plus `GET /metrics` and `GET
-/readyz`, which are correctly machine-only.
+areas the console could not reach at all — is closed. What remains is eighteen operations
+on pages that exist but do not call them, plus `GET /metrics` and `GET /readyz`, which are
+correctly machine-only.
 
 Measured 2026-09-20 against the OpenAPI schema `create_app()` produces and every `.ts`
 and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed.
@@ -127,15 +127,17 @@ Closed. Every area of the API has a page.
 | `GET`/`POST /sites`, `GET /tags`, `PUT /device-groups/{id}/parent` | "Sites, groups and tags", reached from Inventory. Device Groups are what user scope, policy assignment and schedule coverage are all expressed in — three pages depended on this one and none could create what they depended on. Building it found that `POST /sites` discarded the `location` it accepted. |
 | `GET /vulnerabilities/cpe-coverage` | A "Can these platforms match anything?" panel on Vulnerabilities. It answers the one question no other screen can: whether a platform reports zero CVEs because it is clean or because its CPE product name matches nothing. Contradictions sort first; "no evidence" is rendered as a thin corpus rather than a fault. Building it found that `closest_match` — the field that says what the name is probably meant to be — was computed and never serialised. |
 | `GET /vulnerabilities/devices/{id}/upgrade-path` | An "Upgrades" action on each Vulnerabilities row. Ranks the releases the device could move to by what each closes, with the known-exploited count separate, because one maintenance window is the constraint. `undetermined` is never folded into `eliminates`: two Cisco trains have independent fix schedules, so neither is later than the other. |
+| `GET /devices/pending-review`, `POST /devices/{id}/approve` | An approval queue above the Inventory table. A device imported from a manager lands in inventory already excluded from every job, and nothing said so — so a Panorama import produced rows that looked ordinary, were never collected from and yielded no finding. The queue shows the manager's own attribution, because that is what the decision rests on. |
+| `POST /devices/{id}/archive` | Archive on each Inventory row, behind a confirmation, alongside a Status column. Awaiting approval, archived and active are three different reasons for an empty "last collected" and were rendered identically. |
+| `DELETE /discovery/scopes/{id}` | Remove on each scope row, asked for twice. A scope is the permission to probe a range; deleting one is how you stop probing what turned out not to be yours, and doing it by accident destroys the record of what was agreed. |
+| `GET /discovery/pending/{host_id}` | The review panel re-reads the host as it opens rather than trusting the row the list was built from. The list is a snapshot of whenever it loaded, and what is decided here is the device's *platform* — which selects the collection profile and with it the command allow-list. |
 
-### A page exists but does not use the operation — 23 · `surface`
+### A page exists but does not use the operation — 18 · `surface`
 
 Ordered by how much the absence costs.
 
 | Operation | Page | Cost of the gap |
 |---|---|---|
-| `GET /devices/pending-review`, `POST /devices/{id}/approve`, `/archive` | Inventory, Discovery | The discovery-to-inventory promotion path. Discovery finds hosts; nothing promotes them. |
-| `GET /discovery/pending/{host_id}`, `DELETE /discovery/scopes/{id}` | Discovery | Per-host detail and scope removal. |
 | `GET /jobs/{id}/progress` | Jobs | Live progress. Low value while the list already refreshes every five seconds. |
 | 5 × `/notifications` channel edit/delete, subscriptions | Settings | Settings creates channels, tests them and requeues dead deliveries, but a channel cannot be edited or removed and subscriptions have no surface at all — so who gets told what is API-only. |
 | `GET /devices/{id}/checks`, `/risk` | Device config | Per-device check results and risk score. |
@@ -160,10 +162,12 @@ Ordered by how much the absence costs.
    **Done**, along with the reference data three other pages depend on.
 7. ~~The two Vulnerabilities gaps: the KEV-first upgrade ranking, and `cpe-coverage`.~~
    **Done.**
-8. **The 23 operations on pages that already exist.** The discovery-to-inventory
-   promotion path is the one worth doing next — discovery finds hosts and nothing
-   promotes them — followed by the five `/notifications` operations, which decide who
-   gets told what and are API-only.
+8. ~~The discovery-to-inventory promotion path — discovery finds hosts and nothing
+   promotes them.~~ **Done.**
+9. **The 18 operations on pages that already exist.** The five `/notifications` ones are
+   next: they decide who gets told what, and a channel routed to the wrong place can be
+   created from the console and not corrected from it. Then the raw-evidence reads
+   (`/artifacts`, `/collections`), which are the audit trail an assessor asks for.
 
 ## Re-running it
 

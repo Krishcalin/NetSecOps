@@ -114,6 +114,14 @@ describe('DiscoveryPage', () => {
       if (url.includes('/auth/me')) return Promise.resolve(jsonResponse(ME));
       if (url.includes('/discovery/scopes')) return Promise.resolve(jsonResponse([SCOPE]));
       if (url.includes('/discovery/runs')) return Promise.resolve(jsonResponse([]));
+      // The detail endpoint first: `/discovery/pending/{id}` also contains
+      // `/discovery/pending`, and answering it with the list's paginated envelope gives
+      // the review panel an object with no fingerprint on it.
+      const detail = /\/discovery\/pending\/([^/?]+)$/.exec(url);
+      if (detail) {
+        const match = hosts.find((host) => (host as { id: string }).id === detail[1]);
+        return Promise.resolve(match ? jsonResponse(match) : jsonResponse({}, 404));
+      }
       if (url.includes('/discovery/pending')) {
         return Promise.resolve(
           jsonResponse({ data: hosts, meta: { count: hosts.length, limit: 200 } }),
@@ -366,6 +374,74 @@ describe('DiscoveryPage', () => {
         expect(String((approve?.[1] as RequestInit)?.body)).toContain('fortios');
       });
     });
+  });
+
+  describe('removing a scope', () => {
+    it('asks first, because a scope is the permission itself', async () => {
+      // Deleting one is how you stop probing a range that turned out not to be yours.
+      // Doing it by accident removes the record of what was agreed.
+      renderPage();
+      const row = (await screen.findByText('branch-edge')).closest('tr') as HTMLElement;
+
+      await userEvent.click(within(row).getByRole('button', { name: 'Remove' }));
+
+      expect(
+        fetchMock.mock.calls.find((call) => (call[1] as RequestInit)?.method === 'DELETE'),
+      ).toBeUndefined();
+      expect(within(row).getByRole('button', { name: /yes, remove/i })).toBeInTheDocument();
+    });
+
+    it('sends the delete once confirmed', async () => {
+      renderPage();
+      const row = (await screen.findByText('branch-edge')).closest('tr') as HTMLElement;
+
+      await userEvent.click(within(row).getByRole('button', { name: 'Remove' }));
+      await userEvent.click(within(row).getByRole('button', { name: /yes, remove/i }));
+
+      await waitFor(() => {
+        const call = fetchMock.mock.calls.find(
+          (entry) => (entry[1] as RequestInit)?.method === 'DELETE',
+        );
+        expect(call).toBeDefined();
+        expect(String(call?.[0])).toContain('/discovery/scopes/');
+      });
+    });
+
+    it('offers no removal to someone who may only read', async () => {
+      // Sending packets to a network is not a read, and neither is withdrawing the
+      // permission to.
+      fetchMock.mockImplementation((input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes('/auth/me')) {
+          return Promise.resolve(
+            jsonResponse({ ...ME, roles: ['auditor'], permissions: ['discovery:read'] }),
+          );
+        }
+        if (url.includes('/discovery/scopes')) return Promise.resolve(jsonResponse([SCOPE]));
+        if (url.includes('/discovery/runs')) return Promise.resolve(jsonResponse([]));
+        return Promise.resolve(jsonResponse({ data: [], meta: { count: 0, limit: 200 } }));
+      });
+      renderPage();
+      await screen.findByText('branch-edge');
+
+      expect(screen.queryByRole('button', { name: 'Remove' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('re-reads the host as the review panel opens', async () => {
+    // The list is a snapshot of whenever it loaded, and this panel decides the device's
+    // *platform* — which selects the collection profile and with it the command
+    // allow-list. Worth one request to make the evidence current at the decision.
+    renderPage();
+    const row = (await screen.findByText('198.51.100.10')).closest('tr') as HTMLElement;
+
+    await userEvent.click(within(row).getByRole('button', { name: /review/i }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some((call) => /\/discovery\/pending\/[^/?]+$/.test(String(call[0]))),
+      ).toBe(true),
+    );
   });
 
   it('tells an operator nothing is probed without a scope', async () => {

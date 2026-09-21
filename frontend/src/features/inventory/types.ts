@@ -47,6 +47,26 @@ export interface Device {
   updated_at: string;
 }
 
+/** A device imported from a manager and not yet admitted to assessment (FR-INV-04).
+ *
+ * It is already in inventory and excluded from every job, so nothing has connected to it.
+ * Approving is the act that admits it — which is why the manager's own attribution is
+ * carried here rather than only the identity: somebody has to judge whether this is a
+ * device they meant to start reaching for. */
+export interface PendingDevice {
+  id: string;
+  hostname: string | null;
+  mgmt_ip: string;
+  vendor: string;
+  platform: string | null;
+  device_class: string;
+  serial_number: string | null;
+  model: string | null;
+  os_version: string | null;
+  parent_device_id: string | null;
+  facts: Record<string, unknown>;
+}
+
 export interface DeviceDetail extends Device {
   group_ids: string[];
   tags: string[];

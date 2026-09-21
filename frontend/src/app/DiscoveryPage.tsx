@@ -67,8 +67,25 @@ function FingerprintEvidence({ host }: { host: DiscoveredHost }) {
   );
 }
 
-function ReviewPanel({ host, onDone }: { host: DiscoveredHost; onDone: () => void }) {
+function ReviewPanel({ host: listed, onDone }: { host: DiscoveredHost; onDone: () => void }) {
   const queryClient = useQueryClient();
+
+  // Re-read the host as the panel opens rather than trusting the row the list was built
+  // from. The list is a snapshot of whenever it loaded and a review panel can sit open
+  // for a long time; what is being decided here is the device's *platform*, and a wrong
+  // platform selects the wrong collection profile and with it the wrong command
+  // allow-list. That is the one mistake on this page whose blast radius reaches past
+  // the inventory, so it is worth a request to make the evidence current at the moment
+  // of the decision.
+  const detail = useQuery({
+    queryKey: ['discovered-host', listed.id],
+    queryFn: () => api.get<DiscoveredHost>(`/discovery/pending/${listed.id}`),
+    // The listed row is the same schema, so there is something correct to render while
+    // the re-read is in flight rather than a spinner over a decision form.
+    placeholderData: listed,
+  });
+  const host = detail.data ?? listed;
+
   const [vendor, setVendor] = useState(host.vendor ?? '');
   const [platform, setPlatform] = useState(host.platform ?? '');
   const [hostname, setHostname] = useState(host.hostname ?? '');
@@ -269,6 +286,60 @@ function RunButton({ scope }: { scope: DiscoveryScope }) {
   );
 }
 
+/** Remove a scope — the addresses this installation is permitted to probe.
+ *
+ * Asked for twice, because a scope is the permission itself: deleting one is how you
+ * stop probing a range that turned out not to be yours, and doing it by accident removes
+ * the record of what was agreed. Past runs and the hosts they found are unaffected; only
+ * the standing permission goes.
+ */
+function RemoveScopeButton({ scope }: { scope: DiscoveryScope }) {
+  const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const remove = useMutation({
+    mutationFn: () => api.delete<void>(`/discovery/scopes/${scope.id}`),
+    onSuccess: () => {
+      setConfirming(false);
+      void queryClient.invalidateQueries({ queryKey: ['discovery-scopes'] });
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.problem.detail : 'The scope could not be removed.'),
+  });
+
+  if (error) {
+    return (
+      <span className="alert alert--error" role="alert">
+        {error}
+      </span>
+    );
+  }
+
+  if (!confirming) {
+    return (
+      <button className="button button--ghost button--small" onClick={() => setConfirming(true)}>
+        Remove
+      </button>
+    );
+  }
+
+  return (
+    <>
+      <button
+        className="button button--ghost button--small"
+        disabled={remove.isPending}
+        onClick={() => remove.mutate()}
+      >
+        Yes, remove
+      </button>
+      <button className="button button--ghost button--small" onClick={() => setConfirming(false)}>
+        Cancel
+      </button>
+    </>
+  );
+}
+
 function ScopeTable({ scopes, canRun }: { scopes: DiscoveryScope[]; canRun: boolean }) {
   if (scopes.length === 0) {
     return (
@@ -321,8 +392,9 @@ function ScopeTable({ scopes, canRun }: { scopes: DiscoveryScope[]; canRun: bool
                 )}
               </td>
               {canRun && (
-                <td>
+                <td className="table__actions">
                   <RunButton scope={scope} />
+                  <RemoveScopeButton scope={scope} />
                 </td>
               )}
             </tr>
