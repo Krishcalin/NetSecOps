@@ -18,7 +18,24 @@
 
 ---
 
-## Overview
+## Contents
+
+| | |
+|---|---|
+| [What NetSecOps is](#what-netsecops-is) | The one-paragraph version, and the guarantee it is built around |
+| [Getting started](#getting-started) | Running it locally in about five minutes, with something to look at |
+| [Where the project stands](#where-the-project-stands) | Which phases are finished, and what the unfinished one still owes |
+| [What it does, phase by phase](#what-it-does-phase-by-phase) | The capabilities in detail, oldest to newest |
+| [What building it taught us](#what-building-it-taught-us) | Three defects that produced confident answers rather than errors |
+| [Repository layout](#repository-layout) | Where things live, and the files worth reading first |
+| [Development](#development) | Tests, linting, conventions |
+| [The command line](#the-command-line) | `netsecops-cli`, including break-glass recovery |
+| [Smoke-testing a deployment](#smoke-testing-a-deployment) | Checking a running install end to end |
+| [Documentation](#documentation) | The SRS, deployment, evaluation and commercial docs |
+
+---
+
+## What NetSecOps is
 
 NetSecOps is a self-hosted, web-based platform that assesses the configuration and
 vulnerability posture of network and security devices — Cisco, Palo Alto Networks,
@@ -29,7 +46,7 @@ configuration and operational state, normalises it into a vendor-neutral model, 
 evaluates it against a library of hardening, firewall-hygiene, AAA and crypto checks,
 correlating software versions against CVE and vendor PSIRT advisories.
 
-### NetSecOps never changes a target device
+### It never changes a target device
 
 This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
@@ -52,16 +69,103 @@ This is a hard constraint, not a policy setting ([SRS §8](docs/SRS.md)):
 
 ---
 
-## Status — Phases 0–6 and 8 complete, 7 under way
+## Getting started
+
+**Requirements:** Docker 24+ and Docker Compose. Nothing else.
+
+```bash
+git clone https://github.com/Krishcalin/NetSecOps.git
+cd NetSecOps
+
+make up              # generates keys, builds, migrates, prints the URL
+make create-admin    # create the first Super Admin
+make demo-seed       # optional: a demonstration estate, so there is something to look at
+```
+
+Then open <http://localhost:8080>.
+
+`make demo-seed` stands up four devices across three vendors, ingests a configuration for
+each and assesses them — **no device is contacted, no credential is needed**, and the
+findings are the product's real opinion of those configurations rather than fixtures. It
+refuses to run if the inventory already holds a device it did not create, and
+`make demo-purge` removes exactly what it created. [What to look at, and in what
+order](docs/evaluating.md).
+
+> **Back up `MASTER_KEY` separately from the database.** It wraps every stored device
+> credential. Losing it means losing them all; storing it beside a database dump means
+> a single stolen backup yields both.
+
+**Port already in use?** Every published port is overridable in `.env`, which matters on
+a workstation running several projects:
+
+```bash
+UI_PORT=8088     # SPA           (default 8080)
+API_PORT=8010    # API           (default 8000)
+DB_PORT=5442     # PostgreSQL    (default 5442, chosen to avoid a local 5432)
+```
+
+### Running it without Docker
+
+```bash
+make install         # backend venv + frontend node_modules
+make db              # just PostgreSQL, on host port 5442
+make migrate
+make dev-api         # http://localhost:8000
+make dev-ui          # http://localhost:5173
+```
+
+---
+
+### It can be evaluated without a device
+
+A product nobody can reach and a product nobody can try are the same failure at
+different scales. This category's normal answer to "can I see it" is a
+nine-to-thirteen week implementation — credentials brokered, firewall rules
+opened, collectors sited, a change window found. Nobody evaluates a tool on that budget.
+
+`netsecops-cli demo-seed` stands up four devices across three vendors, ingests a
+configuration for each, assesses them, imports advisories and matches them. It takes
+about ten seconds and contacts nothing.
+
+**The devices are not real; everything said about them is.** The configurations are
+ingested through the same path an operator's upload uses (FR-COL-11), parsed by the same
+parsers, sealed as the same artefacts, and assessed by the same engine against the same
+103-check library. There is no demonstration write path — a demonstration write path is
+how a demo comes to show something the product does not do.
+
+The estate is designed rather than sampled, so that each thing this product does
+differently has something real to show: an ordinary neglected switch for the findings, a
+router with no rulebase that reports *no decision* rather than "allowed", a firewall that
+permits and translates so the path verdict is `partially-allowed` with the translating
+device named, a rulebase carrying a shadowed rule and an any-any permit, and a software
+version old enough for the vulnerability engine to match.
+
+It refuses to run if the inventory holds a device it did not create, every device it makes
+carries the tag `netsecops-demo`, and `demo-purge` removes exactly those — leaving alone
+any device added by hand, because that command runs at the moment somebody is onboarding
+their first real one.
+
+[docs/evaluating.md](docs/evaluating.md) says what to look at and in what order, including
+the limits the demonstration will show you.
+
+Building it found four defects in path analysis that no test had caught, all of them
+false-`blocked` verdicts — the dangerous direction, because a blocked verdict says a
+control is already in place and somebody stops looking. One of them left every ASA
+rulebase unable to match anything at all. They are described under
+[Phase 8](#phase-8--topology-and-path-analysis) and in
+[What building it taught us](#what-building-it-taught-us).
+
+## Where the project stands
 
 Development follows the phase plan in [SRS §12](docs/SRS.md). Phases 0–5 were built
 strictly in order, each one's acceptance criteria passing before the next began.
 
 Phases 6, 7 and 8 were opened at the same time, which is a deliberate departure from that
 rule and is [recorded in SRS §12](docs/SRS.md) rather than left implicit. Phases 6 and 8
-have since met their acceptance criteria. Phase 7 has not, and the section below says
-exactly which part is missing — a phase that is 80% done is far easier to misread as
-finished than one that has not started.
+have since met their acceptance criteria. Phase 7 has not, and
+[its section](#phase-7--discovery-reporting-and-integrations) says exactly which part is
+missing — a phase that is 80% done is far easier to misread as finished than one that has
+not started.
 
 Phase 8 was not in the SRS as issued. It was added after a competitive analysis found
 that multi-device reasoning — "can this host reach that one, and what decides" — is the
@@ -82,7 +186,179 @@ that most of the other gaps identified collapse into it.
 
 Thirteen platforms are collected and parsed, and the check library stands at 103.
 
-### Phase 6 — what it does
+---
+
+## What it does, phase by phase
+
+Each phase below says what it delivers and, where relevant, what it still owes. They are in order; the newest work is Phases 6 to 8 at the end.
+
+### Phase 0 — foundations
+
+- **Authentication** — Argon2id password hashing, a configurable password policy with
+  a no-reuse history window, and account lockout after repeated failures.
+- **Sessions** — short-lived access tokens (≤15 min) and rotating, revocable refresh
+  tokens (≤8 h), delivered as `Secure; HttpOnly; SameSite=Strict` cookies. Replaying a
+  rotated refresh token revokes the whole session family and raises an audit event.
+- **MFA** — RFC 6238 TOTP with single-use recovery codes; codes cannot be replayed
+  inside their validity window.
+- **RBAC** — the five roles from SRS §2.3 over a single permission vocabulary, with
+  object-level Device Group scoping for the group-restricted roles. Endpoints declare
+  a *permission*, never a role list.
+- **Credential vault** — AES-256-GCM envelope encryption with per-record data keys
+  wrapped by a pluggable master key, bound to the owning row so a ciphertext cannot be
+  replayed into another record. Master-key rotation re-wraps without re-encrypting.
+- **Audit log** — append-only and hash-chained, enforced *both* by chain verification
+  and by database triggers that reject UPDATE, DELETE and TRUNCATE outright.
+- **Secret scrubbing** — one central processor redacts secrets from every log line and
+  audit record, including device-config idioms like `snmp-server community X`.
+- **Quality gates** — `ruff`, `mypy --strict`, `pytest`, `bandit`, `pip-audit`,
+  `eslint`, `tsc`, `vitest`, Trivy and Gitleaks, all wired into CI.
+
+---
+
+### Phase 1 — inventory, credentials and jobs
+
+- **Read-only enforcement** — the four-layer guard described above, 19 platform
+  policies, and `netsecops-cli audit-commands` to print them for review.
+- **Device sessions** — adapters hold a guarded session, never a transport, so there is
+  no unchecked path to a device. SSH with host-key pin-on-first-use, jump hosts and
+  per-device timeouts.
+- **Inventory** — devices, hierarchical Device Groups (ltree), sites, tags, and CSV
+  import with a dry-run preview that reports the offending line before anything is
+  written.
+- **Credential vault** — typed credentials whose secret fields are sealed and whose
+  unknown fields are rejected, so a password cannot land in searchable metadata.
+  Device assignments override inherited group ones, and group credentials are inherited
+  down the hierarchy.
+- **Job engine** — scope resolution, per-device outcomes with FR-COL-07 error classes,
+  credential fallback, graceful cancel, re-run-failed, idempotency keys, and a
+  WebSocket progress stream.
+- **Scope enforcement** — Device Group visibility applied in the query, not by the
+  caller, so a group-scoped user cannot widen their reach.
+
+### Phase 2 — Cisco collection and drift
+
+- **Cisco parsers** — IOS/IOS-XE, NX-OS and ASA configurations become a vendor-neutral
+  **Normalised Config Model**. Parsing is tolerant: an unrecognised stanza is kept in
+  `raw_unparsed` and never fails a collection, and the percentage understood is stored
+  on the snapshot so a degraded parse is visible rather than silently weakening checks.
+- **Provenance on every value** — each NCM field records the artefact and line range it
+  came from, so a finding can show the operator their own configuration line instead of
+  asserting a conclusion.
+- **Absent is not false** — a service the configuration never mentions stays `null`,
+  which later reports as *Not evaluated*. Only an explicit `no ip http server` becomes
+  `false`. Blurring the two produces confident, wrong findings.
+- **Collection profiles** — what each platform is asked for, as data. A test asserts
+  every profile command already appears in the §8.2 allow-list, so a profile can never
+  widen what NetSecOps may send to a device.
+- **Redaction before storage** — secrets are replaced with fingerprinted placeholders on
+  every path that leaves the server. The unredacted original exists in one place, sealed,
+  reachable by one endpoint that needs `config:view_unredacted` and writes an audit
+  record before it answers.
+- **Snapshots and drift** — identical configurations de-duplicate to one row, ignoring
+  volatile lines like NVRAM timestamps and `ntp clock-period`. Pin a snapshot as the
+  baseline and later collections that differ raise a drift finding with the diff
+  attached, severity raised for security-relevant changes.
+- **Diff, two ways** — a unified and side-by-side text diff, plus a semantic diff over
+  the NCM that says *"management.services.telnet.enabled changed disabled → enabled"*
+  rather than leaving an operator to derive it from ±40 lines.
+- **Offline configuration upload** — assess an air-gapped or pre-onboarding device from
+  an exported configuration file, through the same storage, parsing and drift path as a
+  live collection.
+
+### Phase 3 — the check engine and findings
+
+- **A check engine, and three rules it never breaks.** Checks are YAML — id, severity,
+  applicability, JMESPath logic over the NCM, remediation, framework mapping. A field
+  the parser never found yields *Not Evaluated* and names the missing path, never a
+  verdict derived from its absence. An empty list is a real answer. A broken check is
+  an *Error* against that check alone, so one bad file cannot cost an assessment.
+- **66 checks, all applicable to Cisco IOS** — 47 declarative, 14 Python for logic YAML
+  cannot honestly express, 5 regex. Against the fixture corpus the hardened switch
+  scores 56 pass / 1 high-severity fail and the weak one 41 fails; the ASA reports 39
+  *Not Applicable* rather than passing switch checks it was never subject to.
+- **Remediation is text, and only text.** There is no field in the schema that could be
+  executed, and a test asserts none appears (SRS §8).
+- **Policies** grouping checks, assignable to device groups, with per-check severity
+  overrides — the customisation that matters, because severity is contextual in a way a
+  shipped library cannot know. The CIS Cisco IOS L1 pack ships with 44 checks and is
+  installed idempotently, then never overwritten.
+- **Custom checks** written through the API against the same schema the loader uses —
+  and refused if they declare Python logic, since accepting a function name from a web
+  form would let a user invoke any registered callable.
+- **Exceptions with a mandatory expiry.** The check still runs and its result is still
+  stored; only the finding is suppressed. Hiding the result would make the compliance
+  figure a fiction, and an exception without an end date is an undocumented decision.
+- **Findings with a lifecycle that reflects reality.** *Resolved* is reachable only by
+  the check passing on a later assessment — the API refuses to set it by hand, so the
+  status stays a measurement rather than a claim. A problem that returns reopens the
+  original finding instead of appearing as a first sighting.
+- **A risk score that is documented and explainable.** Severity weights are widely
+  spaced on purpose: under a linear scheme fourteen Low findings outrank one Critical.
+  Device criticality multiplies rather than adds. *Not Evaluated* is reported as a
+  separate coverage figure instead of being quietly counted as a pass.
+- **Compliance pivoted by framework control**, with the percentage computed over what
+  was actually decided — *Not Applicable* and *Not Evaluated* are in neither half.
+
+### Phase 4 — firewalls and rulebase analysis
+
+- **Three more vendors** — PAN-OS, FortiOS and Check Point. Check Point splits in two:
+  the policy lives on the management server and the gateway holds only Gaia, and neither
+  can answer the other's questions, so they are separate platforms rather than one
+  parser guessing which it was handed.
+- **Rulebase normalisation** — PAN-OS security rules, FortiOS policies and Check Point
+  access layers become one ordered rule model, with objects and groups resolved so that
+  analysis compares addresses rather than names.
+- **Relationship analysis** (FR-FW-03) — shadowing, redundancy, correlation and
+  generalisation between rules, plus the hygiene findings that matter in practice:
+  any–any rules, rules that log nothing, rules with no security profile, and unused
+  objects. Rule negation is handled rather than ignored, since a negated source inverts
+  the meaning of every comparison downstream.
+- **NAT analysis** (FR-FW-04) and **manager child enumeration** — Panorama, FortiManager
+  and Check Point SMS, behind an approval gate, because discovering devices through a
+  manager adds targets that nobody explicitly onboarded.
+- **A rulebase viewer** (FR-FW-06, FR-FW-07) with rule query and CSV export, so a
+  finding about rule 1,847 can be looked at rather than taken on trust.
+- **5,000 rules analysed in 2.7s against a two-minute budget** (NFR-PERF-03) — 8.7M rule
+  pairs considered, 9,453 fully compared. The rulebase is shaped like a real one,
+  overlapping /24s drawn from a shared object pool rather than a corpus where nothing
+  intersects and only the prefilter is exercised. A deliberately adversarial rulebase
+  where almost every pair overlaps still completes in 38s.
+
+### Phase 5 — wireless and AAA
+
+- **Wireless from three controllers into one vocabulary** — Cisco WLC AireOS, Catalyst
+  9800 and FortiGate. AireOS is a command list rather than a configuration file and the
+  other two are hierarchical, but an SSID accepting WPA2-PSK is the same finding on all
+  three, so the security posture normalises even where the syntax cannot.
+- **AAA servers as first-class targets** — Cisco ISE and FortiAuthenticator over their
+  REST APIs, FreeRADIUS and tac_plus by reading their configuration files over SSH.
+  These fill `aaa_server` rather than `aaa`: they are the service the estate
+  authenticates *against*, not a consumer of it.
+- **Cross-estate correlation** (FR-AAA-05) — every device's configured AAA servers
+  against the servers in inventory, and every server's client list against the devices
+  in inventory. The highest-value output is the second direction: a switch configured on
+  ISE but absent from inventory is a device assessed by nothing, and a clean compliance
+  percentage measured over an estate that does not contain it.
+- **Three conclusions it refuses to draw.** With no AAA server collected, every device
+  trivially appears on no client list — reported as the absence of the question, never as
+  "every device is unregistered". ISE and FortiAuthenticator mask shared secrets, so
+  reuse is *unknown* for their clients rather than absent. Coverage over an estate
+  nothing was collected from is `null`, never 0%.
+- **An AAA posture dashboard** (FR-AAA-06) — coverage, accepted protocols, orphaned
+  clients and a certificate expiry timeline, each panel stating where it is blind. The
+  protocols panel is titled "accepted", not "in use", because nothing here observes a
+  live authentication. A certificate whose expiry could not be read is listed as undated
+  rather than dropped: an unreadable date is not a distant one.
+- **13 wireless and AAA checks**, and an audit that every check expression resolves
+  against real parser output — a check naming an NCM path no parser populates is not a
+  dead check but a false finding on every device, forever.
+- **The Phase 5 acceptance criterion, as a test.** Nine devices built from the shipped
+  fixtures through the shipped parsers, with every expected number read off the fixtures
+  by hand rather than off a run of the code
+  ([`test_phase5_acceptance.py`](backend/tests/test_phase5_acceptance.py)).
+
+### Phase 6 — vulnerability assessment
 
 Vulnerability assessment **produces findings now**. A device is assessed against
 ingested advisories and end-of-life data, and the result is a finding on that device
@@ -214,7 +490,7 @@ The parts added last, each of which changes what an answer means:
   flags every device running the product. An advisory that is only partly understood can
   rule a device *in*, never *out*.
 
-### Phase 7 — what it does, and what is still owed
+### Phase 7 — discovery, reporting and integrations
 
 **Reporting is built, and reports are dated artefacts rather than saved queries.** A
 report's content is assembled once, hashed, and never recomputed: re-reading March's
@@ -391,7 +667,7 @@ RBAC'd REST API with OpenAPI, was already in place.
 - **Reports as dated artefacts.** Described above; the model and the freezing property
   live in `db/models/reporting.py` and `services/reporting.py`.
 
-### Phase 8 — what it does, and what is still owed
+### Phase 8 — topology and path analysis
 
 **Forwarding tables are data now, and they were not before.** The NCM kept
 `static_routes` as an integer — a *count* — so the product could describe every rule on a
@@ -513,7 +789,13 @@ tries either, rather than resolving to one and losing the key that works elsewhe
 snapshot too old to carry bindings, or a device where no list names this hop's
 interfaces, still reports the decision as unknown rather than guessing.
 
-### Chasing that found the ASA rulebase was inert
+---
+
+## What building it taught us
+
+Three things went wrong in ways worth recording, because each one produced a confident answer rather than an error. They are the reason for several of the guardrails described above.
+
+### An entire rulebase matched nothing, and looked healthy
 
 Fixing the selection meant the right access list was finally consulted — and it turned out
 **nothing in it could match anything**. Four spellings the ASA parser emitted, none of
@@ -538,7 +820,7 @@ which marks a rule partial instead of quietly widening it. And the resolver now 
 an object it cannot read** instead of returning nothing, so the next instance of this
 surfaces as an unresolved reference rather than as a rulebase that silently does nothing.
 
-### So every platform was swept for the same thing
+### So every platform was swept
 
 The mechanism was in the shared resolver, not in the ASA, so PAN-OS, FortiOS and Check
 Point were equally exposed and had never been checked.
@@ -588,7 +870,7 @@ evaluated. A translating firewall at the end of the path changes nothing: the tr
 over and the addresses it reasoned about were the ones asked for. Normalising NAT across
 the parsers is the prerequisite and is its own piece of work.
 
-### The console reaches the product
+### The console can reach the whole product
 
 Unreachable capability is indistinguishable from absent capability, and this codebase had
 already paid for that once: the vulnerability engine was built, unit-tested, and wired only
@@ -625,256 +907,6 @@ nothing exercised the path:
 
 Treat a rise in the unreferenced count on a pull request the way you would treat a drop in
 coverage.
-
-### It can be evaluated without a device
-
-The other half of the same problem. A product nobody can reach and a product nobody can
-try are the same failure at different scales, and this category's normal answer to "can I
-see it" is a nine-to-thirteen week implementation — credentials brokered, firewall rules
-opened, collectors sited, a change window found. Nobody evaluates a tool on that budget.
-
-`netsecops-cli demo-seed` stands up four devices across three vendors, ingests a
-configuration for each, assesses them, imports advisories and matches them. It takes
-about ten seconds and contacts nothing.
-
-**The devices are not real; everything said about them is.** The configurations are
-ingested through the same path an operator's upload uses (FR-COL-11), parsed by the same
-parsers, sealed as the same artefacts, and assessed by the same engine against the same
-103-check library. There is no demonstration write path — a demonstration write path is
-how a demo comes to show something the product does not do.
-
-The estate is designed rather than sampled, so that each thing this product does
-differently has something real to show: an ordinary neglected switch for the findings, a
-router with no rulebase that reports *no decision* rather than "allowed", a firewall that
-permits and translates so the path verdict is `partially-allowed` with the translating
-device named, a rulebase carrying a shadowed rule and an any-any permit, and a software
-version old enough for the vulnerability engine to match.
-
-It refuses to run if the inventory holds a device it did not create, every device it makes
-carries the tag `netsecops-demo`, and `demo-purge` removes exactly those — leaving alone
-any device added by hand, because that command runs at the moment somebody is onboarding
-their first real one.
-
-[docs/evaluating.md](docs/evaluating.md) says what to look at and in what order, including
-the limits the demonstration will show you.
-
-Building it found four defects in path analysis that no test had caught, all of them
-false-`blocked` verdicts — the dangerous direction, because a blocked verdict says a
-control is already in place and somebody stops looking. One of them left every ASA
-rulebase unable to match anything at all. See the Phase 8 section.
-
-### What Phase 5 delivers
-
-- **Wireless from three controllers into one vocabulary** — Cisco WLC AireOS, Catalyst
-  9800 and FortiGate. AireOS is a command list rather than a configuration file and the
-  other two are hierarchical, but an SSID accepting WPA2-PSK is the same finding on all
-  three, so the security posture normalises even where the syntax cannot.
-- **AAA servers as first-class targets** — Cisco ISE and FortiAuthenticator over their
-  REST APIs, FreeRADIUS and tac_plus by reading their configuration files over SSH.
-  These fill `aaa_server` rather than `aaa`: they are the service the estate
-  authenticates *against*, not a consumer of it.
-- **Cross-estate correlation** (FR-AAA-05) — every device's configured AAA servers
-  against the servers in inventory, and every server's client list against the devices
-  in inventory. The highest-value output is the second direction: a switch configured on
-  ISE but absent from inventory is a device assessed by nothing, and a clean compliance
-  percentage measured over an estate that does not contain it.
-- **Three conclusions it refuses to draw.** With no AAA server collected, every device
-  trivially appears on no client list — reported as the absence of the question, never as
-  "every device is unregistered". ISE and FortiAuthenticator mask shared secrets, so
-  reuse is *unknown* for their clients rather than absent. Coverage over an estate
-  nothing was collected from is `null`, never 0%.
-- **An AAA posture dashboard** (FR-AAA-06) — coverage, accepted protocols, orphaned
-  clients and a certificate expiry timeline, each panel stating where it is blind. The
-  protocols panel is titled "accepted", not "in use", because nothing here observes a
-  live authentication. A certificate whose expiry could not be read is listed as undated
-  rather than dropped: an unreadable date is not a distant one.
-- **13 wireless and AAA checks**, and an audit that every check expression resolves
-  against real parser output — a check naming an NCM path no parser populates is not a
-  dead check but a false finding on every device, forever.
-- **The Phase 5 acceptance criterion, as a test.** Nine devices built from the shipped
-  fixtures through the shipped parsers, with every expected number read off the fixtures
-  by hand rather than off a run of the code
-  ([`test_phase5_acceptance.py`](backend/tests/test_phase5_acceptance.py)).
-
-### What Phase 4 delivers
-
-- **Three more vendors** — PAN-OS, FortiOS and Check Point. Check Point splits in two:
-  the policy lives on the management server and the gateway holds only Gaia, and neither
-  can answer the other's questions, so they are separate platforms rather than one
-  parser guessing which it was handed.
-- **Rulebase normalisation** — PAN-OS security rules, FortiOS policies and Check Point
-  access layers become one ordered rule model, with objects and groups resolved so that
-  analysis compares addresses rather than names.
-- **Relationship analysis** (FR-FW-03) — shadowing, redundancy, correlation and
-  generalisation between rules, plus the hygiene findings that matter in practice:
-  any–any rules, rules that log nothing, rules with no security profile, and unused
-  objects. Rule negation is handled rather than ignored, since a negated source inverts
-  the meaning of every comparison downstream.
-- **NAT analysis** (FR-FW-04) and **manager child enumeration** — Panorama, FortiManager
-  and Check Point SMS, behind an approval gate, because discovering devices through a
-  manager adds targets that nobody explicitly onboarded.
-- **A rulebase viewer** (FR-FW-06, FR-FW-07) with rule query and CSV export, so a
-  finding about rule 1,847 can be looked at rather than taken on trust.
-- **5,000 rules analysed in 2.7s against a two-minute budget** (NFR-PERF-03) — 8.7M rule
-  pairs considered, 9,453 fully compared. The rulebase is shaped like a real one,
-  overlapping /24s drawn from a shared object pool rather than a corpus where nothing
-  intersects and only the prefilter is exercised. A deliberately adversarial rulebase
-  where almost every pair overlaps still completes in 38s.
-
-### What Phase 3 delivers
-
-- **A check engine, and three rules it never breaks.** Checks are YAML — id, severity,
-  applicability, JMESPath logic over the NCM, remediation, framework mapping. A field
-  the parser never found yields *Not Evaluated* and names the missing path, never a
-  verdict derived from its absence. An empty list is a real answer. A broken check is
-  an *Error* against that check alone, so one bad file cannot cost an assessment.
-- **66 checks, all applicable to Cisco IOS** — 47 declarative, 14 Python for logic YAML
-  cannot honestly express, 5 regex. Against the fixture corpus the hardened switch
-  scores 56 pass / 1 high-severity fail and the weak one 41 fails; the ASA reports 39
-  *Not Applicable* rather than passing switch checks it was never subject to.
-- **Remediation is text, and only text.** There is no field in the schema that could be
-  executed, and a test asserts none appears (SRS §8).
-- **Policies** grouping checks, assignable to device groups, with per-check severity
-  overrides — the customisation that matters, because severity is contextual in a way a
-  shipped library cannot know. The CIS Cisco IOS L1 pack ships with 44 checks and is
-  installed idempotently, then never overwritten.
-- **Custom checks** written through the API against the same schema the loader uses —
-  and refused if they declare Python logic, since accepting a function name from a web
-  form would let a user invoke any registered callable.
-- **Exceptions with a mandatory expiry.** The check still runs and its result is still
-  stored; only the finding is suppressed. Hiding the result would make the compliance
-  figure a fiction, and an exception without an end date is an undocumented decision.
-- **Findings with a lifecycle that reflects reality.** *Resolved* is reachable only by
-  the check passing on a later assessment — the API refuses to set it by hand, so the
-  status stays a measurement rather than a claim. A problem that returns reopens the
-  original finding instead of appearing as a first sighting.
-- **A risk score that is documented and explainable.** Severity weights are widely
-  spaced on purpose: under a linear scheme fourteen Low findings outrank one Critical.
-  Device criticality multiplies rather than adds. *Not Evaluated* is reported as a
-  separate coverage figure instead of being quietly counted as a pass.
-- **Compliance pivoted by framework control**, with the percentage computed over what
-  was actually decided — *Not Applicable* and *Not Evaluated* are in neither half.
-
-### What Phase 2 delivers
-
-- **Cisco parsers** — IOS/IOS-XE, NX-OS and ASA configurations become a vendor-neutral
-  **Normalised Config Model**. Parsing is tolerant: an unrecognised stanza is kept in
-  `raw_unparsed` and never fails a collection, and the percentage understood is stored
-  on the snapshot so a degraded parse is visible rather than silently weakening checks.
-- **Provenance on every value** — each NCM field records the artefact and line range it
-  came from, so a finding can show the operator their own configuration line instead of
-  asserting a conclusion.
-- **Absent is not false** — a service the configuration never mentions stays `null`,
-  which later reports as *Not evaluated*. Only an explicit `no ip http server` becomes
-  `false`. Blurring the two produces confident, wrong findings.
-- **Collection profiles** — what each platform is asked for, as data. A test asserts
-  every profile command already appears in the §8.2 allow-list, so a profile can never
-  widen what NetSecOps may send to a device.
-- **Redaction before storage** — secrets are replaced with fingerprinted placeholders on
-  every path that leaves the server. The unredacted original exists in one place, sealed,
-  reachable by one endpoint that needs `config:view_unredacted` and writes an audit
-  record before it answers.
-- **Snapshots and drift** — identical configurations de-duplicate to one row, ignoring
-  volatile lines like NVRAM timestamps and `ntp clock-period`. Pin a snapshot as the
-  baseline and later collections that differ raise a drift finding with the diff
-  attached, severity raised for security-relevant changes.
-- **Diff, two ways** — a unified and side-by-side text diff, plus a semantic diff over
-  the NCM that says *"management.services.telnet.enabled changed disabled → enabled"*
-  rather than leaving an operator to derive it from ±40 lines.
-- **Offline configuration upload** — assess an air-gapped or pre-onboarding device from
-  an exported configuration file, through the same storage, parsing and drift path as a
-  live collection.
-
-### What Phase 1 delivers
-
-- **Read-only enforcement** — the four-layer guard described above, 19 platform
-  policies, and `netsecops-cli audit-commands` to print them for review.
-- **Device sessions** — adapters hold a guarded session, never a transport, so there is
-  no unchecked path to a device. SSH with host-key pin-on-first-use, jump hosts and
-  per-device timeouts.
-- **Inventory** — devices, hierarchical Device Groups (ltree), sites, tags, and CSV
-  import with a dry-run preview that reports the offending line before anything is
-  written.
-- **Credential vault** — typed credentials whose secret fields are sealed and whose
-  unknown fields are rejected, so a password cannot land in searchable metadata.
-  Device assignments override inherited group ones, and group credentials are inherited
-  down the hierarchy.
-- **Job engine** — scope resolution, per-device outcomes with FR-COL-07 error classes,
-  credential fallback, graceful cancel, re-run-failed, idempotency keys, and a
-  WebSocket progress stream.
-- **Scope enforcement** — Device Group visibility applied in the query, not by the
-  caller, so a group-scoped user cannot widen their reach.
-
-### What Phase 0 delivers
-
-- **Authentication** — Argon2id password hashing, a configurable password policy with
-  a no-reuse history window, and account lockout after repeated failures.
-- **Sessions** — short-lived access tokens (≤15 min) and rotating, revocable refresh
-  tokens (≤8 h), delivered as `Secure; HttpOnly; SameSite=Strict` cookies. Replaying a
-  rotated refresh token revokes the whole session family and raises an audit event.
-- **MFA** — RFC 6238 TOTP with single-use recovery codes; codes cannot be replayed
-  inside their validity window.
-- **RBAC** — the five roles from SRS §2.3 over a single permission vocabulary, with
-  object-level Device Group scoping for the group-restricted roles. Endpoints declare
-  a *permission*, never a role list.
-- **Credential vault** — AES-256-GCM envelope encryption with per-record data keys
-  wrapped by a pluggable master key, bound to the owning row so a ciphertext cannot be
-  replayed into another record. Master-key rotation re-wraps without re-encrypting.
-- **Audit log** — append-only and hash-chained, enforced *both* by chain verification
-  and by database triggers that reject UPDATE, DELETE and TRUNCATE outright.
-- **Secret scrubbing** — one central processor redacts secrets from every log line and
-  audit record, including device-config idioms like `snmp-server community X`.
-- **Quality gates** — `ruff`, `mypy --strict`, `pytest`, `bandit`, `pip-audit`,
-  `eslint`, `tsc`, `vitest`, Trivy and Gitleaks, all wired into CI.
-
----
-
-## Quick start
-
-**Requirements:** Docker 24+ and Docker Compose. Nothing else.
-
-```bash
-git clone https://github.com/Krishcalin/NetSecOps.git
-cd NetSecOps
-
-make up              # generates keys, builds, migrates, prints the URL
-make create-admin    # create the first Super Admin
-make demo-seed       # optional: a demonstration estate, so there is something to look at
-```
-
-Then open <http://localhost:8080>.
-
-`make demo-seed` stands up four devices across three vendors, ingests a configuration for
-each and assesses them — **no device is contacted, no credential is needed**, and the
-findings are the product's real opinion of those configurations rather than fixtures. It
-refuses to run if the inventory already holds a device it did not create, and
-`make demo-purge` removes exactly what it created. [What to look at, and in what
-order](docs/evaluating.md).
-
-> **Back up `MASTER_KEY` separately from the database.** It wraps every stored device
-> credential. Losing it means losing them all; storing it beside a database dump means
-> a single stolen backup yields both.
-
-**Port already in use?** Every published port is overridable in `.env`, which matters on
-a workstation running several projects:
-
-```bash
-UI_PORT=8088     # SPA           (default 8080)
-API_PORT=8010    # API           (default 8000)
-DB_PORT=5442     # PostgreSQL    (default 5442, chosen to avoid a local 5432)
-```
-
-### Running without Docker
-
-```bash
-make install         # backend venv + frontend node_modules
-make db              # just PostgreSQL, on host port 5442
-make migrate
-make dev-api         # http://localhost:8000
-make dev-ui          # http://localhost:5173
-```
-
----
 
 ## Repository layout
 
@@ -972,7 +1004,7 @@ the required device-claim rate, which is the evidence behind
 
 ---
 
-## CLI
+## The command line
 
 ```bash
 netsecops-cli create-admin           # bootstrap the first Super Admin
