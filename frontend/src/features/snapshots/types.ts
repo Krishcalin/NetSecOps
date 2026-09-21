@@ -58,6 +58,22 @@ export interface Drift {
   finding_id: string | null;
 }
 
+export interface Collection {
+  id: string;
+  device_id: string;
+  adapter: string;
+  adapter_version: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  /**
+   * True when some supplementary command failed. The snapshot is still valid; checks
+   * that needed the missing output report "Not evaluated" rather than passing.
+   */
+  partial: boolean;
+  error_message: string | null;
+  created_at: string;
+}
+
 export interface Artifact {
   id: string;
   collection_id: string;

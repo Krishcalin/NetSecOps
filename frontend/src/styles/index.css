@@ -872,6 +872,68 @@ code {
   padding: 0 2px;
 }
 
+/* ─────────────────── evidence panel (FR-COL-03, SEC-09) ──────────────── */
+
+/* The warn palette, for one thing only: an unredacted secret is on screen. No
+   severity pill uses it, so it cannot be confused with a finding's grading. */
+.pill--warning {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+.card__meta {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.evidence__summary {
+  margin: 0 0 12px;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.evidence__ordinal {
+  width: 3rem;
+  text-align: right;
+  color: var(--text-muted);
+}
+
+.evidence__body {
+  margin-top: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.evidence__body-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--surface-muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.evidence__hash {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-right: auto;
+}
+
+/* Device output is pre-formatted and frequently wider than the panel. It scrolls in
+   its own box rather than widening the page, and wraps nothing: a wrapped
+   configuration line is a misleading one. */
+.evidence__pre {
+  margin: 0;
+  padding: 12px;
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 /* ────────────────────── diff viewer (IF-UI-05) ───────────────────────── */
 
 .diff {

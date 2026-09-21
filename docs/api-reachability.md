@@ -1,13 +1,13 @@
 # API reachability
 
-**141 operations are published. The console requests 121 of them. 20 it never requests.**
+**141 operations are published. The console requests 125 of them. 16 it never requests.**
 
 **Every area of the API now has a page.** The original finding — thirty-two operations in
-areas the console could not reach at all — is closed. What remains is eighteen operations
+areas the console could not reach at all — is closed. What remains is fourteen operations
 on pages that exist but do not call them, plus `GET /metrics` and `GET /readyz`, which are
 correctly machine-only.
 
-Measured 2026-09-20 against the OpenAPI schema `create_app()` produces and every `.ts`
+Measured 2026-09-21 against the OpenAPI schema `create_app()` produces and every `.ts`
 and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed.
 The published count has risen twice, both times because closing a gap needed an endpoint
 that did not exist: `GET /credentials/{id}/assignments`, then `POST /checks/preview` and
@@ -142,7 +142,6 @@ Ordered by how much the absence costs.
 | 5 × `/notifications` channel edit/delete, subscriptions | Settings | Settings creates channels, tests them and requeues dead deliveries, but a channel cannot be edited or removed and subscriptions have no surface at all — so who gets told what is API-only. |
 | `GET /devices/{id}/checks`, `/risk` | Device config | Per-device check results and risk score. |
 | `POST /devices/{id}/children/preview`, `/import` | Inventory | Managed-device import from a manager. |
-| `GET /artifacts/{id}`, `/raw`, `GET /collections/{id}`, `/artifacts` | Device config | Raw evidence — the audit trail an assessor asks for. |
 | `GET /audit-log/export` | Audit log | Export button. |
 | `GET /settings/{key}`, `PUT /settings/{key}` | Settings | Per-key read and write; the page uses the collection endpoint only. |
 | `GET /aaa/correlation` | AAA | Correlation view. |
@@ -164,10 +163,15 @@ Ordered by how much the absence costs.
    **Done.**
 8. ~~The discovery-to-inventory promotion path — discovery finds hosts and nothing
    promotes them.~~ **Done.**
-9. **The 18 operations on pages that already exist.** The five `/notifications` ones are
-   next: they decide who gets told what, and a channel routed to the wrong place can be
-   created from the console and not corrected from it. Then the raw-evidence reads
-   (`/artifacts`, `/collections`), which are the audit trail an assessor asks for.
+9. ~~The raw-evidence reads (`/artifacts`, `/collections`) — the audit trail an assessor
+   asks for.~~ **Done.** The Evidence panel on a device's configuration page lists every
+   command issued in a collection, with the hash of each original response, and fetches
+   the unredacted body only on an explicit per-artefact request. This was the gap that
+   most contradicted the product's own claim: "every command is recorded so customers can
+   see exactly what ran" was true and unreadable at the same time.
+10. **The 14 operations on pages that already exist.** The five `/notifications` ones are
+    next: they decide who gets told what, and a channel routed to the wrong place can be
+    created from the console and not corrected from it.
 
 ## Re-running it
 

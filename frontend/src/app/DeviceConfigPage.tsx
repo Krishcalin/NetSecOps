@@ -13,6 +13,7 @@ import { api, ApiError, request } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import { ConfigViewer } from '../features/snapshots/ConfigViewer';
 import { DiffViewer } from '../features/snapshots/DiffViewer';
+import { EvidencePanel } from '../features/snapshots/EvidencePanel';
 import type { DeviceDetail, Paginated } from '../features/inventory/types';
 import type {
   ConfigDiff,
@@ -84,6 +85,7 @@ export function DeviceConfigPage() {
   const rows = snapshots.data?.data ?? [];
   // Default to the newest snapshot rather than making the operator pick one first.
   const activeId = selected ?? rows[0]?.id ?? null;
+  const active = rows.find((row) => row.id === activeId) ?? null;
   const baseline = rows.find((row) => row.is_baseline) ?? null;
 
   const detail = useQuery({
@@ -298,6 +300,8 @@ export function DeviceConfigPage() {
           />
         </section>
       )}
+
+      {active && <EvidencePanel collectionId={active.collection_id} />}
     </div>
   );
 }

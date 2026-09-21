@@ -309,6 +309,12 @@ Each phase below says what it delivers and, where relevant, what it still owes. 
   every path that leaves the server. The unredacted original exists in one place, sealed,
   reachable by one endpoint that needs `config:view_unredacted` and writes an audit
   record before it answers.
+- **The command log is readable, not merely kept** — an Evidence panel on each device's
+  configuration page lists every command a collection issued, in order, with the hash of
+  each original response, whether it succeeded, and how long it took. The unredacted body
+  is a separate per-artefact request rather than a toggle, because a toggle would mean the
+  browser already held the secret. A partial collection says so at the top, since that is
+  what makes the *Not evaluated* results below it explicable.
 - **Snapshots and drift** — identical configurations de-duplicate to one row, ignoring
   volatile lines like NVRAM timestamps and `ntp clock-period`. Pin a snapshot as the
   baseline and later collections that differ raise a drift finding with the diff
@@ -939,9 +945,10 @@ areas with no page at all** — no way to create a user, define a policy, browse
 library, schedule an assessment, issue an API token or file a risk-acceptance exception
 without a REST client.
 
-Those 32 are now closed, along with the credential vault, job cancellation and feed import
-before them. What remains is 27: 25 operations on pages that exist and do not yet call
-them, plus `GET /metrics` and `GET /readyz`, which are correctly machine-only.
+Those 32 are now closed, along with the credential vault, job cancellation, feed import and
+the raw-evidence reads before them. What remains is 16: 14 operations on pages that exist
+and do not yet call them, plus `GET /metrics` and `GET /readyz`, which are correctly
+machine-only.
 
 Building the surfaces found four defects that no test had caught, each invisible for the
 same reason — the wrong behaviour and the right one produced identical output while
@@ -1139,7 +1146,7 @@ The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at
 `/api/v1/docs` outside production.
 
 **The console reaches every area of it.** 141 operations are published and the console
-requests 114; the 27 it does not are individual operations on pages that already exist,
+requests 125; the 16 it does not are individual operations on pages that already exist,
 plus the two probe endpoints, and each is named with what its absence costs. That is
 measured rather than estimated (`scripts/api_reachability.py`) and tracked in
 [docs/api-reachability.md](docs/api-reachability.md), because capability nobody can reach
