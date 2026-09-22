@@ -149,11 +149,41 @@ class Banners(NcmBase):
     exec: str | None = None
 
 
+class AsyncLine(NcmBase):
+    """An auxiliary or numbered TTY line (FR-PARSE-01).
+
+    Kept apart from VTY and console rather than folded into `SessionLimits`, because the
+    question asked of it is a different one. A VTY line is *meant* to accept logins and
+    the question is how well; an AUX port is meant to be dead, and the finding is that it
+    answers at all. On an access server the numbered lines are reverse-telnet paths to
+    whatever is cabled to them, which is the same question again.
+    """
+
+    #: `aux 0`, `2`, `0/0/0 0/0/12` — as written, since the range matters.
+    name: str
+    #: True when `no exec` is present, which is what actually disables the line.
+    exec_disabled: bool | None = None
+    #: Seconds. 0 means "never time out", which is the weakest possible setting and
+    #: is stored as 0 rather than None — None means the line did not say.
+    exec_timeout_s: int | None = None
+    #: What `transport input` permits. Empty list means `transport input none`, which is
+    #: the hardened state; None means the line did not say, and on IOS the default is
+    #: permissive. Those are opposite facts, so they must not share a representation.
+    transport_input: list[str] | None = None
+    transport_output: list[str] | None = None
+    #: A password or login method configured on the line.
+    login_configured: bool | None = None
+
+
 class SessionLimits(NcmBase):
     exec_timeout_s: int | None = None
     console_timeout_s: int | None = None
     #: Concurrent session cap, where the platform supports one.
     max_sessions: int | None = None
+    #: AUX and numbered TTY lines, which nothing read until the parser corpus showed
+    #: them carrying `exec-timeout 0 0` and reaching no field. An unsecured AUX port is
+    #: a CIS Cisco IOS benchmark item and could not be assessed while this was absent.
+    async_lines: list[AsyncLine] = Field(default_factory=list)
 
 
 class PasswordPolicy(NcmBase):

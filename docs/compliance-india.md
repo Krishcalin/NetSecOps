@@ -35,7 +35,7 @@ clause each maps to is not asserted, because that is not something this mapping 
 
 ## CERT-In — Directions under section 70B(6) of the IT Act, 28 April 2022
 
-Mapped deliberately narrowly: **13 of 103 checks.**
+Mapped deliberately narrowly: **13 of 104 checks.**
 
 | Subject | Checks | What it covers |
 |---|:--:|---|
@@ -61,14 +61,14 @@ the direction is satisfied.
 
 ## CEA — Cyber Security in Power Sector Guidelines, 2021
 
-Mapped broadly: **all 103 checks**, grouped by subject area.
+Mapped broadly: **all 104 checks**, grouped by subject area.
 
 | Subject | Checks |
 |---|:--:|
 | Secure Configuration | 23 |
 | Access Control | 21 |
+| Network Security | 17 |
 | Remote Access | 17 |
-| Network Security | 16 |
 | Logging and Monitoring | 13 |
 | Cryptography | 8 |
 | Wireless Security | 5 |
@@ -79,8 +79,8 @@ that the CEA pivot does not *filter* the library — every check appears — and
 the **subject breakdown**: `GET /compliance/cea` gives a per-subject pass rate rather than
 a subset of applicable checks.
 
-That is a real difference from the CIS pivot, which selects 67 of 103, and a report should
-present it as such rather than as "103 of 103 CEA controls covered".
+That is a real difference from the CIS pivot, which selects 68 of 104, and a report should
+present it as such rather than as "104 of 104 CEA controls covered".
 
 ## What this mapping does not claim
 

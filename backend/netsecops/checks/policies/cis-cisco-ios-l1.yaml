@@ -32,6 +32,12 @@ checks:
   - id: cisco-vty-access-class
   - id: exec-timeout-configured
   - id: exec-timeout-not-excessive
+  # The AUX port is Level 1 because closing it breaks nothing on a device that was not
+  # using it, which is nearly all of them. Devices that genuinely carry a console server
+  # report Not Applicable rather than a failure only if no aux line was parsed at all —
+  # so a real one in use will fail here and wants an exception with a justification,
+  # which is the correct outcome for a deliberate exposure.
+  - id: cisco-aux-port-disabled
   - id: login-banner-present
   - id: cisco-no-aux-port
 

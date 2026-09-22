@@ -184,7 +184,7 @@ about ten seconds and contacts nothing.
 **The devices are not real; everything said about them is.** The configurations are
 ingested through the same path an operator's upload uses (FR-COL-11), parsed by the same
 parsers, sealed as the same artefacts, and assessed by the same engine against the same
-103-check library. There is no demonstration write path — a demonstration write path is
+104-check library. There is no demonstration write path — a demonstration write path is
 how a demo comes to show something the product does not do.
 
 The estate is designed rather than sampled, so that each thing this product does
@@ -238,7 +238,7 @@ that most of the other gaps identified collapse into it.
 | 7 | Discovery, reporting, integrations, hardening | **In progress** — every M requirement built; TEST-08 needs a physical device lab |
 | **8** | Topology and path analysis | **Complete** — acceptance met |
 
-Thirteen platforms are collected and parsed, and the check library stands at 103.
+Thirteen platforms are collected and parsed, and the check library stands at 104.
 
 ---
 

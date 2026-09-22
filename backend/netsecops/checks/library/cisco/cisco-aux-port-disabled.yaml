@@ -1,0 +1,50 @@
+id: cisco-aux-port-disabled
+title: The auxiliary port has EXEC disabled
+description: >-
+  Every `line aux` present on the device carries `no exec`, so the port cannot open an
+  interactive session.
+rationale: >-
+  The AUX port exists to take a modem or a console server, and on most devices in most
+  estates nothing is plugged into it and nobody has thought about it since the device
+  was racked. Left with EXEC enabled it is a login prompt on the management plane that
+  no one is watching: it does not appear in a VTY access-class, it is frequently exempt
+  from the session limits applied to VTY lines, and where something *is* cabled to it
+  the path bypasses the network entirely. `no exec` is the setting that actually closes
+  it â€” an `exec-timeout` only bounds a session that was allowed to start, and a
+  `transport input none` still leaves the port able to run EXEC from a directly attached
+  cable.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+  # Not Applicable, never a pass, when no AUX or TTY line was parsed. `requires` would
+  # be wrong here: it tests for null, an empty list satisfies it, and the expression
+  # below would then yield nothing and assert clean â€” reporting "the auxiliary port has
+  # EXEC disabled" about a device that never mentioned one. Many switches genuinely have
+  # no AUX port, and a configuration that simply did not show the stanza is
+  # indistinguishable from that, so neither may be rendered as a pass.
+  requires_features: [management.session.async_lines]
+
+logic:
+  type: ncm
+  expression: "management.session.async_lines[?starts_with(name, 'aux') && exec_disabled != `true`].name"
+  assert:
+    empty: true
+
+remediation: >-
+  Under `line aux 0`, set `no exec`, and add `transport input none` and `transport output
+  none` so the line cannot be used in either direction. Where the port genuinely carries
+  a console server, leave EXEC enabled and instead protect it as a management interface:
+  an `exec-timeout`, `login authentication` against the AAA method list, and an
+  `access-class` where the platform supports one.
+
+references:
+  cis: ["1.1.4", "1.2.3"]
+  nist_800_53: ["AC-3", "AC-17", "CM-7"]
+  pci_dss: ["2.2.2", "7.2.1"]
+  iso_27001: ["A.8.20", "A.5.15"]
+  cwe: ["CWE-1188"]
+  cea: ["Network Security"]
+
+tags: [management-plane, cisco, cis-level-1, aux]

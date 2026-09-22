@@ -27,7 +27,7 @@ docker compose exec api netsecops-cli demo-seed
 The four configurations ship with the product. They are ingested through the same path an
 operator's configuration upload uses (FR-COL-11), parsed by the same parsers a live
 collection uses, stored as the same sealed artefacts and snapshots, and assessed by the
-same check engine against the same 103-check library. There is no demonstration write
+same check engine against the same 104-check library. There is no demonstration write
 path — deliberately, because a demonstration write path is how a demo comes to show
 something the product does not do.
 

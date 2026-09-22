@@ -31,6 +31,7 @@ from netsecops.ncm.models import (
     AaaServer,
     Acl,
     AclEntry,
+    AsyncLine,
     Interface,
     InterfaceSecurity,
     LocalUser,
@@ -319,6 +320,65 @@ class CiscoIosParser(CiscoStyleParser):
                     result.record(
                         "management.session.console_timeout_s", line=self.line_number(child)
                     )
+            result.consume(start, end)
+
+        self._parse_async_lines(parse, result)
+
+    #: `line aux 0`, `line 2`, `line 0/0/0 0/0/12` — everything that is not vty or con.
+    #: Anchored on a digit or `aux` so `line protocol` and similar never match.
+    _ASYNC_LINE = re.compile(r"^line\s+(aux\s+\S+|\d[\d/]*(?:\s+\d[\d/]*)?)\s*$")
+
+    def _parse_async_lines(self, parse: CiscoConfParse, result: ParseResult) -> None:
+        """AUX and numbered TTY lines.
+
+        These went unread until `scripts/parse_coverage.py` was pointed at a corpus we
+        did not write and found them carrying `exec-timeout 0 0` — never time out —
+        reaching no field in the NCM. An AUX port left enabled is a modem or console
+        server hanging off the management plane, and a CIS Cisco IOS benchmark item; a
+        numbered line on an access server is a reverse-telnet path to whatever is cabled
+        to it. Neither could be assessed while this was absent, and the absence looked
+        exactly like a device that had neither.
+
+        `transport input` is recorded as an empty list for `none` and left None when the
+        line is silent, because IOS defaults a bare line to permissive — so "hardened"
+        and "unstated" are opposite facts here and must not collapse into one value.
+        """
+        management = result.ncm.management
+
+        for obj in parse.find_objects(self._ASYNC_LINE):
+            match = self._ASYNC_LINE.match(obj.text)
+            if match is None:  # pragma: no cover — find_objects already matched
+                continue
+
+            start, end = self.family_range(obj)
+            line = AsyncLine(name=" ".join(match.group(1).split()))
+
+            for child in obj.children:
+                text = child.text.strip()
+
+                if timeout := re.match(r"exec-timeout\s+(\d+)\s*(\d*)", text):
+                    line.exec_timeout_s = timeout_to_seconds(
+                        timeout.group(1), timeout.group(2) or 0
+                    )
+                elif text == "no exec":
+                    line.exec_disabled = True
+                elif text == "exec":
+                    line.exec_disabled = False
+                elif transport := re.match(r"transport\s+(input|output)\s+(.+)$", text):
+                    values = transport.group(2).split()
+                    protocols = [] if values == ["none"] else values
+                    if transport.group(1) == "input":
+                        line.transport_input = protocols
+                    else:
+                        line.transport_output = protocols
+                elif re.match(r"(?:password\s|login\b)", text):
+                    line.login_configured = True
+
+            management.session.async_lines.append(line)
+            result.record(
+                f"management.session.async_lines.{len(management.session.async_lines) - 1}",
+                line=self.line_number(obj),
+            )
             result.consume(start, end)
 
     # ────────────────────────────── users ───────────────────────────────

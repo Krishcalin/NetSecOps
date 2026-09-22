@@ -73,7 +73,7 @@ Run 2026-09-22 against 311 Batfish configurations.
 |---|---:|---:|---:|
 | `cisco_asa` | 29 | 0 | 100.0% |
 | `fortios` | 51 | 0 | 100.0% |
-| `cisco_ios` | 106 | 0 | 81.8% |
+| `cisco_ios` | 106 | 0 | 81.8% → 85.7% |
 | `cisco_nxos` | 21 | 0 | 81.2% |
 | `panos` | 104 | 104 | 0.0% |
 
@@ -98,10 +98,29 @@ The Batfish corpus is in `set` syntax; our parser reads the XML that the PAN-OS 
 returns, which is what the collection profile fetches. It matters only on the upload path
 (FR-COL-11), where a `set`-format file now yields a 0% snapshot naming the reason.
 
-**`line aux` and numbered TTY lines are not parsed on IOS.** The parser reads
-`line vty` and `line con`. In the corpus, `line aux 0` and lines like `line 0/0/0 0/0/12`
-carry `exec-timeout 0 0` — never time out — and none of it reaches the NCM. An unsecured
-AUX port is a CIS benchmark item, so this is a genuine gap rather than noise. Open.
+**`line aux` and numbered TTY lines were not parsed on IOS.** The parser read `line vty`
+and `line con`. In the corpus, `line aux 0` and lines like `line 0/0/0 0/0/12` carry
+`exec-timeout 0 0` — never time out — and none of it reached the NCM. An unsecured AUX
+port is a CIS benchmark item, so no check could be written for one.
+
+**Closed.** `management.session.async_lines` now carries them, and
+`cisco-aux-port-disabled` asserts every AUX line has `no exec`. IOS median coverage went
+from 81.8% to 85.7%, and the file that exposed it — the worst-covered in the corpus, at
+0% — now parses completely.
+
+Two distinctions that decide whether the check tells the truth, both pinned by
+`tests/test_ios_async_lines.py`:
+
+- **`no exec` is not an `exec-timeout`.** A timeout bounds a session that was allowed to
+  start; only `no exec` stops one starting. The corpus has numbered lines carrying both,
+  and treating the timeout as the control would pass a line that still opens a shell.
+- **A device with no AUX line reports Not Applicable, never a pass.** This is what the
+  check would have got wrong. `requires` tests for *null*, and an empty list satisfies it
+  — so the expression would have yielded nothing, asserted clean, and reported "the
+  auxiliary port has EXEC disabled" about a switch that never mentioned one.
+  `applicability.requires_features` treats an empty list as missing, which is the
+  behaviour wanted. Mutating the check back to `requires` fails that test with
+  `assert 'pass' == 'not_applicable'`.
 
 **The rest of the IOS and NX-OS misses are not security-relevant**: `ip sla` and its
 `icmp-echo`/`local-address` children, and the MPLS/VRF stanzas `rd`, `route-target import`

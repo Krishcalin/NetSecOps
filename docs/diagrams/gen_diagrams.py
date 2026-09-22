@@ -246,7 +246,7 @@ def fig1_architecture() -> None:
     services = [
         ("Inventory", ["devices, groups", "sites, tags"]),
         ("Credentials", ["AES-256-GCM vault", "never returned"]),
-        ("Assessment", ["103 checks", "findings, risk"]),
+        ("Assessment", ["104 checks", "findings, risk"]),
         ("Vulnerability", ["CVE, KEV, EPSS", "end-of-life"]),
         ("Topology", ["layer-3 graph", "path analysis"]),
     ]
@@ -376,7 +376,7 @@ def fig3_pipeline() -> None:
            reg(10.8), fill=SUBTLE, anchor="lm")
 
     engines = [
-        ("Check engine", ["103 checks, JMESPath", "pass / fail / not evaluated"], ACCENT),
+        ("Check engine", ["104 checks, JMESPath", "pass / fail / not evaluated"], ACCENT),
         ("Firewall analysis", ["shadowed, redundant,", "unused, any-any"], ACCENT),
         ("Vulnerability", ["CPE, CVE, KEV, EPSS", "end-of-life"], ACCENT),
         ("Topology", ["layer-3 graph", "path analysis"], ACCENT),
