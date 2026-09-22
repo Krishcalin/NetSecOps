@@ -531,11 +531,17 @@ class SnapshotService:
             for line in normalise_config(config_text).splitlines()
             if line.strip() and not line.strip().startswith("!")
         ]
-        coverage = (
-            round(100 * (len(meaningful) - len(ncm.raw_unparsed)) / len(meaningful))
-            if meaningful
-            else None
-        )
+        if ncm.parse_failed:
+            # The parser read none of it. The arithmetic below would score this in the
+            # high nineties, because a wholesale failure records one explanatory line in
+            # `raw_unparsed` rather than one line per line of input — so a configuration
+            # that yielded an empty NCM rendered as a green "99% parsed" pill. Zero is
+            # the honest figure and the only one that cannot be misread.
+            coverage = 0
+        elif meaningful:
+            coverage = round(100 * (len(meaningful) - len(ncm.raw_unparsed)) / len(meaningful))
+        else:
+            coverage = None
 
         existing = (
             await self.session.execute(

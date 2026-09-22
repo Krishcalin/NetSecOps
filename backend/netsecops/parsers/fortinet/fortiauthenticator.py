@@ -91,10 +91,12 @@ class FortiAuthenticatorParser(ConfigParser):
         except ValueError as exc:
             log.warning("parser.json_invalid", platform=self.platform, error=str(exc))
             result.ncm.raw_unparsed = [f"1: the collected artefact is not valid JSON: {exc}"]
+            result.ncm.parse_failed = True
             return result.ncm
 
         if not isinstance(raw, dict):
             result.ncm.raw_unparsed = ["1: the collected artefact is not a bundle of responses"]
+            result.ncm.parse_failed = True
             return result.ncm
 
         bundle = ResponseBundle(raw, normalise=last_path_segment, extract=_objects)

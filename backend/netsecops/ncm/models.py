@@ -898,6 +898,18 @@ class NormalisedConfig(NcmBase):
     #: and deliberately so: silently dropping configuration would hide what we missed.
     raw_unparsed: list[str] = Field(default_factory=list)
 
+    #: The parser could not read the artefact *at all* — malformed XML, invalid JSON, a
+    #: bundle that is not a bundle. Distinct from a low coverage figure, and the
+    #: distinction is not cosmetic.
+    #:
+    #: Those failure paths record one explanatory line in `raw_unparsed`, which is the
+    #: right thing for a human reading the evidence and the wrong input to an arithmetic
+    #: that reads "meaningful lines minus unparsed lines". A five-hundred-line PAN-OS
+    #: configuration that parsed into nothing scored 99.8% and rendered as a green
+    #: "99% parsed" pill beside a snapshot with an empty NCM. Found by pointing
+    #: `scripts/parse_coverage.py` at a corpus we did not write.
+    parse_failed: bool = False
+
     #: JSON path → where the value came from (FR-PARSE-04).
     provenance: ProvenanceMap = Field(default_factory=ProvenanceMap)
 

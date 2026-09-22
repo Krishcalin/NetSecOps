@@ -146,6 +146,7 @@ class PanOsParser(ConfigParser):
             result.ncm.device.vendor = self.vendor
             result.ncm.device.platform = self.platform
             result.ncm.raw_unparsed = [f"1: the configuration is not well-formed XML: {exc}"]
+            result.ncm.parse_failed = True
             return result.ncm
 
         # An API response wraps the configuration in <response><result>.

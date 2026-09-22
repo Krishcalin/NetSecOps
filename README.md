@@ -1164,6 +1164,7 @@ and deletes it afterwards, so it never alters the account it signs in with.
 | [docs/commercial.md](docs/commercial.md) | Sizing, what the incumbents charge, and what follows |
 | [docs/deployment.md](docs/deployment.md) | Deployment, sizing, backup and key management |
 | [docs/api-reachability.md](docs/api-reachability.md) | Which API operations the console can reach, and which need a surface |
+| [docs/parser-validation.md](docs/parser-validation.md) | Measuring the parsers against configurations we did not write, and what that found |
 | [docs/adr/](docs/adr/) | Architecture decision records |
 
 The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at

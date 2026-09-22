@@ -121,10 +121,12 @@ class CheckPointMgmtParser(ConfigParser):
             # device being reported clean.
             log.warning("parser.json_invalid", platform=self.platform, error=str(exc))
             result.ncm.raw_unparsed = [f"1: the collected artefact is not valid JSON: {exc}"]
+            result.ncm.parse_failed = True
             return result.ncm
 
         if not isinstance(bundle, dict):
             result.ncm.raw_unparsed = ["1: the collected artefact is not a command bundle"]
+            result.ncm.parse_failed = True
             return result.ncm
 
         for section in (
