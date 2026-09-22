@@ -78,7 +78,7 @@ class TestRequestEncoding:
 
 def _response(community: bytes, varbinds: bytes, *, error: int = 0) -> bytes:
     """Assemble a GET response the way an agent would."""
-    from netsecops.discovery.snmp import _tlv
+    from netsecops.snmp.codec import _tlv
 
     pdu = _tlv(
         0xA2,
@@ -92,7 +92,7 @@ def _response(community: bytes, varbinds: bytes, *, error: int = 0) -> bytes:
 
 class TestResponseDecoding:
     def test_it_reads_a_string_and_an_oid(self) -> None:
-        from netsecops.discovery.snmp import _tlv
+        from netsecops.snmp.codec import _tlv
 
         descr = b"Cisco IOS Software, C2960X Software"
         model = encode_oid("1.3.6.1.4.1.9.1.1745")
@@ -112,7 +112,7 @@ class TestResponseDecoding:
             parse_response(_response(b"public", b"", error=2))
 
     def test_a_truncated_response_is_refused(self) -> None:
-        from netsecops.discovery.snmp import _tlv
+        from netsecops.snmp.codec import _tlv
 
         full = _response(b"public", _tlv(0x30, encode_oid(SYS_DESCR) + _tlv(0x04, b"abc")))
         with pytest.raises(SnmpError):
@@ -125,7 +125,7 @@ class TestResponseDecoding:
             parse_response(b"\x04\x03abc")
 
     def test_an_unhandled_value_type_is_left_out_rather_than_guessed(self) -> None:
-        from netsecops.discovery.snmp import _tlv
+        from netsecops.snmp.codec import _tlv
 
         # noSuchObject (0x81) — the agent saying it has no such OID.
         varbinds = _tlv(0x30, encode_oid(SYS_DESCR) + _tlv(0x81, b""))

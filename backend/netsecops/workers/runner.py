@@ -11,6 +11,7 @@ still produces useful results for the rest.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -52,6 +53,7 @@ from netsecops.services.audit import AuditService
 from netsecops.services.credentials import CredentialService, ResolvedCredential
 from netsecops.services.jobs import JobService, classify_error
 from netsecops.services.snapshots import SnapshotService
+from netsecops.snmp.routes import RouteWalk, UdpChannel, walk_routes
 
 log = get_logger(__name__)
 
@@ -849,6 +851,20 @@ async def _collect_profile(
             f"Device {device.mgmt_ip} returned no configuration for '{profile.config_command}'."
         )
 
+    # The forwarding table, if this device has an SNMP community assigned. On the Cisco
+    # platforms and FortiOS the profile already issues a route command and this adds
+    # nothing; it exists for Check Point and PAN-OS, whose profiles have no route command
+    # at all, so their routing tables are absent from the graph entirely.
+    routes = await _walk_routes(session, device, vault=vault)
+    if routes.note:
+        # Recorded beside the collection rather than raised. A device with no SNMP
+        # credential, or one that does not implement the MIB, is an ordinary member of a
+        # mixed estate — but the reason has to reach the operator, because "no learned
+        # routes" and "never asked" are the two answers this must not conflate.
+        collection.error_message = " ".join(
+            filter(None, [collection.error_message, f"Route table: {routes.note}"])
+        )
+
     snapshot = await snapshots.create_snapshot(
         device,
         config_text=config_text,
@@ -856,6 +872,8 @@ async def _collect_profile(
         platform=platform,
         command=profile.config_command,
         supporting=supporting,
+        learned_routes=routes.routes,
+        learned_truncated=routes.truncated,
     )
 
     drift = await snapshots.detect_drift(device, snapshot)
@@ -890,6 +908,69 @@ async def _collect_profile(
         await _assess_vulnerabilities(session, device, outcome)
 
     return outcome
+
+
+async def _snmp_community(
+    session: AsyncSession, device: Device, *, vault: SecretVault | None
+) -> str | None:
+    """The SNMPv2c community assigned to this device, or None.
+
+    Resolved through the ordinary credential chain (FR-CRED-04), so a community set on a
+    device group applies to its members exactly as an SSH credential does. Nothing is
+    ever guessed: a device with no SNMP credential is simply not walked, on the same
+    reasoning that stops discovery trying `public`.
+    """
+    if vault is None:
+        return None
+
+    for candidate in await CredentialService(session, vault=vault).resolve_for_device(device):
+        credential = candidate.credential
+        if credential.credential_type != CredentialType.SNMP_V2C.value:
+            continue
+        try:
+            secret = json.loads(vault.open(credential.encrypted_blob, aad=str(credential.id)))
+        except Exception:
+            log.warning("collect.snmp_credential_unreadable", device_id=str(device.id))
+            continue
+        community = secret.get("community") or secret.get("password")
+        if community:
+            return str(community)
+
+    return None
+
+
+async def _walk_routes(
+    session: AsyncSession, device: Device, *, vault: SecretVault | None
+) -> RouteWalk:
+    """Read the device's forwarding table over SNMP, if it has a community.
+
+    Never raises. A route table is supplementary in exactly the sense FR-COL-08 means:
+    its absence degrades the topology graph and must not cost the caller a snapshot that
+    has already been collected and parsed.
+    """
+    community = await _snmp_community(session, device, vault=vault)
+    if community is None:
+        # Not a failure and not a note: most devices in most estates have no SNMP
+        # credential, and saying so on every collection would bury the cases that mean
+        # something.
+        return RouteWalk()
+
+    try:
+        with UdpChannel(device.mgmt_ip) as channel:
+            walk = await walk_routes(channel, community)
+    except Exception as exc:
+        log.info("collect.route_walk_failed", device_id=str(device.id), error=str(exc))
+        return RouteWalk(note=f"could not be read ({exc})")
+
+    log.info(
+        "collect.route_walk",
+        device_id=str(device.id),
+        routes=len(walk.routes),
+        rejected=walk.rejected,
+        truncated=walk.truncated,
+        packets=walk.packets,
+    )
+    return walk
 
 
 async def _assess_vulnerabilities(

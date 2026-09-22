@@ -763,6 +763,30 @@ interface name. All three are fixture-tested, and the operational table supersed
 configuration's statics rather than adding to them, since the device's own table already
 contains them.
 
+**Check Point and PAN-OS had no routing table at all, and now have one over SNMP.** The
+five platforms above reach their tables over the CLI. The two that do not have a route
+command in their collection profile are firewalls — which is to say the devices a path
+most often crosses, and the ones whose absence costs most: a path arriving at a PAN-OS
+firewall could say what it *permits* and not where it would *send* anything. A device
+with an SNMPv2c community assigned is now walked for `ipCidrRouteTable` after its
+collection, and those routes merge into the same `routing.routes` the parsers fill.
+
+This needed no change to any allow-list. [SRS §8](docs/SRS.md) already permits "SNMP
+v2c/v3 GET only (discovery/fingerprint & optional inventory), never SET", and the
+guarantee here is structural rather than checked: `netsecops/snmp/codec.py` has no
+encoder for a SET PDU, and a test asserts the tag never appears in any packet it can
+produce. Nothing is guessed either — a device with no SNMP credential is simply not
+walked, the same rule that stops discovery trying `public`. Reject routes are excluded
+and counted, a truncated walk is recorded as truncated so a path falling off the end
+resolves *unknown* rather than *unreachable*, and a failed walk costs a note rather than
+the snapshot.
+
+> **Not yet verified against real hardware.** The walk is tested against a fake agent
+> that speaks real BER, but whether Check Point Gaia and PAN-OS populate
+> `ipCidrRouteTable` — as opposed to only the older `ipRouteTable`, or neither — is a
+> claim about vendor firmware that only a device can settle. It is part of what
+> [TEST-08](#where-the-project-stands) is waiting on.
+
 **A path can now be traced across devices, and the answer has two axes.** Give it a
 source, a destination, a protocol and a port, and it finds the devices in between and asks
 each of their rulebases — the FR-FW-06 rule query, run once per hop. Devices are joined by
