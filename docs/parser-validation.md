@@ -127,6 +127,35 @@ Two distinctions that decide whether the check tells the truth, both pinned by
 and `address-family ipv4`. Worth recording, not worth prioritising — except that VRF
 awareness does bear on topology, since `Route.vrf` exists and nothing fills it from these.
 
+## The gate in CI
+
+The script above is a manual instrument and needs an outside corpus. The regression it
+exists to catch — a parser quietly stopping populating a field — needed something that
+runs on every commit, so it is a test rather than a workflow step:
+[`backend/tests/test_parser_field_baseline.py`](../backend/tests/test_parser_field_baseline.py).
+
+It records the set of NCM fields each parser populates across the committed fixtures in
+`backend/tests/fixtures/parser_field_baseline.json` — 909 fields across twelve platforms —
+and fails when one disappears. CI already runs `pytest`, so nothing else was needed.
+
+```bash
+# after a deliberate change to what a parser extracts
+NETSECOPS_UPDATE_BASELINE=1 pytest tests/test_parser_field_baseline.py
+```
+
+Losing a field should be a line in a pull request somebody reads, not a silence. The
+failure names the fields and says what it means: every check reading one of them now
+reports *Not evaluated* on every device of that platform, which is indistinguishable from
+a clean estate.
+
+**What it does not guard.** It can only protect a field some fixture exercises. The first
+version of this gate passed cleanly with the AUX-line parsing deleted, because no fixture
+contained a `line aux` stanza — the field had never entered the baseline, so losing it
+changed nothing. That was found by mutation-testing the gate itself, and fixed by adding
+AUX stanzas to the hardened and weak IOS fixtures; the same mutation now fails and names
+all five lost fields. A capability with no fixture is invisible here exactly as it is
+everywhere else, which is what the outside corpus is for.
+
 ## Re-running it
 
 Treat a fall in median coverage, or a field that stops being populated, the way you would
