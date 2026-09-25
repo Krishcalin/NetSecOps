@@ -36,11 +36,10 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.checks.loader import get_registry
@@ -357,63 +356,105 @@ class ReportingService:
             "criticality": device.criticality,
         }
 
-    async def _findings(self, scope: Scope, *, kinds: Sequence[str] | None = None) -> list[Any]:
-        stmt = (
-            select(Finding, Device)
-            .join(Device, Device.id == Finding.device_id)
-            .where(Finding.status.in_(FindingStatus.active_values()))
-        )
-        if kinds:
-            stmt = stmt.where(Finding.kind.in_(kinds))
+    async def _active_findings(self, scope: Scope) -> Select[Any]:
+        """The active-finding set this scope may see, as a statement to aggregate over.
+
+        Returned unexecuted on purpose. The summary below wants five aggregates of this
+        set and none of the rows, and the difference is the whole point: an estate-wide
+        report used to `.all()` every active finding joined to its device — JSONB
+        evidence, details and a duplicated device row apiece — and then count them in
+        Python to produce a dozen integers and a top-ten list.
+        """
+        stmt = select(Finding).where(Finding.status.in_(FindingStatus.active_values()))
         if not scope.unrestricted:
             from netsecops.services.inventory import InventoryService
 
             visible = await InventoryService(self.session).visible_device_ids(scope)
             stmt = stmt.where(Finding.device_id.in_(visible))
-        return list((await self.session.execute(stmt)).all())
+        return stmt
 
     async def _executive_summary(self, scope: Scope) -> dict[str, Any]:
-        rows = await self._findings(scope)
+        """Counts and a worst-ten, computed by the database.
 
-        by_severity: dict[str, int] = dict.fromkeys(SEVERITY_ORDER, 0)
-        by_kind: dict[str, int] = {}
-        per_device: dict[str, dict[str, Any]] = {}
+        Every figure here is an aggregate. Doing them in SQL keeps the memory this holds
+        proportional to the *answer* — a dozen integers and ten rows — rather than to the
+        estate, which is what a summary should cost.
+        """
+        base = await self._active_findings(scope)
+        where = base.whereclause
 
-        for finding, device in rows:
-            by_severity[finding.severity] = by_severity.get(finding.severity, 0) + 1
-            by_kind[finding.kind] = by_kind.get(finding.kind, 0) + 1
-            entry = per_device.setdefault(
-                str(device.id),
-                {
-                    "device_id": str(device.id),
-                    "hostname": device.hostname,
-                    "mgmt_ip": str(device.mgmt_ip),
-                    "platform": device.platform,
-                    "criticality": device.criticality,
-                    "findings": 0,
-                    "critical": 0,
-                    "high": 0,
-                },
+        def aggregate(*columns: Any) -> Select[Any]:
+            stmt = select(*columns).select_from(Finding)
+            return stmt.where(where) if where is not None else stmt
+
+        severity_rows = (
+            await self.session.execute(
+                aggregate(Finding.severity, func.count().label("n")).group_by(Finding.severity)
             )
-            entry["findings"] += 1
-            if finding.severity in ("critical", "high"):
-                entry[finding.severity] += 1
+        ).all()
+        kind_rows = (
+            await self.session.execute(
+                aggregate(Finding.kind, func.count().label("n"))
+                .group_by(Finding.kind)
+                # Ordered so the report is reproducible. The Python version's ordering
+                # was whatever the scan returned, which differed between two reports
+                # over identical data.
+                .order_by(func.count().desc(), Finding.kind)
+            )
+        ).all()
 
-        # Worst first by Critical, then High, then total — the order an operator would
-        # work the list in, frozen so the report does not reshuffle on re-read.
-        ranked = sorted(
-            per_device.values(),
-            key=lambda d: (-d["critical"], -d["high"], -d["findings"], d["hostname"] or ""),
+        # Zero-filled in the canonical order first, so a severity with no findings is
+        # present and reads as none rather than as absent. A severity outside the
+        # canonical list still lands, on the end, rather than being dropped.
+        by_severity: dict[str, int] = dict.fromkeys(SEVERITY_ORDER, 0)
+        for severity, count in severity_rows:
+            by_severity[severity] = by_severity.get(severity, 0) + count
+        by_kind: dict[str, int] = {str(kind): int(count) for kind, count in kind_rows}
+
+        total_findings = sum(count for _, count in severity_rows)
+
+        assessed = int(
+            (
+                await self.session.execute(aggregate(func.count(func.distinct(Finding.device_id))))
+            ).scalar_one()
         )
+
+        critical = func.count().filter(Finding.severity == "critical")
+        high = func.count().filter(Finding.severity == "high")
+        # Worst first by Critical, then High, then total — the order an operator would
+        # work the list in, frozen so the report does not reshuffle on re-read. Ten rows
+        # come back rather than every device in the estate.
+        worst = (
+            await self.session.execute(
+                aggregate(
+                    Device.id,
+                    Device.hostname,
+                    Device.mgmt_ip,
+                    Device.platform,
+                    Device.criticality,
+                    func.count().label("findings"),
+                    critical.label("critical"),
+                    high.label("high"),
+                )
+                .join(Device, Device.id == Finding.device_id)
+                .group_by(Device.id)
+                .order_by(
+                    critical.desc(),
+                    high.desc(),
+                    func.count().desc(),
+                    func.coalesce(Device.hostname, ""),
+                )
+                .limit(10)
+            )
+        ).all()
 
         total_devices = int(
             (await self.session.execute(select(func.count()).select_from(Device))).scalar_one()
         )
-        assessed = len(per_device)
 
         return {
             "totals": {
-                "findings": len(rows),
+                "findings": total_findings,
                 "devices_with_findings": assessed,
                 "devices_total": total_devices,
                 # Not "devices that are clean". A device with no findings may never
@@ -422,7 +463,19 @@ class ReportingService:
             },
             "by_severity": by_severity,
             "by_kind": by_kind,
-            "top_devices": ranked[:10],
+            "top_devices": [
+                {
+                    "device_id": str(row.id),
+                    "hostname": row.hostname,
+                    "mgmt_ip": str(row.mgmt_ip),
+                    "platform": row.platform,
+                    "criticality": row.criticality,
+                    "findings": row.findings,
+                    "critical": row.critical,
+                    "high": row.high,
+                }
+                for row in worst
+            ],
         }
 
     async def _exceptions_register(self, scope: Scope) -> dict[str, Any]:
