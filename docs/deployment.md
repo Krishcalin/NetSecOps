@@ -53,6 +53,15 @@ library, path analysis, the vulnerability engine, the API and the report generat
 identically at 20 devices and at 2,000. Worth stating because it is not the norm in this
 category — see [commercial.md](commercial.md).
 
+**What holds memory, and what does not.** Every list endpoint is capped — 200 rows for
+most, 500 for the audit log, topology and notifications — and the services behind them
+join rather than fetching a row per result, so a page costs a bounded number of queries
+whatever the estate size. The one route that may return far more is the audit log export,
+capped at 100,000 rows; it streams from the database in chunks rather than assembling the
+file in memory, so a large export costs tens of kilobytes rather than the whole result set
+and the finished CSV at once. That is worth knowing if you script it: concurrent exports
+add their transaction, not their file.
+
 **Database growth** is driven by artefacts and snapshots, not by findings. A 500-device
 estate collecting daily with 90-day artefact retention lands in the low tens of GB.
 Identical configurations are stored once, so a stable estate grows far more slowly than

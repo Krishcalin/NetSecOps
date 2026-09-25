@@ -20,6 +20,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -78,20 +79,25 @@ class TopologyService:
             .all()
         )
 
-        nodes: list[DeviceNode] = []
-        for device in devices:
-            snapshot = (
-                await self.session.execute(
-                    select(Snapshot)
-                    .where(Snapshot.device_id == device.id)
-                    .order_by(Snapshot.created_at.desc())
-                    .limit(1)
-                )
-            ).scalar_one_or_none()
+        # The latest snapshot per device, in one query and without its configuration.
+        #
+        # This was a query per device inside the loop, each fetching a whole `Snapshot`.
+        # On the 2,000-device tier this product publishes sizing for, that is 2,001 round
+        # trips, and each row drags `config_redacted` — the entire running configuration,
+        # tens to hundreds of kilobytes — which nothing below reads. The graph needs two
+        # columns: the snapshot's id and its NCM.
+        #
+        # `DISTINCT ON` is PostgreSQL-specific and this product requires PostgreSQL 16
+        # (SRS §7), so the portable-but-slower alternatives are not worth their cost.
+        latest = (
+            select(Snapshot.device_id, Snapshot.id, Snapshot.ncm)
+            .where(Snapshot.device_id.in_([device.id for device in devices]))
+            .distinct(Snapshot.device_id)
+            .order_by(Snapshot.device_id, Snapshot.created_at.desc())
+        )
+        snapshots = {row.device_id: (row.id, row.ncm) for row in await self.session.execute(latest)}
 
-            nodes.append(_node_from(device, snapshot))
-
-        return nodes
+        return [_node_from(device, *snapshots.get(device.id, (None, None))) for device in devices]
 
     async def summary(self) -> GraphSummary:
         graph = await self.graph()
@@ -142,8 +148,14 @@ class TopologyService:
         return missing_devices(await self.graph(), limit=limit)
 
 
-def _node_from(device: Device, snapshot: Snapshot | None) -> DeviceNode:
+def _node_from(
+    device: Device, snapshot_id: uuid.UUID | None, snapshot_ncm: dict[str, Any] | None
+) -> DeviceNode:
     """One device's node, from its latest snapshot.
+
+    Takes the two fields it uses rather than a `Snapshot`, so the caller can select them
+    instead of loading whole rows — the configuration text on a snapshot is the largest
+    column in the schema and nothing here reads it.
 
     A device with no snapshot still becomes a node. It has no routes and no rulebase, so
     it contributes nothing to a path — but it *is* in the inventory, which means its
@@ -151,7 +163,7 @@ def _node_from(device: Device, snapshot: Snapshot | None) -> DeviceNode:
     out entirely would make it invisible to the missing-device report, which is exactly
     the report that should be pointing at it.
     """
-    ncm = (snapshot.ncm or {}) if snapshot else {}
+    ncm = snapshot_ncm or {}
     routing = ncm.get("routing") or {}
     firewall = ncm.get("firewall") or {}
 
@@ -160,8 +172,11 @@ def _node_from(device: Device, snapshot: Snapshot | None) -> DeviceNode:
         hostname=device.hostname or str(device.mgmt_ip),
         platform=device.platform,
         vendor=device.vendor,
-        snapshot_id=snapshot.id if snapshot else None,
-        ncm_version=ncm.get("ncm_version") if snapshot else None,
+        snapshot_id=snapshot_id,
+        # Keyed off the snapshot existing, not off the NCM carrying a version: a
+        # snapshot predating NCM 1.1 has no `ncm_version`, and reporting None for it is
+        # what tells the path walker "never looked" rather than "no routes".
+        ncm_version=ncm.get("ncm_version") if snapshot_id else None,
         routes=[Route.model_validate(row) for row in routing.get("routes") or []],
         routes_truncated=bool(routing.get("routes_truncated")),
         has_rulebase=bool(firewall.get("security_rules")),

@@ -181,3 +181,39 @@ class TestExport:
         lines = response.text.strip().splitlines()
         assert lines[0].startswith("id,ts,actor_username,action")
         assert "alice" in lines[1]
+
+    async def test_it_streams_across_chunk_boundaries_without_losing_a_row(
+        self, auditor_client: AsyncClient, session: AsyncSession, monkeypatch
+    ) -> None:
+        """The export is chunked, so the boundaries are where rows get lost or doubled.
+
+        This route was declared a `StreamingResponse` and did not stream: it loaded every
+        row with `.all()`, wrote the whole CSV into a `StringIO` and returned
+        `iter([buffer.getvalue()])` — one element holding the entire export. At its
+        100,000-row ceiling that is the result set and the finished file resident at
+        once, on a deployment whose smallest supported tier has 4 GB.
+
+        Flushing in chunks fixes that and introduces its own failure: a buffer reset that
+        is wrong by one drops a row at every boundary, or repeats the header. The chunk
+        size is turned down rather than the row count up, so the same boundaries are
+        crossed several times without seeding thousands of hash-chained records.
+        """
+        from netsecops.api.v1 import audit as audit_api
+
+        monkeypatch.setattr(audit_api, "_EXPORT_CHUNK", 3)
+
+        service = AuditService(session)
+        for index in range(10):
+            await service.record(AuditAction.LOGIN_SUCCESS, actor_username=f"user{index:02d}")
+        await session.flush()
+
+        response = await auditor_client.get("/api/v1/audit-log/export?limit=100")
+
+        assert response.status_code == 200
+        lines = response.text.strip().splitlines()
+
+        # One header, then every record exactly once and in order.
+        assert lines.count(",".join(audit_api._EXPORT_COLUMNS)) == 1
+        exported = [line for line in lines[1:] if "user" in line]
+        assert len(exported) == 10
+        assert [f"user{index:02d}" in line for index, line in enumerate(exported)] == [True] * 10

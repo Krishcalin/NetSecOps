@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
 from typing import Annotated
 
@@ -22,6 +23,11 @@ from netsecops.schemas.audit import (
 )
 
 router = APIRouter(prefix="/audit-log", tags=["audit"])
+
+#: Rows buffered before a chunk is flushed to the client. Large enough that the per-chunk
+#: overhead is irrelevant, small enough that the memory held is a few tens of kilobytes
+#: rather than the whole export.
+_EXPORT_CHUNK = 500
 
 _EXPORT_COLUMNS = [
     "id",
@@ -126,28 +132,50 @@ async def export_audit_log(
     until: datetime | None = None,
     limit: Annotated[int, Query(ge=1, le=100_000)] = 10_000,
 ) -> StreamingResponse:
-    rows = (
-        (
-            await session.execute(
-                _filtered(action, None, None, None, since, until)
-                .order_by(AuditLog.id.asc())
-                .limit(limit)
-            )
-        )
-        .scalars()
-        .all()
+    # Columns, not entities. The export writes ten fields; hydrating whole `AuditLog`
+    # objects to read ten attributes off each costs the identity map and the full row
+    # — `details` included, which is the large one — for a hundred thousand rows.
+    columns = [getattr(AuditLog, name) for name in _EXPORT_COLUMNS]
+    statement = (
+        _filtered(action, None, None, None, since, until)
+        .with_only_columns(*columns)
+        .order_by(AuditLog.id.asc())
+        .limit(limit)
     )
 
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(_EXPORT_COLUMNS)
-    for row in rows:
-        writer.writerow([getattr(row, column) for column in _EXPORT_COLUMNS])
-    buffer.seek(0)
+    async def rows() -> AsyncIterator[str]:
+        """Yield the CSV a chunk at a time.
+
+        This route has always been declared a `StreamingResponse` and did not stream: it
+        loaded every row with `.all()`, wrote the whole file into a `StringIO`, and
+        handed back `iter([buffer.getvalue()])` — a one-element iterator holding the
+        entire export. At the 100,000-row ceiling that is the result set and the
+        finished CSV both resident at once, on a deployment whose smallest supported
+        tier has 4 GB, and an operator pressing Export twice doubles it.
+
+        Rows are streamed from the database and flushed every `_EXPORT_CHUNK`, so the
+        memory held is one chunk rather than the whole export.
+        """
+        buffer = io.StringIO()
+        writer = csv.writer(buffer)
+        writer.writerow(_EXPORT_COLUMNS)
+
+        pending = 0
+        async for row in await session.stream(statement):
+            writer.writerow(list(row))
+            pending += 1
+            if pending >= _EXPORT_CHUNK:
+                yield buffer.getvalue()
+                buffer.seek(0)
+                buffer.truncate(0)
+                pending = 0
+
+        if remainder := buffer.getvalue():
+            yield remainder
 
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return StreamingResponse(
-        iter([buffer.getvalue()]),
+        rows(),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="netsecops_audit_{stamp}.csv"'},
     )
