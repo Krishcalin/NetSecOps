@@ -87,6 +87,10 @@ class CollectionRead(BaseModel):
     #: that needed the missing output report "Not evaluated" rather than passing.
     partial: bool
     error_message: str | None
+    #: When retention removed this collection's artefacts (FR-ADM-01), or None if they
+    #: are still here. Carried so an evidence view can say "removed on 3 May" instead of
+    #: "this collection recorded no commands", which would read as a collector defect.
+    artifacts_purged_at: datetime | None
     created_at: datetime
 
 

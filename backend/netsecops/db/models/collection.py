@@ -122,6 +122,19 @@ class Collection(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     )
     error_message: Mapped[str | None] = mapped_column(Text)
 
+    #: When retention removed this collection's artefacts (FR-ADM-01).
+    #:
+    #: The collection row itself is kept forever: it records that a session happened, to
+    #: which device, with which adapter, how long it took and whether it was partial —
+    #: metadata an auditor may need long after the command output stops being useful, and
+    #: a few hundred bytes against the megabytes the artefacts hold.
+    #:
+    #: It exists because the alternative is worse than losing the data. An evidence view
+    #: over a collection with no artefacts cannot otherwise tell "purged by retention"
+    #: from "this collection issued no commands", and the second reads as a defect in the
+    #: collector. Null means the artefacts are still here.
+    artifacts_purged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
     artifacts: Mapped[list[Artifact]] = relationship(
         back_populates="collection", cascade="all, delete-orphan"
     )

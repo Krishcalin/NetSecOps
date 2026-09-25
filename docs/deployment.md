@@ -63,12 +63,34 @@ and the finished CSV at once. That is worth knowing if you script it: concurrent
 add their transaction, not their file.
 
 **Database growth** is driven by artefacts and snapshots, not by findings. A 500-device
-estate collecting daily with 90-day artefact retention lands in the low tens of GB.
+estate collecting daily with a 90-day artefact window lands in the low tens of GB.
 Identical configurations are stored once, so a stable estate grows far more slowly than
 device-count × days suggests, and an estate under active change grows faster — the figure
-above is an order of magnitude, not a measurement of your estate. Tune retention in
-Administration → Settings (FR-ADM-01); findings history and the audit log are never
-purged (DATA-02).
+above is an order of magnitude, not a measurement of your estate.
+
+**Artefact retention is off until you set it, and that figure assumes you have.** With no
+window configured, artefacts accumulate for the life of the deployment and the estimate
+above does not hold. It is off by default on purpose: this is the only thing in the
+product that deletes collected evidence, and switching it on for an operator who never
+asked — who may be under a retention obligation they never told us about — is not a
+default worth having.
+
+```
+retention.artifact_days = 90        # Administration → Settings (FR-ADM-01)
+```
+
+A nightly `retention` job then removes the *payloads* of artefacts older than the window.
+The collection row itself is kept forever — which device, which adapter, how long, whether
+it was partial — because that is a few hundred bytes and it is what an auditor asking "was
+this device collected from in March" is actually asking about. The evidence view says
+"removed by retention on <date>" rather than showing an empty command list, since an empty
+list would read as a collector that issued nothing.
+
+**Snapshots, findings and the audit log are never purged** (DATA-02). For snapshots that is
+a foreign key rather than a policy: `check_results.snapshot_id` cascades, so deleting a
+snapshot would delete the assessment history behind every finding it produced. The audit
+log could not be purged here even deliberately — revision 0002 makes it append-only with a
+trigger.
 
 ---
 

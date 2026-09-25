@@ -44,6 +44,10 @@ class JobType(StrEnum):
     #: Generate a report, optionally e-mail it, and retire expired ones (FR-RPT-04).
     #: Device-less: a report is assembled from stored evidence and touches nothing.
     REPORT = "report"
+    #: Apply the artefact retention window (FR-ADM-01). Device-less, and the only job
+    #: type that deletes anything — which is why it is a job at all rather than a cron
+    #: entry calling SQL: it produces an audited run record saying what it removed.
+    RETENTION = "retention"
 
 
 class JobStatus(StrEnum):

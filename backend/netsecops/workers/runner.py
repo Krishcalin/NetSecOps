@@ -158,6 +158,9 @@ async def execute_job(
     if JobType(job.job_type) is JobType.REPORT:
         return await _run_report(session, job, jobs)
 
+    if JobType(job.job_type) is JobType.RETENTION:
+        return await _run_retention(session, job, jobs)
+
     while True:
         # A cancel is honoured between devices, never mid-session (FR-JOB-03).
         await session.refresh(job)
@@ -590,6 +593,42 @@ async def _run_report(session: AsyncSession, job: Job, jobs: JobService) -> Job:
         report_id=str(report.id),
         delivered_to=delivered_to,
         retired=retired,
+    )
+    return completed
+
+
+async def _run_retention(session: AsyncSession, job: Job, jobs: JobService) -> Job:
+    """Apply the artefact retention window (FR-ADM-01).
+
+    A job rather than a cron entry running SQL, because this is the only thing in the
+    product that deletes collected evidence. It leaves a run record saying what window
+    applied and how much went, which is what an operator asked "where did last quarter's
+    output go?" needs to be able to read back.
+
+    Succeeds when retention is switched off. Nothing to remove is the correct outcome of
+    a policy that says remove nothing, and reporting it as a failure would train somebody
+    to ignore a failing nightly job.
+    """
+    from netsecops.services.retention import RetentionService
+
+    outcome = await RetentionService(session, org_id=job.org_id).purge_artifacts()
+
+    completed = await jobs.complete(job)
+    completed.stats = {
+        **completed.stats,
+        "retention_enabled": outcome.enabled,
+        "window_days": outcome.window_days or 0,
+        "collections_purged": outcome.collections_purged,
+        "artifacts_removed": outcome.artifacts_removed,
+        "more_remaining": outcome.more_remaining,
+    }
+    await session.flush()
+
+    log.info(
+        "job.finished",
+        job_id=str(job.id),
+        status=completed.status,
+        summary=outcome.describe(),
     )
     return completed
 
