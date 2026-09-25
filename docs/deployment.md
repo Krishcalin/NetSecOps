@@ -223,6 +223,24 @@ applies the migration and the rest wait, then find nothing to do.
 Roll back by deploying the previous image tag. Alembic downgrades exist but are a last
 resort — restore from backup if a migration has already transformed data.
 
+**The upgrade path is tested against a database that already holds rows**
+(`backend/tests/test_migration_upgrade.py`). That is a different test from the one every
+other suite performs: they build the schema from empty on each run, which exercises a
+fresh install thoroughly and an upgrade not at all. The failures that matter here are
+invisible against no rows — a NOT NULL column added without a server default, an index
+made unique over data that already violates it, a backfill assuming a shape the old rows
+do not have.
+
+The test creates its own database, migrates it to revision 0009, writes devices,
+discovery scopes, runs and feed syncs, then upgrades to head and checks the rows are
+still there and the columns added after 0009 came out populated. It also checks the
+`audit_log` append-only triggers survived, because Alembic owns those and SQLAlchemy's
+metadata does not describe them.
+
+It is verified to fail: removing the server default from `discovery_runs.notes` in
+revision 0010 produces `column "notes" contains null values` — the real upgrade failure —
+while the rest of the suite stays green, which is precisely the gap it closes.
+
 ---
 
 ## Database roles (SEC-06)

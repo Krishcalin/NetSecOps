@@ -175,6 +175,10 @@ markers = [
     "authz: role × endpoint authorization matrix tests (TEST-06)",
     "integration: requires a live PostgreSQL instance",
     "performance: load tests for NFR-PERF-01 and ADR-001; excluded from the default run",
+    # Runs by default, unlike `performance`. It creates and drops its own database, so it
+    # does not contend with the shared one, and an upgrade test nobody runs protects
+    # nobody — the operation it covers is the one every deployment eventually performs.
+    "migration: applies the migration chain to a database that already holds rows",
 ]
 
 [tool.coverage.run]
