@@ -111,9 +111,13 @@ class TestExecutiveSummaryCost:
     ) -> None:
         """A count does not need the row.
 
-        `evidence` and `details` are JSONB and are the bulk of a finding. Selecting them
-        to discard them is most of what made this expensive, and it is invisible in a
-        test that only checks the numbers come out right.
+        `evidence` is JSONB and `description` and `remediation` are unbounded text; they
+        are the bulk of a finding. Selecting them to discard them is most of what made
+        this expensive, and it is invisible in a test that only checks the numbers.
+
+        The columns are named individually rather than by a blanket `SELECT findings.*`
+        check, and they are named from the model: an earlier draft asserted on
+        `findings.details`, which is not a column, so it could never have failed.
         """
         await device_with_findings(session, principal, number=10, findings=4)
 
@@ -121,8 +125,8 @@ class TestExecutiveSummaryCost:
             await ReportingService(session)._executive_summary(Scope.all())
 
         issued = " ".join(statements).lower()
-        assert "findings.evidence" not in issued
-        assert "findings.details" not in issued
+        for column in ("findings.evidence", "findings.description", "findings.remediation"):
+            assert column not in issued, f"the summary fetched {column} to count rows"
 
     async def test_the_numbers_are_still_right(
         self, session: AsyncSession, principal: Principal
