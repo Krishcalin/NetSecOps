@@ -763,29 +763,44 @@ interface name. All three are fixture-tested, and the operational table supersed
 configuration's statics rather than adding to them, since the device's own table already
 contains them.
 
-**Check Point and PAN-OS had no routing table at all, and now have one over SNMP.** The
-five platforms above reach their tables over the CLI. The two that do not have a route
-command in their collection profile are firewalls — which is to say the devices a path
-most often crosses, and the ones whose absence costs most: a path arriving at a PAN-OS
-firewall could say what it *permits* and not where it would *send* anything. A device
-with an SNMPv2c community assigned is now walked for `ipCidrRouteTable` after its
-collection, and those routes merge into the same `routing.routes` the parsers fill.
+**Check Point and PAN-OS have no routing table, and the SNMP walk built to give them one
+does not work.** This is recorded rather than quietly fixed, because the way it went
+wrong is more instructive than the feature was.
 
-This needed no change to any allow-list. [SRS §8](docs/SRS.md) already permits "SNMP
-v2c/v3 GET only (discovery/fingerprint & optional inventory), never SET", and the
-guarantee here is structural rather than checked: `netsecops/snmp/codec.py` has no
-encoder for a SET PDU, and a test asserts the tag never appears in any packet it can
-produce. Nothing is guessed either — a device with no SNMP credential is simply not
-walked, the same rule that stops discovery trying `public`. Reject routes are excluded
-and counted, a truncated walk is recorded as truncated so a path falling off the end
-resolves *unknown* rather than *unreachable*, and a failed walk costs a note rather than
-the snapshot.
+The reasoning was: five platforms reach their routing tables over the CLI, Check Point
+and PAN-OS have no route command in their collection profile, so read the table over
+SNMP instead. `netsecops/snmp/` walks `ipCidrRouteTable` (RFC 2096) and merges what it
+finds into the same `routing.routes` the parsers fill. It is carefully built — the codec
+has no encoder for a SET PDU at all, reject routes are excluded and counted, a truncated
+walk is recorded as truncated, and a failed walk costs a note rather than the snapshot.
 
-> **Not yet verified against real hardware.** The walk is tested against a fake agent
-> that speaks real BER, but whether Check Point Gaia and PAN-OS populate
-> `ipCidrRouteTable` — as opposed to only the older `ipRouteTable`, or neither — is a
-> claim about vendor firmware that only a device can settle. It is part of what
-> [TEST-08](#where-the-project-stands) is waiting on.
+Both halves of the premise were wrong, and neither was checked first.
+
+**The platforms do have route commands.** Gaia's `show route` is on the `checkpoint_gaia`
+allow-list in [`policies.py`](backend/netsecops/adapters/policies.py) and was simply never
+added to the collection profile — approved, permitted, never issued. PAN-OS answers
+`<show><routing><route/></routing></show>`, which the read-only guard already permits
+because it begins with `<show>`. The gap the feature exists to fill was two lines of
+configuration in a profile.
+
+**And the MIB is not there anyway.** Palo Alto's documentation states that PAN-OS
+"currently support[s] only the ipAddressTable and ipAddrTable in IP-MIB" — neither route
+table, in any version. Check Point does not document standard-MIB routing at all; sk90860
+puts the routing table under the enterprise tree at `.1.3.6.1.4.1.2620.1.6.6`, so the
+standard OID this walks was never the right one for Gaia either. For the record, of the
+platforms checked only IOS, IOS-XE and IOS-XR populate `ipCidrRouteTable` — and all three
+already collect routes over the CLI. FortiOS carries only the legacy `ipRouteTable`, ASA
+exposes a route *count* and nothing more, and NX-OS has neither. The comment in
+`routes.py` calling it "the table every mainstream platform still populates" was an
+assertion, not a finding, and it is false.
+
+The walk is also IPv4-only by construction (RFC 2096 types the index as `IpAddress`) and
+reads only the default SNMP context, so per-VRF routes would be silently absent — two
+more complete-looking partial answers in a feature written to prevent exactly that.
+
+The fix is to issue the two route commands and retire the walk. What is worth keeping is
+the BER codec unification: discovery and collection now share one SNMP implementation
+instead of two, which was a real improvement independent of the walk.
 
 **A path can now be traced across devices, and the answer has two axes.** Give it a
 source, a destination, a protocol and a port, and it finds the devices in between and asks
@@ -1165,6 +1180,7 @@ and deletes it afterwards, so it never alters the account it signs in with.
 | [docs/deployment.md](docs/deployment.md) | Deployment, sizing, backup and key management |
 | [docs/api-reachability.md](docs/api-reachability.md) | Which API operations the console can reach, and which need a surface |
 | [docs/parser-validation.md](docs/parser-validation.md) | Measuring the parsers against configurations we did not write, and what that found |
+| [docs/vendor-research.md](docs/vendor-research.md) | What Cisco, Palo Alto, Fortinet and Check Point's own documentation says we are missing |
 | [docs/adr/](docs/adr/) | Architecture decision records |
 
 The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at

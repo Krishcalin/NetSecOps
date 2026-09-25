@@ -32,7 +32,7 @@ looking like the same thing.
 
 ## If you change one
 
-The figures assert numbers — 103 checks, thirteen platforms, 283 conformance assertions,
+The figures assert numbers — 104 checks, thirteen platforms, 283 conformance assertions,
 the sizing tiers. Those are claims, and stale claims in a picture are worse than stale
 claims in prose because nobody greps a PNG. When a count moves, update the script and
 re-render in the same commit.

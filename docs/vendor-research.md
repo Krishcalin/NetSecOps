@@ -1,0 +1,232 @@
+# What the vendors' own documentation says we are missing
+
+Research conducted September 2026 against the public documentation of Cisco, Palo Alto
+Networks, Fortinet and Check Point, scoped deliberately to **read-only** capability —
+nothing here proposes configuration push, and several candidate commands were rejected
+during the research for having side effects.
+
+Two things to know before reading it.
+
+**Everything here needs verifying before it is built.** Two independent passes over the
+same Cisco MIB support lists reached opposite conclusions about which routing table NX-OS
+implements. A follow-up pass on FortiOS found that four setting names an earlier pass had
+recommended parsing do not exist in FortiOS 7.x at all — a parser built on them would have
+silently never fired, which is the failure mode this codebase spends most of its effort
+avoiding. Treat the sources as the authority and this page as a map to them.
+
+**The most valuable findings were about our own code**, not about missing features. Three
+of them are recorded in the "already wrong" section first, because a capability that is
+broken outranks one that is absent.
+
+---
+
+## Already wrong, in priority order
+
+### 1. The Management API login can be read-only, and is not
+
+Check Point's `login` command accepts `read-only: true`. A read-only session **cannot
+acquire object locks and cannot publish** — the management server enforces it.
+
+Today the Check Point read-only guarantee rests entirely on our own client-side
+`_checkpoint_show_only` predicate. One field in the login body moves it from *"we check
+ourselves"* to *"the appliance refuses us"*. It is the best ratio of effort to assurance
+found anywhere in this research, and it strengthens the claim the whole product rests on.
+
+`adapters/http_transport.py`, in the Check Point login body.
+
+### 2. Four approved Gaia commands are never issued
+
+`show route`, `show aaa <subject>`, `show syslog all` and `cpinfo -y all` are all on the
+`checkpoint_gaia` allow-list in `adapters/policies.py` and none appears in
+`CHECKPOINT_GAIA_PROFILE`. They are permitted and never sent.
+
+`show route` is the one that matters: it is why the SNMP route walk exists, and it makes
+it unnecessary. See the topology section of the [README](../README.md) for the full
+account.
+
+### 3. The Gaia password-policy parser matches parameters Gaia does not emit
+
+Documented in [parser-validation.md](parser-validation.md). Three NCM fields never
+populate on any Check Point device, and the fixture encodes the same invented syntax so
+the tests pass.
+
+### 4. Check Point rulebase requests are unparameterised
+
+`CollectionCommand.as_body()` sends `{"command": "<name>"}` and nothing else — no `layer`,
+`package`, `limit` or `offset`. `limit` is valid 1–500 with `offset` paging, so rulebases
+come back **truncated at the server default** and the 5,000-rule target in our own README
+is unreachable. `show-hits: true` is free and unused, and `SecurityRule.hit_count` already
+exists to receive it.
+
+Two traps if that is built: hit counting is a **global toggle**, so an estate with it
+disabled must report "hit counting is off" rather than "this rule is unused"; and
+`show-threat-rulebase` does not support `show-hits` at all.
+
+### 5. The deny-list blocks a command we want
+
+`adapters/readonly.py` denies `diagnose\s(?!sys|hardware)` and the deny-list runs *before*
+the allow-list, so `diagnose autoupdate versions` is rejected today. That command is the
+best single source of FortiGuard contract expiry and signature age, and Fortinet documents
+it as a view-only operation.
+
+---
+
+## Cisco
+
+**`openVuln` is materially better than CPE/NVD matching, and free.** Two independent
+research passes converged on this. `GET /security/advisories/v2/OSType/{type}?version=`
+returns a `firstFixed` array — the actual release strings that remediate an advisory for
+the release train asked about:
+
+```json
+"firstFixed": ["17.3.1w", "17.3.2a", "17.3.6", "17.3.4b", "17.3.5a"]
+```
+
+CPE ranges cannot express Cisco release-train semantics — rebuilds, lettered maintenance
+releases, SMUs — and NVD carries no fixed-version data at all.
+
+- OAuth2 client credentials, token from `id.cisco.com`, **free cisco.com account, no
+  service contract**. This is the key difference from the EoX and Bug APIs, which require
+  SNTC/PSS entitlement and cannot be self-registered.
+- Rate limit **30 calls/minute** is the binding constraint. Dedupe by version tuple, not
+  per device — a 5,000-device estate typically has under 100 distinct versions.
+- `firstFixed` is returned **only** by the version endpoints. A CVE-first design silently
+  loses the data that makes this worth doing.
+- No `OSType` value exists for **WLC AireOS or ISE**, so two of our six Cisco platforms
+  cannot use the precise endpoint.
+- `csaf_20.xml` is an unauthenticated RSS feed, usable as a cheap freshness trigger.
+
+**Hardening controls we do not check**, from Cisco's own IOS and NX-OS hardening guides.
+The highest-value are AAA **command authorization and accounting** (we verify servers
+exist, not that privileged commands are authorised against them or logged), **password
+hash type** (type 7 is reversible and type 5 is MD5; configs are exfiltrated far more often
+than devices are owned interactively), **login lockout and login logging**, **config-change
+logging and archive**, and **`secure boot-image` / `secure boot-config`**. Also CoPP,
+uRPF, SNMP view restriction, management-plane protection and `transport output`, and the
+L2 access-layer set — DHCP snooping, dynamic ARP inspection, IP source guard, BPDU guard,
+port security.
+
+---
+
+## Palo Alto Networks
+
+**PAN-OS is our most under-checked platform: 6 checks against Cisco's 37.**
+
+**Rule hygiene is free.** `SecurityRule.profiles`, `log_end` and `applications` are parsed
+today and **read by no check**. An allow rule with no security profile group passes every
+shadow, redundancy and any-any analysis we have while permitting traffic with zero
+inspection. Roughly six YAML checks against fields already in the NCM, with no parser work.
+
+**Security profile contents are never parsed**, so a profile that alerts cannot be
+distinguished from one that blocks. Palo Alto's Best Practice Assessment is almost entirely
+about action values, not profile presence.
+
+**Content currency is free too.** `show system info` is already collected and
+`_parse_system_info` keeps three fields from it, discarding `threat-release-date`,
+`av-release-date`, `app-release-date` and the rest. A firewall on current PAN-OS with
+six-month-old threat content is materially unprotected and nothing would say so.
+
+**The PSIRT feed premise in `vuln/fetch.py` is out of date.** It defers Palo Alto's feed as
+"per-advisory URLs that have to be walked from an index"; `security.paloaltonetworks.com/json`
+now returns the corpus unauthenticated with affected/fixed ranges. The API is marked Beta —
+treat it as a feed source with a schema guard.
+
+**Do not build a `set`-format parser.** The API only ever returns XML, and Palo Alto's own
+BPA consumes a Tech Support File, which contains the XML configuration with secrets already
+stripped. That is the better offline path.
+
+Also absent: decryption posture (a firewall with no decryption rules inspects almost
+nothing on a modern gateway), zone and DoS protection, and the two implicit
+`default-security-rules` which ship with logging disabled.
+
+---
+
+## Fortinet
+
+**Certificate inspection silently defeats AV and IPS.** Fortinet states it plainly: cert-only
+inspection cannot see payload. A policy carrying an AV profile, an IPS sensor *and*
+`ssl-ssh-profile certificate-inspection` scores perfectly against our current checks while
+inspecting nothing inside HTTPS. We already hold the policy-to-profile map; this is a check
+against data we have.
+
+**SSL-VPN posture is unassessed, and it gates our CVE accuracy.** Every mass-exploited
+FortiGate CVE — 2018-13379, 2022-42475, 2023-27997, 2024-21762 — requires SSL-VPN enabled,
+and Fortinet's advisories say so explicitly. We match on version alone and do not parse
+`config vpn ssl settings`, so we over-report. Parsing it both raises confidence on genuine
+exposure and removes false positives.
+
+**UTM profile bodies are not parsed** — IPS sensors in monitor mode, profiles defined and
+referenced by no policy, unmodified shipped defaults are all invisible.
+
+**FortiManager is used for inventory only.** `conf_status` (`outofsync` = changed directly
+on the firewall, out of band) and `db_status` (`mod` = staged in FortiManager, never
+pushed) grade an estate of hundreds of FortiGates with **zero contact with production
+devices**.
+
+Note that several settings recommended in a first research pass do **not exist** in FortiOS
+7.x — `config system settings / set inspection-mode` (it is per-policy), the antivirus
+`set options` enum, and `set fortiai` (renamed `set fortindr`). Verify against the CLI
+reference for the target version before writing a parser.
+
+---
+
+## Check Point
+
+**Threat Prevention is the largest gap.** Our only signal is a boolean from
+`show-gateways-and-servers`. A gateway can have the IPS blade on, a threat rule in place,
+and prevent nothing — the profile can sit in Detect, severity and performance filters can
+exclude most protections, newly-updated protections can be parked in `staging`, and
+individual protections can be overridden to Inactive. The check passes in every one of
+those cases. `show-threat-profiles` exposes all of it.
+
+**Global properties are invisible.** `show-global-properties` governs every gateway the
+management server owns, including implied rules — which permit traffic that never appears
+in the rulebase we analyse, and whose logging is **disabled by default**. A rulebase report
+today describes a policy the gateway does not actually enforce.
+
+**Jumbo Hotfix take is never collected**, although `vuln/versions.py` already parses a Take
+number in its GAIA version scheme. Check Point advisories express fixes as a Take, not a
+version — sk182336 for CVE-2024-24919 names Take 65 / 150 / 99 for R81.20 / R81.10 / R81.
+Without one we cannot distinguish a patched gateway from a vulnerable one.
+`show installer packages installed` reads it from clish, no expert mode.
+
+**Gaia SSH crypto is not parsed**, so three existing `ssh-weak-*` checks are permanently
+*Not evaluated* on every Check Point device.
+
+**Check Point publishes no CSAF.** `/.well-known/csaf/provider-metadata.json` returns 404
+on both checkpoint.com and support.checkpoint.com. They are a CNA, so CVE records reach
+NVD — that is the realistic machine-readable route. Note the trap: their CNA-declared
+advisory URL redirects to the IPS protections archive for *third-party* products, which is
+the wrong dataset entirely.
+
+**Multi-Domain has a silent-emptiness trap.** Check Point documents that an unset domain
+defaults to "System Data", which holds no customer policy. Pointing NetSecOps at an MDS
+without a domain yields a successful login, a successful-looking collection and an empty
+rulebase. `show-domains` enumerates the real ones.
+
+**The API reference is machine-readable.** `sc1.checkpoint.com/documents/latest/APIs/data/v2.2/dynamic/apis.json`
+carries every command with full request and reply schemas — 445 `show-*` operations in
+v2.2 against 245 in v1.9. The operation catalogue could be generated as data rather than
+hand-maintained. Do not hard-code an API-version-to-release mapping; call
+`show-api-versions` at session start and gate on what the server advertises.
+
+---
+
+## Read-only: what was rejected during this research
+
+Recorded because the reasoning is the valuable part, and because each of these reads like a
+safe operation.
+
+| Operation | Why it was rejected |
+|---|---|
+| `get-interfaces` (Check Point) | Fetches topology from the gateway and can **update the object**. The most read-like name in the set — the specific reason the guard predicate is `show-` only and not `get-`. |
+| `/dvm/cmd/reload/dev-list` (FortiManager) | Documented under "how to retrieve config", actually **overwrites** FortiManager's device database and creates a revision. |
+| `diagnose autoupdate downloadtest` (FortiOS) | Appears in no Fortinet documentation. Undocumented means no safety guarantee. |
+| `diagnose debug rating` (FortiOS) | Contacts FortiGuard servers and exposes a resettable counter store. |
+| `compliance-scan` (Check Point) | Triggers a scan. Correctly refused already — it does not begin with `show-`. |
+| `diag report-runner trigger` (FortiOS) | `trigger` is an action verb. |
+| Cisco Software Checker web tool | No supported API; scraping a JS-rendered page is not an interface. Use openVuln, which is the same backend. |
+
+Our existing guards already refuse every one of these. That is worth recording as
+**validated rather than assumed** — it was checked against the enumerated operation lists,
+not inferred.

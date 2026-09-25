@@ -156,8 +156,40 @@ AUX stanzas to the hardened and weak IOS fixtures; the same mutation now fails a
 all five lost fields. A capability with no fixture is invisible here exactly as it is
 everywhere else, which is what the outside corpus is for.
 
+## The platforms with no corpus, and what that cost
+
+The table above covers five platforms. **Check Point, Cisco WLC, Cisco ISE,
+FortiAuthenticator, FortiManager, FreeRADIUS and tac_plus have no outside corpus at all**
+— their parsers have only ever seen configurations we wrote ourselves.
+
+That is not a theoretical gap. Vendor-documentation research in September 2026 found that
+`parsers/checkpoint/gaia.py` matches password-policy parameters Gaia does not emit:
+
+| Parser looks for | Gaia actually writes |
+|---|---|
+| `password-history-length` | `history-length` |
+| `password-expiration-days` | `password-expiration` (value may be the literal `never`) |
+| `deny-on-nonuse-enable` | `deny-on-nonuse enable` — and this is *dormant-account* lockout, not failed-login lockout, which is `deny-on-fail failures-allowed` |
+
+So `password_policy.history`, `max_age_days` and `lockout_threshold` are never populated
+on any Check Point device, and every check reading them reports *Not evaluated* across the
+entire estate.
+
+**The fixture encodes the same invented syntax**, which is why nothing caught it: the
+tests confirm the parser's assumptions rather than test them. This is the precise failure
+the baseline gate above cannot catch either, for the same reason it could not catch the
+missing AUX-line parsing — a field that has never been populated has nothing to regress
+from.
+
+One captured `show configuration` and one `show password-controls all` from a real R81.20
+gateway would have caught all of it, and remains the single highest-leverage artefact to
+obtain for this codebase.
+
 ## Re-running it
 
 Treat a fall in median coverage, or a field that stops being populated, the way you would
 treat a drop in test coverage. The field-fill table is the part to watch: it is the only
 one that distinguishes a check that passed from a check that never ran.
+
+And treat "this platform has no corpus" as a standing finding rather than a to-do. Every
+parser defect found so far surfaced from a configuration we did not write.
