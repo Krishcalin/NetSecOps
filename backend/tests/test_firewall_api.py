@@ -29,7 +29,7 @@ from netsecops.db.models import Device, User
 from netsecops.db.models.collection import Snapshot
 from netsecops.db.models.inventory import DeviceClass, Vendor
 from netsecops.services.inventory import InventoryService
-from tests.conftest import make_user
+from tests.conftest import make_group, make_user
 
 
 @pytest.fixture
@@ -614,3 +614,227 @@ class TestExport:
 
         assert len(rows) == 1
         assert rows[0]["name"] == "Partner RDP to web"
+
+
+# ─────────────────────── the estate-wide rule query ──────────────────────
+
+
+class TestSearchingTheWholeEstate:
+    """ "Every any-any-any rule in the estate" was previously unaskable.
+
+    Every firewall route was per-device, so the question meant opening each firewall in
+    turn and applying the same filter by hand — even though `any_any_any` was already an
+    issue key the analysis produced.
+
+    The two properties worth testing are the ones that make the answer trustworthy
+    rather than merely present: rules stay grouped and ordered per device, and devices
+    that could not be searched are named rather than dropped.
+    """
+
+    async def test_it_finds_the_rule_on_every_firewall_at_once(
+        self, client: AsyncClient, session: AsyncSession, seeded: Device, analyst_user: User
+    ) -> None:
+        principal = Principal(
+            id=analyst_user.id,
+            username=analyst_user.username,
+            roles=analyst_user.role_set,
+            scope=Scope.all(),
+        )
+        second = await InventoryService(session).create_device(
+            mgmt_ip="198.51.100.89",
+            actor=principal,
+            hostname="viewer-fw-02",
+            vendor=Vendor.PALOALTO,
+            platform="panos",
+            device_class=DeviceClass.FIREWALL,
+        )
+        # The headline case: one firewall in the estate carries a live any-any-any
+        # permit. The seeded firewall's only such rule is disabled, so exactly one
+        # device should match — which also proves a searched device that matches
+        # nothing is distinguishable from one that was never searched at all.
+        await snapshot_with(
+            session,
+            second,
+            ncm([rule(1, "Temporary full access", log_end=True)]),
+        )
+
+        body = (await client.get("/api/v1/firewall/rules?issue=any_any_any")).json()
+
+        matched = {row["hostname"] for row in body["devices"] if row["matched"]}
+        assert matched == {"viewer-fw-02"}
+        assert body["matched_total"] == 1
+
+        # The other firewall was read and simply has none, which is a different fact
+        # from not having been read.
+        other = next(r for r in body["devices"] if r["hostname"] == "viewer-fw-01")
+        assert other["not_searched"] is None
+        assert other["rules_total"] == len(RULES)
+        assert body["devices_searched"] == 2
+
+    async def test_rules_stay_in_evaluation_order_within_each_device(
+        self, client: AsyncClient, seeded: Device
+    ) -> None:
+        """Order is meaning. A rule is shadowed because of where it sits, so a merged,
+        severity-sorted estate table would destroy the fact that makes the finding true."""
+        body = (await client.get("/api/v1/firewall/rules")).json()
+
+        row = next(r for r in body["devices"] if r["hostname"] == "viewer-fw-01")
+        orders = [rule["order"] for rule in row["rules"]]
+        assert orders == sorted(orders)
+
+    async def test_a_device_with_no_snapshot_is_named_not_omitted(
+        self, client: AsyncClient, session: AsyncSession, seeded: Device, analyst_user: User
+    ) -> None:
+        """Otherwise "nothing in the estate matches" becomes a claim about devices
+        nobody read."""
+        principal = Principal(
+            id=analyst_user.id,
+            username=analyst_user.username,
+            roles=analyst_user.role_set,
+            scope=Scope.all(),
+        )
+        await InventoryService(session).create_device(
+            mgmt_ip="198.51.100.90",
+            actor=principal,
+            hostname="never-collected",
+            vendor=Vendor.PALOALTO,
+            platform="panos",
+            device_class=DeviceClass.FIREWALL,
+        )
+
+        body = (await client.get("/api/v1/firewall/rules")).json()
+
+        row = next(r for r in body["devices"] if r["hostname"] == "never-collected")
+        assert row["not_searched"]
+        assert "no configuration has been collected" in row["not_searched"].lower()
+        assert body["devices_not_searched"] == 1
+        assert any("could not be searched" in note for note in body["limitations"])
+
+    async def test_a_snapshot_with_no_rulebase_does_not_claim_the_device_is_clean(
+        self, client: AsyncClient, session: AsyncSession, seeded: Device, analyst_user: User
+    ) -> None:
+        """A switch and a firewall whose policy failed to parse produce an identical
+        empty block. The response says that rather than reporting zero matches."""
+        principal = Principal(
+            id=analyst_user.id,
+            username=analyst_user.username,
+            roles=analyst_user.role_set,
+            scope=Scope.all(),
+        )
+        switch = await InventoryService(session).create_device(
+            mgmt_ip="198.51.100.91",
+            actor=principal,
+            hostname="core-switch",
+            vendor=Vendor.CISCO,
+            platform="cisco_ios",
+            device_class=DeviceClass.SWITCH,
+        )
+        await snapshot_with(session, switch, {"device": {"hostname": "core-switch"}})
+
+        body = (await client.get("/api/v1/firewall/rules")).json()
+
+        row = next(r for r in body["devices"] if r["hostname"] == "core-switch")
+        assert row["matched"] == 0
+        assert row["not_searched"]
+        assert "could not be parsed" in row["not_searched"]
+
+    async def test_an_incomplete_rulebase_is_carried_up_as_a_limitation(
+        self, client: AsyncClient, session: AsyncSession, device: Device, analyst_user, authenticate
+    ) -> None:
+        """A device whose rulebase arrived short cannot support "no match here"."""
+        await snapshot_with(session, device, ncm(rules_not_retrieved=450))
+        authenticate(analyst_user)
+
+        body = (await client.get("/api/v1/firewall/rules")).json()
+
+        row = next(r for r in body["devices"] if r["hostname"] == "viewer-fw-01")
+        assert row["rules_not_retrieved"] == 450
+        assert any("never retrieved" in note for note in body["limitations"])
+
+    async def test_the_filter_narrows_the_estate_the_same_way_it_narrows_one_device(
+        self, client: AsyncClient, seeded: Device
+    ) -> None:
+        wide = (await client.get("/api/v1/firewall/rules")).json()
+        narrow = (await client.get("/api/v1/firewall/rules?action=deny")).json()
+
+        assert narrow["matched_total"] < wide["matched_total"]
+        for row in narrow["devices"]:
+            for rule_row in row["rules"]:
+                assert rule_row["action"].lower() in {"deny", "drop", "reject"}
+
+    async def test_it_says_when_it_did_not_look_at_the_whole_estate(
+        self, client: AsyncClient, session: AsyncSession, seeded: Device, analyst_user: User
+    ) -> None:
+        """The response must not present the first page as though it were the estate."""
+        principal = Principal(
+            id=analyst_user.id,
+            username=analyst_user.username,
+            roles=analyst_user.role_set,
+            scope=Scope.all(),
+        )
+        for n in range(2):
+            await InventoryService(session).create_device(
+                mgmt_ip=f"198.51.100.{100 + n}",
+                actor=principal,
+                hostname=f"extra-{n}",
+                vendor=Vendor.PALOALTO,
+                platform="panos",
+                device_class=DeviceClass.FIREWALL,
+            )
+
+        body = (await client.get("/api/v1/firewall/rules?limit=1")).json()
+
+        assert len(body["devices"]) == 1
+        assert any("not the whole estate" in note for note in body["limitations"])
+
+    async def test_the_estate_is_limited_to_the_callers_scope(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        seeded: Device,
+        analyst_user: User,
+        authenticate,
+    ) -> None:
+        """Every other firewall route names a device in its path, so the scope check sits
+        on that one device. This route names none: the caller asks about "the estate" and
+        the handler decides which devices that means. Nothing in the authorization matrix
+        can catch a regression here, because the permission is held either way — only the
+        query's scope filter keeps one tenant's rules out of another's answer.
+        """
+        principal = Principal(
+            id=analyst_user.id,
+            username=analyst_user.username,
+            roles=analyst_user.role_set,
+            scope=Scope.all(),
+        )
+        inventory = InventoryService(session)
+        mine = await make_group(session, name="estate-mine")
+        theirs = await make_group(session, name="estate-theirs")
+
+        for ip, hostname, group in (
+            ("198.51.100.91", "in-my-scope", mine),
+            ("198.51.100.92", "not-my-scope", theirs),
+        ):
+            device = await inventory.create_device(
+                mgmt_ip=ip,
+                actor=principal,
+                hostname=hostname,
+                vendor=Vendor.PALOALTO,
+                platform="panos",
+                device_class=DeviceClass.FIREWALL,
+                group_ids=[group.id],
+            )
+            # Both carry a live any-any-any rule, so if the filter leaked the other
+            # device it would arrive with a match rather than as an empty row.
+            await snapshot_with(session, device, ncm([rule(1, "Full access", log_end=True)]))
+
+        authenticate(
+            analyst_user, scope=Scope(unrestricted=False, device_group_ids=frozenset({mine.id}))
+        )
+        body = (await client.get("/api/v1/firewall/rules?issue=any_any_any")).json()
+
+        assert [row["hostname"] for row in body["devices"]] == ["in-my-scope"]
+        assert body["matched_total"] == 1
+        # And the count it reports against is the scoped one, so the response never
+        # says "1 of 2" about an estate the caller cannot see.
+        assert not any("not the whole estate" in note for note in body["limitations"])

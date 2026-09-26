@@ -331,6 +331,11 @@ MATRIX: list[Case] = [
     # could defend.
     Case("GET", "/api/v1/devices/{device_id}/firewall/rulebase", _DEVICE_READERS),
     Case("GET", "/api/v1/devices/{device_id}/firewall/export", _DEVICE_READERS),
+    # The estate-wide form of the same read. It names no device in its path, so the
+    # permission alone would let any device reader ask about every firewall — the scope
+    # filter inside the handler is what keeps the answer to the caller's own devices,
+    # and `test_the_estate_is_limited_to_the_callers_scope` is that assertion.
+    Case("GET", "/api/v1/firewall/rules", _DEVICE_READERS),
     # The query simulates a packet against the stored rulebase; it is a read despite
     # being a POST, because the parameters do not fit in a URL.
     Case(

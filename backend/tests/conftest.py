@@ -311,16 +311,27 @@ def authenticate(app, session: AsyncSession):
 
     This bypasses the login flow deliberately: the login flow has its own tests, and the
     authorization matrix should not depend on it passing.
+
+    ``scope`` defaults to unrestricted, which is what almost every test wants. Pass a
+    narrower one to call the API as someone who may only see part of the inventory —
+    object-level visibility (FR-AUTH-05) is enforced inside each handler's query, not by
+    the permission check, so an endpoint that returns a *collection* has to be asked
+    about it separately from the authorization matrix.
     """
     from netsecops.api.deps import current_principal
 
-    def _as(user: User, *, token_scopes: set[Permission] | None = None) -> None:
+    def _as(
+        user: User,
+        *,
+        token_scopes: set[Permission] | None = None,
+        scope: Scope | None = None,
+    ) -> None:
         async def _override() -> Principal:
             return Principal(
                 id=user.id,
                 username=user.username,
                 roles=user.role_set,
-                scope=Scope.all(),
+                scope=scope or Scope.all(),
                 is_service_account=token_scopes is not None,
                 token_scopes=frozenset(token_scopes) if token_scopes is not None else None,
             )

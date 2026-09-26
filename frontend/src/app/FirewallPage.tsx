@@ -11,9 +11,14 @@ import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 
 import { api, ApiError, request } from '../api/client';
+import { EstateRules } from '../features/firewall/EstateRules';
 import { RulebaseViewer } from '../features/firewall/RulebaseViewer';
 import { issueLabel } from '../features/firewall/types';
-import type { Rulebase, RuleQueryResponse } from '../features/firewall/types';
+import type {
+  EstateRules as EstateRulesPayload,
+  Rulebase,
+  RuleQueryResponse,
+} from '../features/firewall/types';
 import type { DeviceDetail, Paginated } from '../features/inventory/types';
 
 interface Filters {
@@ -33,6 +38,21 @@ const EMPTY: Filters = {
   include_disabled: true,
   with_issues_only: false,
 };
+
+/** Issues worth offering as estate-wide starting points.
+ *
+ * A fixed list rather than one derived from a loaded rulebase: on the estate view no
+ * single rulebase is in hand to derive it from, and an empty dropdown would make the
+ * feature look broken before the first query. */
+const ESTATE_ISSUES = [
+  'any_any_any',
+  'no_logging',
+  'no_profiles',
+  'inspection_not_decrypted',
+  'shadowed',
+  'never_hit',
+  'insecure_service',
+] as const;
 
 function toQuery(filters: Filters): string {
   const params = new URLSearchParams();
@@ -251,6 +271,15 @@ export function FirewallPage() {
     enabled: Boolean(deviceId),
   });
 
+  // The estate question, asked only when no single device is in view. Each firewall's
+  // whole rulebase is analysed to answer it, so this is not a cheap request and is not
+  // issued alongside the per-device one.
+  const estate = useQuery({
+    queryKey: ['estate-rules', filters],
+    queryFn: () => api.get<EstateRulesPayload>(`/firewall/rules${toQuery(filters)}`),
+    enabled: !deviceId && !routeDeviceId,
+  });
+
   useEffect(() => {
     setFocusOrder(null);
   }, [deviceId]);
@@ -321,7 +350,63 @@ export function FirewallPage() {
         </section>
       )}
 
-      {!deviceId && <p className="empty">Choose a firewall to see its rulebase.</p>}
+      {/* No device chosen is not an empty state any more. It is the estate question —
+          "which firewalls anywhere have this" — which is the one thing every route
+          before this could not answer. Choosing a device narrows to its full rulebase
+          with the relationship analysis attached. */}
+      {!deviceId && (
+        <>
+          <section className="card">
+            <div className="toolbar">
+              <label className="field field--inline">
+                <span className="field__label">Issue</span>
+                <select
+                  className="field__input field__input--small"
+                  value={filters.issue}
+                  onChange={(e) => setFilters({ ...filters, issue: e.target.value })}
+                >
+                  <option value="">Any issue</option>
+                  {ESTATE_ISSUES.map((issue) => (
+                    <option key={issue} value={issue}>
+                      {issue}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field field--inline">
+                <span className="field__label">Action</span>
+                <select
+                  className="field__input field__input--small"
+                  value={filters.action}
+                  onChange={(e) => setFilters({ ...filters, action: e.target.value })}
+                >
+                  <option value="">Any action</option>
+                  <option value="allow">allow</option>
+                  <option value="deny">deny</option>
+                </select>
+              </label>
+              <label className="toolbar__check">
+                <input
+                  type="checkbox"
+                  checked={filters.with_issues_only}
+                  onChange={(e) => setFilters({ ...filters, with_issues_only: e.target.checked })}
+                />
+                Only rules with issues
+              </label>
+            </div>
+          </section>
+
+          {estate.isLoading && <p className="page-loading">Searching every firewall…</p>}
+          {estate.isError && (
+            <p className="alert alert--error" role="alert">
+              {estate.error instanceof ApiError
+                ? estate.error.problem.detail
+                : 'The estate could not be searched.'}
+            </p>
+          )}
+          {estate.data && <EstateRules data={estate.data} />}
+        </>
+      )}
 
       {rulebase.isError && (
         <p className="alert alert--error" role="alert">

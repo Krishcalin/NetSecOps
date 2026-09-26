@@ -163,6 +163,55 @@ class RulebaseRead(BaseModel):
     total: int = 0
 
 
+class EstateDeviceRules(BaseModel):
+    """One device's contribution to an estate-wide rule query.
+
+    Grouped per device rather than merged into one flat table, and that is a
+    correctness requirement rather than a layout preference: a rule's position is what
+    makes it shadowed, so rules from two devices interleaved in one list would invite
+    comparisons between rules that never see the same packet.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    device_id: Any
+    hostname: str | None = None
+    platform: str | None = None
+    snapshot_id: Any | None = None
+    #: Matching rules in evaluation order. Never re-sorted, for the reason above.
+    rules: list[RuleRead] = Field(default_factory=list)
+    #: How many rules matched on this device, and how many it has in total — so a
+    #: reader can tell "three of four hundred" from "three of three".
+    matched: int = 0
+    rules_total: int = 0
+    #: Carried up from the per-device summary. A device whose rulebase arrived short
+    #: cannot support a claim that it has no matching rules.
+    rules_not_retrieved: int | None = None
+    truncated: bool = False
+    #: Why this device contributed nothing, or None if it was genuinely searched.
+    #: Never omitted from the response — see :class:`EstateRulesRead`.
+    not_searched: str | None = None
+
+
+class EstateRulesRead(BaseModel):
+    """Rules matching one filter across every device the caller can see (FR-FW-07).
+
+    **Devices that could not be searched are returned, not dropped.** This is the whole
+    reason the response is shaped this way. "No device has an any-any-any rule" and "no
+    device we could read has one" are different claims, and a list that silently omits
+    the firewalls with no snapshot, no rulebase or a failed parse turns the second into
+    the first. The same discipline as ``POST /checks/query``.
+    """
+
+    devices: list[EstateDeviceRules] = Field(default_factory=list)
+    #: Matching rules across every device that was searched.
+    matched_total: int = 0
+    devices_searched: int = 0
+    devices_not_searched: int = 0
+    #: Stated on every response, never only when something went wrong.
+    limitations: list[str] = Field(default_factory=list)
+
+
 class RuleQueryRequest(BaseModel):
     """FR-FW-06: which rule would match this packet."""
 

@@ -1744,3 +1744,73 @@ code {
   color: var(--text-muted);
   font-size: 0.9rem;
 }
+
+/* ── estate-wide rule query (FR-FW-07) ────────────────────────────────────
+   Grouped per device and never merged into one sortable table: a rule is
+   shadowed because of where it sits, so order within a device carries meaning
+   that a flat severity-sorted list would destroy. */
+
+.estate__summary {
+  margin: 0 0 12px;
+  color: var(--text-muted);
+}
+
+.estate__limitations {
+  margin: 0 0 16px;
+  padding: 10px 12px 10px 28px;
+  background: var(--warn-soft);
+  border-left: 3px solid var(--warn);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+
+.estate__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 16px;
+}
+
+.estate__device {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+/* A device nobody could read is visually distinct from one that matched nothing,
+   because the two are different answers and only one of them is about the device. */
+.estate__device--unsearched {
+  border-style: dashed;
+  border-color: var(--border-strong);
+  background: var(--surface-muted);
+}
+
+.estate__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.estate__name {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.estate__count {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.estate__reason {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.estate__rules {
+  margin-top: 4px;
+}

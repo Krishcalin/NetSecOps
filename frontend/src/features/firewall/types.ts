@@ -160,3 +160,32 @@ export function loggingLabel(logs: boolean | null): string {
   if (logs === null) return 'unknown';
   return logs ? 'logged' : 'not logged';
 }
+
+/** One device's contribution to an estate-wide rule query (FR-FW-07).
+ *
+ * `not_searched` is the field that matters. A device with no snapshot, or one whose
+ * snapshot carries no rulebase, still appears in the response — dropping it would turn
+ * "nothing in the estate matches" into a claim about devices nobody read.
+ */
+export interface EstateDeviceRules {
+  device_id: string;
+  hostname: string | null;
+  platform: string | null;
+  snapshot_id: string | null;
+  rules: Rule[];
+  matched: number;
+  rules_total: number;
+  /** Rules the device holds that the collection never received. */
+  rules_not_retrieved: number | null;
+  truncated: boolean;
+  /** Why this device contributed nothing, or null if it was genuinely searched. */
+  not_searched: string | null;
+}
+
+export interface EstateRules {
+  devices: EstateDeviceRules[];
+  matched_total: number;
+  devices_searched: number;
+  devices_not_searched: number;
+  limitations: string[];
+}
