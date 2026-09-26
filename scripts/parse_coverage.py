@@ -127,11 +127,7 @@ def meaningful_lines(text: str) -> int:
     parser fails to understand, and counting them would make a well-parsed configuration
     with a long banner look poorly parsed.
     """
-    return sum(
-        1
-        for line in text.splitlines()
-        if line.strip() and not line.strip().startswith("!")
-    )
+    return sum(1 for line in text.splitlines() if line.strip() and not line.strip().startswith("!"))
 
 
 #: Command output that is not a configuration. Feeding `show ip route` to a config
@@ -187,17 +183,13 @@ def walk_filled(value: Any, prefix: str, into: set[str]) -> None:
         into.add(prefix)
 
 
-def analyse(
-    path: Path, platform: str, report: PlatformReport, *, keep_worst: int
-) -> None:
+def analyse(path: Path, platform: str, report: PlatformReport, *, keep_worst: int) -> None:
     text = path.read_text(encoding="utf-8", errors="replace")
     report.files += 1
 
     try:
-        ncm = get_parser(platform).parse(
-            ParseContext(text=text, command="show running-config")
-        )
-    except Exception as exc:  # noqa: BLE001 — a parser raising at all is the finding
+        ncm = get_parser(platform).parse(ParseContext(text=text, command="show running-config"))
+    except Exception as exc:
         report.failures.append((str(path), f"{type(exc).__name__}: {exc}"))
         return
 
@@ -251,9 +243,7 @@ def render(reports: dict[str, PlatformReport], *, verbose: bool, top: int) -> No
         print(f"\n\n══ {platform} ══")
 
         if report.failures:
-            print(
-                f"\n  RAISED ({len(report.failures)}) — a parser must never raise (FR-PARSE-03):"
-            )
+            print(f"\n  RAISED ({len(report.failures)}) — a parser must never raise (FR-PARSE-03):")
             for name, error in report.failures[:top]:
                 print(f"    {Path(name).name:<44} {error}")
 
@@ -326,8 +316,9 @@ EXPECTED_FIELDS: set[str] = {
 
 def verify_expected_fields() -> list[str]:
     """Return any EXPECTED_FIELDS path the NCM does not actually define."""
-    from netsecops.ncm.models import NormalisedConfig
     from pydantic import BaseModel
+
+    from netsecops.ncm.models import NormalisedConfig
 
     def leaves(model: type[BaseModel], prefix: str = "", depth: int = 0) -> set[str]:
         found: set[str] = set()
@@ -360,13 +351,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("corpus", type=Path, help="Directory of configurations")
     parser.add_argument("--platform", help="Force a platform instead of detecting one")
-    parser.add_argument(
-        "--top", type=int, default=15, help="Rows per section (default 15)"
-    )
+    parser.add_argument("--top", type=int, default=15, help="Rows per section (default 15)")
     parser.add_argument("--json", type=Path, help="Also write the full result as JSON")
-    parser.add_argument(
-        "--verbose", action="store_true", help="List every missing field"
-    )
+    parser.add_argument("--verbose", action="store_true", help="List every missing field")
     args = parser.parse_args()
 
     if not args.corpus.is_dir():
@@ -381,14 +368,10 @@ def main() -> int:
             "\nFix the list rather than the model — reporting a nonexistent field as",
             file=sys.stderr,
         )
-        print(
-            "never populated invents a defect and hides the real ones.", file=sys.stderr
-        )
+        print("never populated invents a defect and hides the real ones.", file=sys.stderr)
         return 2
 
-    reports: dict[str, PlatformReport] = defaultdict(
-        lambda: PlatformReport(platform="?")
-    )
+    reports: dict[str, PlatformReport] = defaultdict(lambda: PlatformReport(platform="?"))
     unknown: list[Path] = []
 
     for path in sorted(args.corpus.rglob("*")):
@@ -416,9 +399,7 @@ def main() -> int:
     render(reports, verbose=args.verbose, top=args.top)
 
     if unknown:
-        print(
-            f"\n\n{len(unknown)} file(s) no signature matched — not counted anywhere:"
-        )
+        print(f"\n\n{len(unknown)} file(s) no signature matched — not counted anywhere:")
         for path in unknown[:10]:
             print(f"    {path}")
 

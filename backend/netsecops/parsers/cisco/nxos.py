@@ -245,7 +245,11 @@ class CiscoNxosParser(CiscoStyleParser):
                 target.append(AaaMethodList(name=parts[3], purpose=parts[2], methods=parts[4:]))
                 result.record(f"aaa.{kind}.{len(target) - 1}", line=self.line_number(obj))
 
-        aaa.local_fallback = any(m.falls_back_to_local for m in aaa.authentication) or None
+        # False when method lists were parsed and none falls back; None only when there
+        # were none to look at. See the same line in `ios.py` for what `or None` cost.
+        aaa.local_fallback = (
+            any(m.falls_back_to_local for m in aaa.authentication) if aaa.authentication else None
+        )
 
         for pattern, server_type in (
             (r"^tacacs-server\s+host\s+(\S+)", "tacacs"),

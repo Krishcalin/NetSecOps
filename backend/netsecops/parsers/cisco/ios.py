@@ -478,7 +478,16 @@ class CiscoIosParser(CiscoStyleParser):
                 target.append(AaaMethodList(name=name, purpose=purpose, methods=methods))
                 result.record(f"aaa.{kind}.{len(target) - 1}", line=self.line_number(obj))
 
-        aaa.local_fallback = any(m.falls_back_to_local for m in aaa.authentication) or None
+        # False when method lists were parsed and none of them falls back; None only
+        # when there were no method lists to look at.
+        #
+        # This was `any(...) or None`, which collapsed those two into None — so
+        # `aaa-local-fallback` reported Not Evaluated on precisely the devices it exists
+        # to catch: the ones with a TACACS+ server, no local fallback, and nobody able
+        # to log in when the server is unreachable.
+        aaa.local_fallback = (
+            any(m.falls_back_to_local for m in aaa.authentication) if aaa.authentication else None
+        )
         self._parse_aaa_servers(parse, result)
 
     def _parse_aaa_servers(self, parse: CiscoConfParse, result: ParseResult) -> None:

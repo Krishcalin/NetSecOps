@@ -12,12 +12,25 @@ rationale: >-
   console access and a password reset.
 severity: medium
 
+applicability:
+  # Only where central AAA exists. A device authenticating locally already has local
+  # access by definition and cannot be locked out by a server it does not use.
+  #
+  # `requires_features` rather than `logic.requires`: this treats an empty list as
+  # absent, and `requires` does not — it tests for null, so a device with no AAA
+  # servers satisfied it and the guard never fired.
+  requires_features: [aaa.servers]
+
 logic:
   type: ncm
   expression: aaa.local_fallback
   assert:
     equals: true
-  requires: [aaa.servers]
+  # The "only where central AAA exists" guard lives in `applicability` and not here.
+  # `logic.requires` tests for null, and a device with no AAA servers has an empty
+  # list, which is not null — so the guard never fired. It went unnoticed because the
+  # parser could not set `local_fallback` to False either, and the check reported Not
+  # Evaluated for both reasons at once.
 
 remediation: >-
   Append `local` to the default authentication method list — on Cisco IOS,
