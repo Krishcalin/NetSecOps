@@ -615,6 +615,43 @@ class TestExport:
         assert len(rows) == 1
         assert rows[0]["name"] == "Partner RDP to web"
 
+    async def test_the_export_carries_the_score_without_flattening_its_caveats(
+        self, client: AsyncClient, seeded: Device
+    ) -> None:
+        """A spreadsheet has to sort on the number, so it stays numeric; the two things
+        that qualify it get their own columns rather than being written into it. A deny
+        rule's cell is blank, never 0 — 0 would sort the block-RDP rule to the top of a
+        "tightest rules" list when the score simply does not apply to it."""
+        response = await client.get(f"/api/v1/devices/{seeded.id}/firewall/export")
+        rows = {r["name"]: r for r in csv.DictReader(io.StringIO(response.text))}
+
+        blocked = rows["Block inbound RDP"]
+        assert blocked["permissiveness"] == ""
+        assert blocked["permissiveness_band"] == "not applicable"
+
+        partner = rows["Partner RDP to web"]
+        assert partner["permissiveness"].isdigit()
+        assert partner["permissiveness_band"] in {"low", "moderate", "high", "critical"}
+        assert partner["permissiveness_is_lower_bound"] == "no"
+
+    async def test_the_viewer_can_ask_for_only_the_wide_rules(
+        self, client: AsyncClient, seeded: Device
+    ) -> None:
+        """And a deny never answers it. `Block inbound RDP` is any→any, so a filter
+        that ranked denies by breadth would return it first — burying the permits the
+        filter exists to find."""
+        body = (
+            await client.get(
+                f"/api/v1/devices/{seeded.id}/firewall/rulebase",
+                params={"min_permissiveness": 50},
+            )
+        ).json()
+
+        assert body["rules"], "the seeded rulebase has wide permits"
+        for row in body["rules"]:
+            assert row["permits"] is True
+            assert row["permissiveness"]["score"] >= 50
+
 
 # ─────────────────────── the estate-wide rule query ──────────────────────
 
@@ -786,6 +823,50 @@ class TestSearchingTheWholeEstate:
 
         assert len(body["devices"]) == 1
         assert any("not the whole estate" in note for note in body["limitations"])
+
+    async def test_the_widest_rules_in_the_estate_can_be_asked_for_directly(
+        self, client: AsyncClient, session: AsyncSession, seeded: Device, analyst_user: User
+    ) -> None:
+        """The two features compose: the score ranks rules, the estate query spans
+        devices, and together they answer "where are our widest permits" without
+        naming an issue key."""
+        principal = Principal(
+            id=analyst_user.id,
+            username=analyst_user.username,
+            roles=analyst_user.role_set,
+            scope=Scope.all(),
+        )
+        wide = await InventoryService(session).create_device(
+            mgmt_ip="198.51.100.95",
+            actor=principal,
+            hostname="wide-open",
+            vendor=Vendor.PALOALTO,
+            platform="panos",
+            device_class=DeviceClass.FIREWALL,
+        )
+        await snapshot_with(session, wide, ncm([rule(1, "Anything goes", log_end=True)]))
+
+        # Disabled rules are scored — breadth is a property of what a rule says, and
+        # someone reviewing a disabled any-any-any before re-enabling it wants the
+        # number. So asking about *live* exposure means excluding them explicitly, and
+        # the seeded firewall's own any-any-any permit is disabled.
+        body = (
+            await client.get(
+                "/api/v1/firewall/rules",
+                params={"min_permissiveness": 90, "include_disabled": False},
+            )
+        ).json()
+
+        matched = {row["hostname"] for row in body["devices"] if row["matched"]}
+        assert matched == {"wide-open"}
+        seeded_row = next(r for r in body["devices"] if r["hostname"] == "viewer-fw-01")
+        assert seeded_row["not_searched"] is None
+        assert seeded_row["matched"] == 0
+
+        # And with them included it does show up, which is the fact that makes the
+        # exclusion above a choice rather than an accident.
+        with_disabled = (await client.get("/api/v1/firewall/rules?min_permissiveness=90")).json()
+        assert "viewer-fw-01" in {r["hostname"] for r in with_disabled["devices"] if r["matched"]}
 
     async def test_the_estate_is_limited_to_the_callers_scope(
         self,

@@ -28,6 +28,8 @@ interface Filters {
   issue: string;
   include_disabled: boolean;
   with_issues_only: boolean;
+  /** Empty for "any breadth". A string because it comes from a `<select>`. */
+  min_permissiveness: string;
 }
 
 const EMPTY: Filters = {
@@ -37,7 +39,21 @@ const EMPTY: Filters = {
   issue: '',
   include_disabled: true,
   with_issues_only: false,
+  min_permissiveness: '',
 };
+
+/** The band floors, offered as a filter.
+ *
+ * The labels name the band rather than the number, because the number is a convention
+ * and the band is what the colouring and the report agree on. `0` is deliberately not
+ * offered: it would read as "show everything" while actually excluding every deny rule,
+ * which carries no score at all.
+ */
+const BREADTH_FLOORS = [
+  { value: '25', label: 'moderate and wider (≥25)' },
+  { value: '50', label: 'high and wider (≥50)' },
+  { value: '75', label: 'critical only (≥75)' },
+] as const;
 
 /** Issues worth offering as estate-wide starting points.
  *
@@ -62,6 +78,7 @@ function toQuery(filters: Filters): string {
   if (filters.issue) params.set('issue', filters.issue);
   if (!filters.include_disabled) params.set('include_disabled', 'false');
   if (filters.with_issues_only) params.set('with_issues_only', 'true');
+  if (filters.min_permissiveness) params.set('min_permissiveness', filters.min_permissiveness);
   const text = params.toString();
   return text ? `?${text}` : '';
 }
@@ -385,6 +402,21 @@ export function FirewallPage() {
                   <option value="deny">deny</option>
                 </select>
               </label>
+              <label className="field field--inline">
+                <span className="field__label">Breadth</span>
+                <select
+                  className="field__input field__input--small"
+                  value={filters.min_permissiveness}
+                  onChange={(e) => setFilters({ ...filters, min_permissiveness: e.target.value })}
+                >
+                  <option value="">Any breadth</option>
+                  {BREADTH_FLOORS.map((floor) => (
+                    <option key={floor.value} value={floor.value}>
+                      {floor.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="toolbar__check">
                 <input
                   type="checkbox"
@@ -394,6 +426,14 @@ export function FirewallPage() {
                 Only rules with issues
               </label>
             </div>
+            {/* Said where the filter is, not in a tooltip. A breadth filter silently
+                dropping every deny rule is the kind of thing someone discovers three
+                screenshots into a report. */}
+            {filters.min_permissiveness && (
+              <p className="muted">
+                Deny rules are excluded: breadth is not a fault on a deny, so they carry no score.
+              </p>
+            )}
           </section>
 
           {estate.isLoading && <p className="page-loading">Searching every firewall…</p>}

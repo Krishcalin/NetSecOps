@@ -39,6 +39,48 @@ function IssueBadge({ issue, onFollow }: { issue: RuleIssue; onFollow?: (order: 
   );
 }
 
+/** The breadth score, in the summary row.
+ *
+ * Three states, and collapsing any two of them would misinform:
+ *
+ * A **deny rule has no score**, shown as an em dash rather than 0. A deny matching
+ * everything is the implicit-deny catch-all — the best rule on most boxes — and a 0
+ * would sort it to the top of a list of the tightest rules.
+ *
+ * An **understated score is prefixed with ≥**, because the rule names objects the
+ * rulebase never defined: its real breadth is at least this and probably more.
+ *
+ * The **band is never carried by colour alone** (WCAG 1.4.1). The visible content is a
+ * bare number, so the band is named in text for assistive technology, the same way the
+ * issue-count pill names its severity.
+ */
+function PermissivenessCell({ rule }: { rule: Rule }) {
+  const score = rule.permissiveness;
+
+  if (!score) {
+    return (
+      <span className="rule__perm rule__perm--none">
+        <span className="visually-hidden">breadth not scored, this rule denies traffic</span>
+        <span aria-hidden="true">&mdash;</span>
+      </span>
+    );
+  }
+
+  return (
+    <span className="rule__perm">
+      <span className={`pill pill--perm-${score.band}`}>
+        {score.understated && <span aria-hidden="true">&ge;</span>}
+        {score.score}
+        <span className="visually-hidden">
+          {' '}
+          breadth, {score.band}
+          {score.understated && ' — at least this, some objects are undefined'}
+        </span>
+      </span>
+    </span>
+  );
+}
+
 function RuleRow({
   rule,
   focused,
@@ -103,6 +145,7 @@ function RuleRow({
           <span className="visually-hidden">logging </span>
           {loggingLabel(rule.logs)}
         </span>
+        <PermissivenessCell rule={rule} />
         <span className="rule__issue-count">
           {rule.issues.length > 0 && (
             // The pill's visible text is a bare count; the severity was carried by its
@@ -144,6 +187,27 @@ function RuleRow({
                     .join(', ')
                 : 'none'}
             </dd>
+            {rule.permissiveness && (
+              <>
+                <dt>Breadth</dt>
+                {/* The components, not just the total. "73" names nothing an operator
+                    can change; "source any, destination 10.0.0.0/8" names the field to
+                    narrow — and lets them disagree with the score on the evidence. */}
+                <dd>
+                  {rule.permissiveness.understated && '≥'}
+                  {rule.permissiveness.score}/100 ({rule.permissiveness.band}) — source{' '}
+                  {rule.permissiveness.source}, destination {rule.permissiveness.destination},
+                  service {rule.permissiveness.service}
+                  {rule.permissiveness.understated && (
+                    <span className="text-error">
+                      {' '}
+                      — a floor, not a measurement: this rule names objects the rulebase never
+                      defined, so its real scope is wider than what was scored.
+                    </span>
+                  )}
+                </dd>
+              </>
+            )}
             {rule.hit_count != null && (
               <>
                 <dt>Hits</dt>
@@ -255,6 +319,7 @@ export function RulebaseViewer({ rulebase, focusOrder = null, onFocusOrder }: Pr
               <span className="rule__cell">Destination</span>
               <span className="rule__cell">Service</span>
               <span className="rule__log">Logging</span>
+              <span className="rule__perm">Breadth</span>
               <span className="rule__issue-count" />
             </span>
           </li>

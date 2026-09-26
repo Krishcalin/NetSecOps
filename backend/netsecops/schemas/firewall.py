@@ -36,6 +36,29 @@ class RuleIssueRead(BaseModel):
     related_rule_name: str | None = None
 
 
+class PermissivenessRead(BaseModel):
+    """How much traffic a rule admits, 0-100, with the parts that produced it.
+
+    The components are sent because the number alone is not actionable: "73" says
+    nothing an operator can change, while "source any, destination 10.0.0.0/8, service
+    tcp/443" names the field to narrow. They also let a reviewer disagree with the
+    scoring on the evidence rather than on faith.
+    """
+
+    score: int
+    #: `low` / `moderate` / `high` / `critical`. A colouring convention, not a
+    #: measurement — the thresholds live in `netsecops.firewall.permissiveness.BANDS`
+    #: so the UI, the CSV export and any report agree on where the lines sit.
+    band: str
+    source: int
+    destination: int
+    service: int
+    #: True when the rule names objects the rulebase never defined. The resolved sets
+    #: are then smaller than the real ones, so every number above is a floor and the UI
+    #: must not present it as a measurement.
+    understated: bool = False
+
+
 class RuleRead(BaseModel):
     """One rule as the viewer shows it, with its problems attached."""
 
@@ -71,9 +94,15 @@ class RuleRead(BaseModel):
     #: excluded from overlap analysis, and the viewer says so rather than showing it as
     #: analysed and clean.
     unresolved: list[str] = Field(default_factory=list)
-    #: How many addresses the rule covers, for sorting by breadth.
+    #: How many addresses the rule covers, for sorting by breadth. IPv4 only, and kept
+    #: as the raw count it always was; `permissiveness` is the scored form and is the
+    #: one that accounts for IPv6.
     source_size: int
     destination_size: int
+    #: How much traffic the rule admits, 0-100, with the components it was built from.
+    #: `None` on a deny rule, where breadth is not a fault — see
+    #: `netsecops.firewall.permissiveness`.
+    permissiveness: PermissivenessRead | None = None
     issues: list[RuleIssueRead] = Field(default_factory=list)
 
     @property

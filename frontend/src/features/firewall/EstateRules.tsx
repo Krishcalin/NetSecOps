@@ -69,6 +69,7 @@ function DeviceGroup({ row }: { row: EstateRulesPayload['devices'][number] }) {
               <th scope="col">Source</th>
               <th scope="col">Destination</th>
               <th scope="col">Service</th>
+              <th scope="col">Breadth</th>
               <th scope="col">Issues</th>
             </tr>
           </thead>
@@ -80,7 +81,23 @@ function DeviceGroup({ row }: { row: EstateRulesPayload['devices'][number] }) {
                 <td>{rule.action}</td>
                 <td className="mono">{rule.source}</td>
                 <td className="mono">{rule.destination}</td>
+                {/* An em dash, not 0, for a deny rule — the score does not apply to
+                    it, and 0 would rank it as the tightest thing in the estate. */}
                 <td className="mono">{rule.services}</td>
+                <td>
+                  {rule.permissiveness ? (
+                    <>
+                      {rule.permissiveness.understated && '≥'}
+                      {rule.permissiveness.score}
+                      <span className="visually-hidden"> breadth, {rule.permissiveness.band}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span aria-hidden="true">—</span>
+                      <span className="visually-hidden">breadth not scored, this rule denies</span>
+                    </>
+                  )}
+                </td>
                 <td>
                   {rule.issues.length === 0
                     ? '—'

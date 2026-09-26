@@ -92,6 +92,7 @@ async def read_rulebase(
     severity: Annotated[str | None, Query(max_length=16)] = None,
     include_disabled: bool = True,
     with_issues_only: bool = False,
+    min_permissiveness: Annotated[int | None, Query(ge=0, le=100)] = None,
 ) -> RulebaseRead:
     """Every rule, in evaluation order, with the problems the analysis found on it.
 
@@ -109,6 +110,7 @@ async def read_rulebase(
             severity=severity,
             include_disabled=include_disabled,
             with_issues_only=with_issues_only,
+            min_permissiveness=min_permissiveness,
         )
     )
 
@@ -137,6 +139,7 @@ async def list_estate_rules(
     severity: Annotated[str | None, Query(max_length=16)] = None,
     include_disabled: bool = True,
     with_issues_only: bool = False,
+    min_permissiveness: Annotated[int | None, Query(ge=0, le=100)] = None,
     limit: Annotated[int, Query(ge=1, le=MAX_ESTATE_DEVICES)] = 50,
 ) -> EstateRulesRead:
     """ "Show me every rule in the estate that does X" â€” previously unaskable.
@@ -170,6 +173,7 @@ async def list_estate_rules(
         severity=severity,
         include_disabled=include_disabled,
         with_issues_only=with_issues_only,
+        min_permissiveness=min_permissiveness,
     )
 
     rows: list[EstateDeviceRules] = []
@@ -288,6 +292,7 @@ async def export_rulebase(
     severity: Annotated[str | None, Query(max_length=16)] = None,
     include_disabled: bool = True,
     with_issues_only: bool = False,
+    min_permissiveness: Annotated[int | None, Query(ge=0, le=100)] = None,
 ) -> StreamingResponse:
     """CSV of exactly what the viewer is showing, filters included.
 
@@ -305,6 +310,7 @@ async def export_rulebase(
             severity=severity,
             include_disabled=include_disabled,
             with_issues_only=with_issues_only,
+            min_permissiveness=min_permissiveness,
         )
     )
 
@@ -325,6 +331,13 @@ async def export_rulebase(
             "logging",
             "profiles",
             "hit_count",
+            # Kept numeric so a spreadsheet can sort on it. The two qualifications a
+            # reader needs travel in their own columns rather than decorating the
+            # number into a string: "n/a" here would make the column text, and a
+            # ">=45" would do the same.
+            "permissiveness",
+            "permissiveness_band",
+            "permissiveness_is_lower_bound",
             "unresolved_objects",
             "issues",
             "worst_severity",
@@ -349,6 +362,12 @@ async def export_rulebase(
                 {True: "yes", False: "no", None: "unknown"}[rule.logs],
                 "; ".join(f"{k}={v}" for k, v in rule.profiles.items()),
                 "" if rule.hit_count is None else rule.hit_count,
+                # Blank, not 0, on a deny rule: breadth is not a fault there, and a 0
+                # would rank the implicit-deny catch-all as the tightest line on the
+                # box rather than as something the score does not apply to.
+                "" if rule.permissiveness is None else rule.permissiveness.score,
+                "not applicable" if rule.permissiveness is None else rule.permissiveness.band,
+                "yes" if rule.permissiveness and rule.permissiveness.understated else "no",
                 "; ".join(rule.unresolved),
                 "; ".join(f"{i.issue}: {i.message}" for i in rule.issues),
                 rule.worst_severity,

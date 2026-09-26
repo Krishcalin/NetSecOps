@@ -46,6 +46,14 @@ function makeRule(order: number, name: string, overrides: Partial<Rule> = {}): R
     unresolved: [],
     source_size: 4294967296,
     destination_size: 1,
+    permissiveness: {
+      score: 33,
+      band: 'moderate',
+      source: 100,
+      destination: 0,
+      service: 0,
+      understated: false,
+    },
     issues: [],
     ...overrides,
   };
@@ -246,5 +254,67 @@ describe('what a screen reader is told about a rule', () => {
     const { container } = render(<RulebaseViewer rulebase={makeRulebase([makeRule(1, 'Web')])} />);
 
     expect(container.querySelector('.rule--head')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  describe('the breadth score', () => {
+    it('shows a deny rule as not applicable rather than as zero', () => {
+      // A deny matching everything is the implicit-deny catch-all, the best rule on
+      // most boxes. Rendering 0 would put it at the top of a "tightest rules" sort and
+      // invite someone to treat the widest deny as the safest line on the firewall.
+      const deny = makeRule(1, 'Block all', {
+        action: 'deny',
+        permits: false,
+        permissiveness: null,
+      });
+      const { container } = render(<RulebaseViewer rulebase={makeRulebase([deny])} />);
+
+      const cell = container.querySelector('#rule-1 .rule__perm');
+      expect(cell).toHaveClass('rule__perm--none');
+      expect(cell?.textContent).not.toMatch(/\d/);
+      expect(cell?.textContent).toMatch(/breadth not scored/);
+    });
+
+    it('names the band in text, not by colour alone', () => {
+      // The visible content is a bare number, so colour would be the only carrier of
+      // the band — a WCAG 1.4.1 failure, and invisible in print or greyscale.
+      render(<RulebaseViewer rulebase={makeRulebase([makeRule(1, 'Web')])} />);
+
+      const button = screen.getByRole('button', { name: /Rule 1\s+Web/ });
+      expect(button.textContent).toMatch(/33/);
+      expect(button.textContent).toMatch(/breadth, moderate/);
+    });
+
+    it('marks an understated score as a floor', () => {
+      // The rule names objects the rulebase never defined, so the resolved sets are
+      // smaller than the real ones. Showing the number unqualified presents a lower
+      // bound as a measurement.
+      const rule = makeRule(1, 'Web', {
+        unresolved: ['group-missing'],
+        permissiveness: {
+          score: 45,
+          band: 'moderate',
+          source: 100,
+          destination: 35,
+          service: 0,
+          understated: true,
+        },
+      });
+      render(<RulebaseViewer rulebase={makeRulebase([rule])} />);
+
+      const button = screen.getByRole('button', { name: /Rule 1\s+Web/ });
+      expect(button.textContent).toMatch(/≥\s*45/);
+      expect(button.textContent).toMatch(/at least this, some objects are undefined/);
+    });
+
+    it('breaks the score into its components when a rule is opened', async () => {
+      // "45" names nothing to change. Naming which field is wide does, and lets a
+      // reviewer disagree with the score on the evidence rather than on faith.
+      const user = userEvent.setup();
+      render(<RulebaseViewer rulebase={makeRulebase([makeRule(1, 'Web')])} />);
+
+      await user.click(screen.getByRole('button', { name: /Rule 1\s+Web/ }));
+
+      expect(screen.getByText(/source 100, destination 0, service 0/)).toBeInTheDocument();
+    });
   });
 });

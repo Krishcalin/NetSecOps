@@ -48,7 +48,21 @@ export interface Rule {
   unresolved: string[];
   source_size: number;
   destination_size: number;
+  /** Null on a deny rule, where breadth is not a fault. Never render null as 0. */
+  permissiveness: Permissiveness | null;
   issues: RuleIssue[];
+}
+
+/** How much traffic a rule admits, 0-100, with the parts that produced it. */
+export interface Permissiveness {
+  score: number;
+  /** `low` | `moderate` | `high` | `critical` — a colouring convention, not a measure. */
+  band: string;
+  source: number;
+  destination: number;
+  service: number;
+  /** The rule names undefined objects, so every number above is a floor. */
+  understated: boolean;
 }
 
 export interface HygieneFinding {

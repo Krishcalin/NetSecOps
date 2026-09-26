@@ -44,9 +44,11 @@ from netsecops.firewall import (
 from netsecops.firewall.analysis import RELATIONSHIP_SEVERITY
 from netsecops.firewall.intervals import describe_ipv4
 from netsecops.firewall.model import PROTOCOL_NUMBERS
+from netsecops.firewall.permissiveness import score_rule
 from netsecops.schemas.firewall import (
     HygieneFindingRead,
     NatRuleRead,
+    PermissivenessRead,
     RulebaseRead,
     RulebaseSummary,
     RuleIssueRead,
@@ -90,10 +92,27 @@ class RulebaseFilter:
     include_disabled: bool = True
     #: Only rules with at least one problem.
     with_issues_only: bool = False
+    #: Only permit rules scoring at least this breadth, 0-100. Deny rules never match:
+    #: they carry no score, and breadth on a deny is not a fault.
+    min_permissiveness: int | None = None
 
 
 def _render_services(rule: ResolvedRule) -> str:
     return rule.services.describe()
+
+
+def _permissiveness_read(rule: ResolvedRule) -> PermissivenessRead | None:
+    scored = score_rule(rule)
+    if scored is None:
+        return None
+    return PermissivenessRead(
+        score=scored.score,
+        band=scored.band,
+        source=scored.source,
+        destination=scored.destination,
+        service=scored.service,
+        understated=scored.understated,
+    )
 
 
 def _rule_read(rule: ResolvedRule, raw: dict[str, Any], issues: list[RuleIssueRead]) -> RuleRead:
@@ -125,6 +144,7 @@ def _rule_read(rule: ResolvedRule, raw: dict[str, Any], issues: list[RuleIssueRe
         unresolved=list(rule.unresolved),
         source_size=rule.source.v4.size,
         destination_size=rule.destination.v4.size,
+        permissiveness=_permissiveness_read(rule),
         issues=issues,
     )
 
@@ -368,6 +388,14 @@ class FirewallViewService:
 
         if filters.with_issues_only:
             result = [r for r in result if r.issues]
+
+        if filters.min_permissiveness is not None:
+            # Deny rules carry no score and are excluded rather than treated as 0. They
+            # are not "the narrowest rules on the box" — breadth is not a fault on a
+            # deny, so ranking them against permits would be comparing two different
+            # things and would bury the permits this filter exists to surface.
+            floor = filters.min_permissiveness
+            result = [r for r in result if r.permissiveness and r.permissiveness.score >= floor]
 
         if filters.search:
             needle = filters.search.strip().lower()

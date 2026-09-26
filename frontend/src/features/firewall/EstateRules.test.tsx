@@ -38,6 +38,14 @@ function rule(order: number, name: string, issues: string[] = []): Rule {
     unresolved: [],
     source_size: 0,
     destination_size: 0,
+    permissiveness: {
+      score: 100,
+      band: 'critical',
+      source: 100,
+      destination: 100,
+      service: 100,
+      understated: false,
+    },
     issues: issues.map((issue) => ({
       issue,
       severity: 'high',
@@ -167,6 +175,25 @@ describe('EstateRules', () => {
 
     const group = screen.getByRole('link', { name: 'fw-01' });
     expect(group).toHaveAttribute('href', '/firewall?device=abc');
+  });
+
+  it('shows a deny rule breadth as not applicable rather than as zero', () => {
+    // Sorting an estate list by breadth is exactly what this column is for, and a 0
+    // would put every deny rule at the "tightest" end of it as though that were a
+    // measurement rather than a category error.
+    const deny = { ...rule(1, 'Block all'), permits: false, permissiveness: null } as Rule;
+    show(
+      payload({
+        devices: [device({ matched: 1, rules_total: 1, rules: [deny] })],
+        matched_total: 1,
+        devices_searched: 1,
+      }),
+    );
+
+    const cells = screen.getAllByRole('cell');
+    const breadth = cells.at(-2);
+    expect(breadth?.textContent).not.toMatch(/\d/);
+    expect(breadth?.textContent).toMatch(/breadth not scored/);
   });
 
   it('counts matches against the rulebase size, so three of four hundred reads as such', () => {
