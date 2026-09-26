@@ -83,6 +83,7 @@
     "firewall.profiles.application-control",
     "firewall.profiles.firewall",
     "firewall.profiles.ips",
+    "firewall.rules_not_retrieved",
     "firewall.security_rules",
     "firewall.security_rules.action",
     "firewall.security_rules.dst",
