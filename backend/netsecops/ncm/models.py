@@ -917,6 +917,11 @@ class Features(NcmBase):
     domain_lookup: bool | None = None
     ip_gratuitous_arps: bool | None = None
     service_config: bool | None = None
+    #: `service tcp-keepalives-in` / `-out`. Unlike every other flag here these are
+    #: features whose *presence* is the hardened state, so a check on them wants
+    #: `missing: fail` rather than the usual `equals: false`.
+    tcp_keepalives_in: bool | None = None
+    tcp_keepalives_out: bool | None = None
     #: Anything else the parser recognised but the model has no field for yet.
     extra: dict[str, bool] = Field(default_factory=dict)
 

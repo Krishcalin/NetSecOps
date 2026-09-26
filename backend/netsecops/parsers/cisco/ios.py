@@ -1036,6 +1036,16 @@ class CiscoIosParser(CiscoStyleParser):
                 r"^service\s+config\s*$",
                 r"^no\s+service\s+config\s*$",
             ),
+            (
+                "tcp_keepalives_in",
+                r"^service\s+tcp-keepalives-in\s*$",
+                r"^no\s+service\s+tcp-keepalives-in\s*$",
+            ),
+            (
+                "tcp_keepalives_out",
+                r"^service\s+tcp-keepalives-out\s*$",
+                r"^no\s+service\s+tcp-keepalives-out\s*$",
+            ),
         ]
 
         for attribute, enabled_pattern, disabled_pattern in toggles:

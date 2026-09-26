@@ -1,0 +1,54 @@
+id: cisco-tcp-keepalives
+title: TCP keepalives are enabled for inbound and outbound sessions
+description: >-
+  Both `service tcp-keepalives-in` and `service tcp-keepalives-out` are configured, so
+  the device detects and reaps management sessions whose peer has gone away.
+rationale: >-
+  Without keepalives a management session whose client disappears — a laptop that
+  suspended, a jump host that lost its link, an administrator who closed the lid rather
+  than logging out — stays open on the device. It holds a vty, it stays authenticated,
+  and `exec-timeout` does not necessarily clear it, because from the device's point of
+  view the session is idle rather than dead.
+
+  Two consequences follow. A device has a small fixed number of vty lines, so enough
+  orphaned sessions make the device unmanageable exactly when somebody needs to reach
+  it. And an abandoned but still-authenticated session is a session somebody else can
+  end up in front of. Cisco's hardening guide asks for both directions: inbound covers
+  administrators connecting to the device, outbound covers connections the device makes.
+severity: low
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+
+logic:
+  type: ncm
+  # Both directions must be on. `&&` yields the first falsy operand, so a flag that is
+  # false or was never set carries through as not-true and the check fails.
+  #
+  # The obvious formulation — select the flags that are not `true` and assert the
+  # selection is empty — is wrong here, and silently so. A JMESPath filter projection
+  # drops null results, so on a device configuring neither service the projection
+  # collects nothing and the check *passes*. That is the precise failure this check
+  # exists to prevent, arrived at from the other direction.
+  expression: "features.tcp_keepalives_in && features.tcp_keepalives_out"
+  assert:
+    equals: true
+  # Absence is the finding, not a gap in what we read: IOS writes these lines into the
+  # running-config when they are enabled, so a config that never mentions them is a
+  # device that does not have them.
+  missing: fail
+
+remediation: >-
+  Set both globally — `service tcp-keepalives-in` and `service tcp-keepalives-out`.
+  Neither takes an argument and neither affects traffic through the device, only TCP
+  sessions terminating on it, so this is among the lowest-risk changes on a hardening
+  list.
+
+references:
+  nist_800_53: ["AC-12", "SC-10"]
+  iso_27001: ["A.8.5"]
+  cwe: ["CWE-613"]
+  cea: ["Access Control"]
+
+tags: [management-plane, session, cisco, hardening-guide]

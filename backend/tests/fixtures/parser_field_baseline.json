@@ -278,6 +278,8 @@
     "features.pad",
     "features.service_config",
     "features.smart_install",
+    "features.tcp_keepalives_in",
+    "features.tcp_keepalives_out",
     "features.tcp_small_servers",
     "features.udp_small_servers",
     "firewall.security_rules",
