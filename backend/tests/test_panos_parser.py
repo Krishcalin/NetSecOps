@@ -621,6 +621,55 @@ class TestTheFullPipeline:
         # finding about it would be a restatement of the same fact.
         assert "Permit all internal to dmz" not in unlogged
 
+    def test_port_based_rules_on_an_app_aware_firewall_are_found(self, resolved) -> None:
+        """`application: any` on PAN-OS means App-ID is switched off for that rule.
+
+        The device can identify applications and the rule declines to ask, so anything
+        willing to speak on the permitted port passes — the behaviour of the port-based
+        firewall a next-generation one was bought to replace. Nothing else in the
+        analysis notices: such a rule can be unshadowed, non-redundant, narrowly scoped
+        and fully logged.
+        """
+        rules, _ = resolved
+        port_based = {
+            f.rule_name for f in examine_policy(rules).by_issue(RuleIssue.NO_APPLICATION_IDENTITY)
+        }
+
+        assert "Partner RDP to web" in port_based
+        assert "Outbound any" in port_based
+        # The rules that do name applications must not appear.
+        assert "Inbound web" not in port_based
+        assert "Mgmt to DMZ" not in port_based
+        # Nor a disabled rule: it permits nothing, so its App-ID posture is not a
+        # finding. `Old migration rule` is `application: any` and carries `disabled: yes`.
+        assert "Old migration rule" not in port_based
+        # Nor the any/any/any rule, which is reported once as critical — every other
+        # finding about it restates the same fact.
+        assert "Permit all internal to dmz" not in port_based
+
+    def test_a_platform_without_app_id_is_not_penalised(self) -> None:
+        """Empty is not `any`, and the difference decides whether this fires at all.
+
+        An ASA access list has no application identity to express, so its rules carry an
+        empty set. Treating that as "App-ID not in use" would raise the finding on every
+        rule of every Cisco device in an estate, and a check that fires everywhere is one
+        nobody reads.
+        """
+        from pathlib import Path
+
+        asa = Path(__file__).parent / "fixtures/cisco/asa/9.18/edge_firewall.cfg"
+        ncm = (
+            get_parser("cisco_asa")
+            .parse(
+                ParseContext(text=asa.read_text(encoding="utf-8"), command="show running-config")
+            )
+            .to_storage()
+        )
+        rules, _ = resolve_rulebase(ncm["firewall"])
+
+        assert rules, "the ASA fixture must yield rules, or this proves nothing"
+        assert not examine_policy(rules).by_issue(RuleIssue.NO_APPLICATION_IDENTITY)
+
     def test_the_duplicate_object_is_found(self, resolved) -> None:
         """`web-01` and `web-01-copy` are both 10.20.0.10/32. Two names for one host is
         how a rulebase drifts into covering the same thing twice."""

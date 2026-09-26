@@ -191,7 +191,22 @@ class PasswordPolicy(NcmBase):
     complexity_required: bool | None = None
     max_age_days: int | None = None
     history: int | None = None
+    #: Failed login attempts before an account is locked.
     lockout_threshold: int | None = None
+    #: Whether the failed-login lockout is switched on at all.
+    #:
+    #: Separate from the threshold because the two fail independently: Gaia stores
+    #: `deny-on-fail failures-allowed 5` whether or not `deny-on-fail enable` is on, so a
+    #: threshold alone says a lockout is *configured*, not that it *applies*.
+    lockout_enabled: bool | None = None
+    #: Days of non-use before an account is locked — a dormant-account control, and a
+    #: different thing from `lockout_threshold`. An account nobody has touched in a year
+    #: is a credential nobody would notice being used.
+    dormant_lockout_days: int | None = None
+    #: How stored passwords are hashed, where the platform says. Gaia reports SHA256 or
+    #: SHA512; Cisco's type digit is carried on `LocalUser.secret_type` instead, because
+    #: there it is per-account rather than a policy.
+    hash_algorithm: str | None = None
     #: IOS `service password-encryption`. Type 7 is reversible, so this is weak
     #: obfuscation rather than encryption — but its absence is worse.
     encryption_enabled: bool | None = None

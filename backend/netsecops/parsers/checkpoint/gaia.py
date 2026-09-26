@@ -454,17 +454,34 @@ class CheckPointGaiaParser(ConfigParser):
             result.record("management.management_acls", line=number)
 
     def _parse_password_policy(self, context: ParseContext, result: ParseResult) -> None:
+        """Gaia's `password-controls` settings.
+
+        The parameter names here are Gaia's, verified against the R81.20 Gaia
+        Administration Guide. An earlier version of this method matched
+        `password-history-length`, `password-expiration-days` and `deny-on-nonuse-enable`,
+        none of which Gaia emits — so `history`, `max_age_days` and `lockout_threshold`
+        were never populated on any Check Point device and every check reading them
+        reported Not Evaluated across the whole estate. The fixture encoded the same
+        invented syntax, so the tests confirmed the mistake rather than catching it.
+
+        **`deny-on-nonuse` and `deny-on-fail` are different controls** and the old code
+        conflated them. `deny-on-nonuse` locks an account that has not been *used* for N
+        days — a dormant-account control. `deny-on-fail` locks an account after N failed
+        *login attempts* — the brute-force control, and the one `lockout_threshold`
+        means. Mapping the first onto the second reported a dormant-account policy as a
+        lockout threshold.
+        """
         policy = result.ncm.management.password_policy
 
+        #: Single-value settings, by Gaia's own parameter name.
         mapping: dict[str, tuple[str, Any]] = {
             "min-password-length": ("min_length", int),
-            "password-expiration-days": ("max_age_days", int),
-            "password-history-length": ("history", int),
-            "deny-on-nonuse-enable": ("lockout_threshold", None),
+            "history-length": ("history", int),
         }
 
         for number, tokens in self._lines(context, "set", "password-controls"):
             options = _pairs(tokens, 2)
+
             for key, value in options.items():
                 target = mapping.get(key)
                 if target is None:
@@ -476,8 +493,19 @@ class CheckPointGaiaParser(ConfigParser):
                     continue
                 result.record(f"management.password_policy.{field}", line=number)
 
-            complexity = options.get("complexity")
-            if complexity is not None:
+            # `never` is a legitimate value and means no expiry. Stored as None rather
+            # than a sentinel number: "no maximum age" and "an age we could not read"
+            # are both absent as far as a check is concerned, and inventing 99999 would
+            # make a device with no expiry policy pass a max-age check.
+            if (expiration := options.get("password-expiration")) is not None:
+                if expiration.lower() != "never":
+                    try:
+                        policy.max_age_days = int(expiration)
+                        result.record("management.password_policy.max_age_days", line=number)
+                    except ValueError:
+                        pass
+
+            if (complexity := options.get("complexity")) is not None:
                 try:
                     # Gaia grades complexity 1-4 by how many character classes are
                     # required. Anything above 1 means more than one class.
@@ -486,12 +514,36 @@ class CheckPointGaiaParser(ConfigParser):
                 except ValueError:
                     pass
 
-        for number, tokens in self._lines(context, "set", "password-controls", "lockout-attempts"):
-            try:
-                policy.lockout_threshold = int(tokens[3])
-                result.record("management.password_policy.lockout_threshold", line=number)
-            except (IndexError, ValueError):
-                continue
+            # Gaia reports SHA256 or SHA512. Recorded as written rather than graded
+            # here: which algorithms are acceptable is a check's judgement and changes
+            # over time, while what the device said does not.
+            if (hash_type := options.get("password-hash-type")) is not None:
+                policy.hash_algorithm = hash_type
+                result.record("management.password_policy.hash_algorithm", line=number)
+
+        # `deny-on-fail` and `deny-on-nonuse` are sub-trees, so their values arrive as a
+        # further token rather than in the flat key/value pairs above:
+        # `set password-controls deny-on-fail failures-allowed 5`.
+        sub_trees: dict[tuple[str, str], tuple[str, Any]] = {
+            ("deny-on-fail", "failures-allowed"): ("lockout_threshold", int),
+            ("deny-on-fail", "enable"): ("lockout_enabled", None),
+            ("deny-on-nonuse", "allowed-days"): ("dormant_lockout_days", int),
+        }
+
+        for (branch, leaf), (field, caster) in sub_trees.items():
+            for number, tokens in self._lines(context, "set", "password-controls", branch, leaf):
+                try:
+                    raw = tokens[4]
+                except IndexError:
+                    continue
+                try:
+                    # `show configuration` renders these as true/false; the interactive
+                    # clish form is on/off. Both appear in the wild, so accept either.
+                    parsed = caster(raw) if caster else raw.lower() in {"on", "true"}
+                except (TypeError, ValueError):
+                    continue
+                setattr(policy, field, parsed)
+                result.record(f"management.password_policy.{field}", line=number)
 
 
 # ────────────────────────────── helpers ─────────────────────────────────────

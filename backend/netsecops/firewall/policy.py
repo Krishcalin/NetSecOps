@@ -35,6 +35,8 @@ class RuleIssue(StrEnum):
     BROAD_SERVICE = "broad_service"
     NO_LOGGING = "no_logging"
     NO_PROFILES = "no_profiles"
+    #: The rule permits `any` application on a platform that can identify them.
+    NO_APPLICATION_IDENTITY = "no_application_identity"
     DISABLED = "disabled"
     NO_RECENT_HITS = "no_recent_hits"
     NEVER_HIT = "never_hit"
@@ -50,6 +52,10 @@ ISSUE_SEVERITY: dict[RuleIssue, str] = {
     RuleIssue.BROAD_SERVICE: "medium",
     RuleIssue.NO_LOGGING: "high",
     RuleIssue.NO_PROFILES: "medium",
+    # Medium rather than high: it is a weaker posture, not an open door, and on a
+    # rulebase migrated from a legacy firewall it will be most of the rules — a high
+    # would drown the findings that need acting on this week.
+    RuleIssue.NO_APPLICATION_IDENTITY: "medium",
     RuleIssue.DISABLED: "info",
     RuleIssue.NO_RECENT_HITS: "low",
     RuleIssue.NEVER_HIT: "low",
@@ -415,6 +421,20 @@ def examine(
                 "This rule permits traffic without any security profile (IPS, "
                 "anti-virus, URL or DNS filtering), so the traffic is passed "
                 "uninspected.",
+            )
+
+        # An explicit `any` application, on a platform that has application identity at
+        # all. Empty is not the same thing and must not fire: on an ASA or an IOS ACL
+        # there is no App-ID concept, so an empty set means "this platform cannot say",
+        # while `any` means the platform can and this rule declined to.
+        if "any" in rule.applications:
+            add(
+                RuleIssue.NO_APPLICATION_IDENTITY,
+                rule,
+                "This rule permits any application, so it matches on ports alone. The "
+                "device can identify applications and this rule does not ask it to — "
+                "anything willing to use the permitted port passes, which is the "
+                "behaviour of the port-based firewall this one replaced.",
             )
 
         insecure = _insecure_services(rule, thresholds)

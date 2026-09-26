@@ -45,9 +45,14 @@ set web ssl-port 443
 set ssh server port 22
 set password-controls min-password-length 12
 set password-controls complexity 3
-set password-controls password-expiration-days 90
-set password-controls password-history-length 8
-set password-controls lockout-attempts 5
+set password-controls password-expiration 90
+set password-controls history-length 8
+set password-controls deny-on-fail enable on
+set password-controls deny-on-fail failures-allowed 5
+set password-controls deny-on-fail allow-after 1200
+set password-controls deny-on-nonuse enable on
+set password-controls deny-on-nonuse allowed-days 60
+set password-controls password-hash-type SHA512
 add allowed-client host any
 set arp table cache-size 4096
 set max-path-splits 8

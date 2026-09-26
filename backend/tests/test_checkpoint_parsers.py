@@ -549,6 +549,20 @@ class TestGaiaServices:
         assert '"' not in banner
 
     def test_the_password_policy_is_read(self, gaia: dict[str, Any]) -> None:
+        """These same assertions passed before the parser was correct.
+
+        The parser matched `password-history-length`, `password-expiration-days` and
+        `lockout-attempts`; Gaia emits `history-length`, `password-expiration` and
+        `deny-on-fail failures-allowed`. The fixture was written from the parser rather
+        than from a device, so the test agreed with the mistake — it asserted the right
+        numbers arrived from syntax no Check Point gateway produces, and on real hardware
+        all three fields were silently empty.
+
+        The fixture now uses Gaia's syntax, verified against the R81.20 Gaia
+        Administration Guide. What guards it going forward is not this test but the
+        absence of a Check Point corpus being recorded as a known gap in
+        `docs/parser-validation.md`.
+        """
         policy = gaia["management"]["password_policy"]
 
         assert policy["min_length"] == 12
@@ -556,6 +570,56 @@ class TestGaiaServices:
         assert policy["max_age_days"] == 90
         assert policy["history"] == 8
         assert policy["lockout_threshold"] == 5
+
+    def test_lockout_being_configured_is_not_lockout_being_on(self, gaia: dict[str, Any]) -> None:
+        """Gaia stores `failures-allowed` whether or not `deny-on-fail enable` is set.
+
+        A threshold on its own says a lockout is configured, not that it applies, so the
+        two are separate fields. Reporting a device as protected because a number is
+        present would be the same error in a new place.
+        """
+        policy = gaia["management"]["password_policy"]
+
+        assert policy["lockout_enabled"] is True
+        assert policy["lockout_threshold"] == 5
+
+    def test_dormant_account_lockout_is_not_the_failed_login_lockout(
+        self, gaia: dict[str, Any]
+    ) -> None:
+        """`deny-on-nonuse` locks unused accounts; `deny-on-fail` locks attacked ones.
+
+        The old parser mapped `deny-on-nonuse` onto `lockout_threshold`, reporting a
+        dormant-account policy as a brute-force control — a device with dormant lockout
+        and no failed-login lockout looked protected against password spraying.
+        """
+        policy = gaia["management"]["password_policy"]
+
+        assert policy["dormant_lockout_days"] == 60
+        assert policy["dormant_lockout_days"] != policy["lockout_threshold"]
+
+    def test_the_password_hash_algorithm_is_recorded(self, gaia: dict[str, Any]) -> None:
+        policy = gaia["management"]["password_policy"]
+
+        assert policy["hash_algorithm"] == "SHA512"
+
+    def test_an_expiry_of_never_is_absent_rather_than_a_large_number(self) -> None:
+        """`never` is a legitimate Gaia value, and it must not read as a long maximum age.
+
+        Coercing it to a sentinel like 99999 would make a device with no expiry policy
+        pass a "maximum age under a year" check — the failure this codebase calls
+        absent-is-not-false.
+        """
+        from netsecops.parsers.base import ParseContext
+        from netsecops.parsers.registry import get_parser
+
+        ncm = get_parser("checkpoint_gaia").parse(
+            ParseContext(
+                text="set password-controls password-expiration never\n",
+                command="show configuration",
+            )
+        )
+
+        assert ncm.management.password_policy.max_age_days is None
 
 
 class TestGaiaParserHealth:
