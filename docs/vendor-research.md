@@ -22,17 +22,29 @@ broken outranks one that is absent.
 
 ## Already wrong, in priority order
 
-### 1. The Management API login can be read-only, and is not
+### 1. ~~The Management API login can be read-only, and is not~~ — it already is
 
-Check Point's `login` command accepts `read-only: true`. A read-only session **cannot
-acquire object locks and cannot publish** — the management server enforces it.
+> **Re-verified 2026-09-26: WRONG, and it was wrong when written.**
+> `adapters/http_transport.py:346` already sends `"read-only": True` in the login body,
+> and `git log -S` dates that to the original HTTPS-transport commit on 2026-09-14. It
+> has never been absent. This was billed as "the best ratio of effort to assurance found
+> anywhere in this research"; it was work already done.
 
-Today the Check Point read-only guarantee rests entirely on our own client-side
-`_checkpoint_show_only` predicate. One field in the login body moves it from *"we check
-ourselves"* to *"the appliance refuses us"*. It is the best ratio of effort to assurance
-found anywhere in this research, and it strengthens the claim the whole product rests on.
+The API field is real. `read-only` is on the `login` request schema, boolean, default
+false, described as "Login with Read Only permissions" — confirmed from Check Point's
+own published schema at `APIs/data/v2.2/dynamic/apis.json`.
 
-`adapters/http_transport.py`, in the Check Point login body.
+**What that field actually enforces is not documented.** The original claim that a
+read-only session "cannot acquire object locks and cannot publish" could not be
+confirmed in any primary source; the field description says only "Read Only
+permissions". CheckMates threads support it but return 403 to direct fetch, so it rests
+on search snippets. **Do not put that wording in a product claim** — say the session is
+opened read-only and that our own `_checkpoint_show_only` predicate is the enforced
+layer we can actually demonstrate.
+
+Two facts that *are* primary and worth keeping: `read-only` is silently ignored when
+`continue-last-session` is true, and `enter-last-published-session` logs in read-only
+by definition.
 
 ### 2. Four approved Gaia commands are never issued
 
@@ -46,11 +58,18 @@ parsed by `parse_gaia_route_table`, and the walk has been removed. See the topol
 section of the [README](../README.md) for the full account. The PAN-OS half is still
 open, pending a real capture of the op command's XML response.
 
-### 3. The Gaia password-policy parser matches parameters Gaia does not emit
+### 3. The Gaia password-policy parser matches parameters Gaia does not emit — fixed
 
 Documented in [parser-validation.md](parser-validation.md). Three NCM fields never
-populate on any Check Point device, and the fixture encodes the same invented syntax so
-the tests pass.
+populated on any Check Point device, and the fixture encoded the same invented syntax so
+the tests passed.
+
+> **Re-verified 2026-09-26.** The vendor half is confirmed against the Gaia
+> Administration Guide's *Configuring Password Policy – Gaia Clish*: the real parameters
+> are `history-length`, `password-expiration` (accepting the literal `never`),
+> `deny-on-fail failures-allowed` and `deny-on-nonuse allowed-days`, so the three names
+> the parser used genuinely do not exist. **Actioned in `2c360b0`** — the parser now
+> uses the documented names and the fixture was rewritten with them.
 
 ### 4. Check Point rulebase requests are unparameterised
 
@@ -59,6 +78,30 @@ the tests pass.
 come back **truncated at the server default** and the 5,000-rule target in our own README
 is unreachable. `show-hits: true` is free and unused, and `SecurityRule.hit_count` already
 exists to receive it.
+
+> **Re-verified 2026-09-26 against Check Point's published schema and examples.**
+> `limit` (1–500, **default 50**), `offset` (default 0), `package`, `show-hits` and the
+> reply's `from`/`to`/`total` are all confirmed. `show-threat-rulebase` genuinely has no
+> `show-hits`. **`layer` is wrong** — no such field exists on the rulebase queries; the
+> access layer is passed as `name`.
+>
+> **And that is the important part, because we send neither.** Every official
+> `show-access-rulebase` example sends `"name": "<layer>"`; every `show-nat-rulebase`
+> example sends `"package": "<package>"`. `as_body()` sends only `command`, `limit` and
+> `offset`. The schema's own `required` flags say False for everything, which
+> contradicts the examples, so this is a strong inference rather than a certainty — but
+> the likely position is that **the Check Point rulebase requests have never worked
+> against a real management server**, and the pagination below is correct machinery
+> aimed at a request that does not return a rulebase.
+>
+> It fails loudly rather than silently: `show-access-rulebase` is `required=True` in
+> the profile, so a rejection aborts the collection with an error. That is the one
+> piece of luck here.
+>
+> Fixing it means discovering the names first — `show-access-layers` and
+> `show-packages`, which page with the same contract — then issuing one request per
+> layer. **This is the next Check Point task and it outranks everything else in this
+> section.** Only a real management server can settle it.
 
 **Paging actioned** — `CollectionCommand.page_size` and `adapters/paging.py` now walk
 `show-access-rulebase` and `show-nat-rulebase` to the end, merging the pages into the
@@ -130,10 +173,23 @@ configured a view.
 
 ### 5. The deny-list blocks a command we want
 
-`adapters/readonly.py` denies `diagnose\s(?!sys|hardware)` and the deny-list runs *before*
-the allow-list, so `diagnose autoupdate versions` is rejected today. That command is the
-best single source of FortiGuard contract expiry and signature age, and Fortinet documents
-it as a view-only operation.
+`adapters/readonly.py` denies `diagnose\s(?!sys|hardware)`, so `diagnose autoupdate
+versions` cannot be sent today. That command is the best single source of FortiGuard
+contract expiry and signature age.
+
+> **Re-verified 2026-09-26.** Two corrections. **The ordering is backwards**: the
+> allow-list is consulted *first* (`readonly.py:217-248`) and the deny-list is Layer 3
+> after it, so the command is rejected today by the allow-list — the FortiGate entry
+> admits only `diagnose sys top` from the whole tree. The practical conclusion survives:
+> allow-listing alone is not enough, because the deny-list still fires unless the entry
+> is `session_only`. And **Fortinet does not document it as "view-only"** — no Fortinet
+> CLI reference classifies commands that way. It documents what it prints, "Dump
+> database and engine versions" (Container FortiOS 7.2.2 CLI Reference). The command
+> string is confirmed; the vendor-endorsement wording was ours, not theirs.
+>
+> Found alongside: the comment in `readonly.py` asserting that `diagnose sys` is
+> read-only was wrong — `diagnose sys kill` terminates a process. Corrected in place;
+> the allow-list, not the lookahead, is what contains that.
 
 ---
 
@@ -176,12 +232,23 @@ port security.
 
 ## Palo Alto Networks
 
-**PAN-OS is our most under-checked platform: 6 checks against Cisco's 37.**
+> **Re-verified 2026-09-26.** Corrections are marked inline. Two claims were wrong and
+> one was stale; the rest hold.
 
-**Rule hygiene is free.** `SecurityRule.profiles`, `log_end` and `applications` are parsed
-today and **read by no check**. An allow rule with no security profile group passes every
-shadow, redundancy and any-any analysis we have while permitting traffic with zero
-inspection. Roughly six YAML checks against fields already in the NCM, with no parser work.
+~~**PAN-OS is our most under-checked platform: 6 checks against Cisco's 37.**~~
+**Stale and overstated.** Cisco has **43**, not 37. PAN-OS has 6 — the same as Fortinet
+and Check Point, so it is tied rather than worst. The count also understates the
+evaluated surface: `common/` (36), `aaa/` (8) and `wireless/` (5) carry no platform key
+and run against PAN-OS snapshots too.
+
+~~**Rule hygiene is free.** `SecurityRule.profiles`, `log_end` and `applications` are
+parsed today and **read by no check**.~~
+**Wrong — already implemented**, in the rulebase analyser rather than the YAML library,
+which is why a search of `checks/library/` suggested otherwise. `firewall/policy.py`
+emits `NO_PROFILES` (medium), `NO_LOGGING` (high, from `log_start`/`log_end` via
+`logs`/`logging_known`) and `NO_APPLICATION_IDENTITY` (medium). The last of those was
+added the same morning this document was written. This is the "already implemented"
+failure mode recorded against the Cisco section, a second time.
 
 **Security profile contents are never parsed**, so a profile that alerts cannot be
 distinguished from one that blocks. Palo Alto's Best Practice Assessment is almost entirely
@@ -192,22 +259,51 @@ about action values, not profile presence.
 `av-release-date`, `app-release-date` and the rest. A firewall on current PAN-OS with
 six-month-old threat content is materially unprotected and nothing would say so.
 
-**The PSIRT feed premise in `vuln/fetch.py` is out of date.** It defers Palo Alto's feed as
-"per-advisory URLs that have to be walked from an index"; `security.paloaltonetworks.com/json`
-now returns the corpus unauthenticated with affected/fixed ranges. The API is marked Beta —
-treat it as a feed source with a schema guard.
+**The PSIRT feed premise in `vuln/fetch.py` is out of date.** Confirmed, and the comment
+at `fetch.py:87` is wrong twice over for Palo Alto. `security.paloaltonetworks.com/json`
+returns the corpus unauthenticated with `affected` and `fixed` — no index walk — and
+that host publishes **no CSAF at all** (`/.well-known/csaf/provider-metadata.json` is a
+404). Per-advisory responses are **CVE Record v5.0**, not CSAF: `affected[].versions[]`
+with `status`/`lessThan`/`versionType`, plus an `x_affectedList` vendor extension. The
+API is marked Beta, so treat it as a feed source with a schema guard.
 
-**Do not build a `set`-format parser.** The API only ever returns XML, and Palo Alto's own
-BPA consumes a Tech Support File, which contains the XML configuration with secrets already
-stripped. That is the better offline path.
+~~**Do not build a `set`-format parser.** The API only ever returns XML …~~
+**Right conclusion, wrong reason.** The PAN-OS REST API (9.0+) supports JSON and
+defaults to it, and this repo's allow-list already permits `/restapi/v10.1/…`. The
+accurate statement is narrower: the **XML API** (`type=config`, `type=op`) returns XML
+only, and no API emits `set` format at all — `set cli config-output-format set` is an
+interactive session setting. That is the reason not to build the parser.
+
+The Tech Support File remains the better offline path — its configuration is sanitized,
+with `phash`, `secret` and `key` values replaced by placeholders. **But that sanitization
+would make `panos-no-md5-admin-hash` permanently unevaluable**, because the hash it
+inspects is exactly what is stripped. A check that can never fire is the silent-emptiness
+trap this document keeps recording, so adopting TSF means retiring that check knowingly
+rather than discovering later that it reports nothing. Also stale: the manual On-Demand
+BPA dashboard was scheduled for deprecation on 30 April 2026; the Posture API replaces it.
 
 Also absent: decryption posture (a firewall with no decryption rules inspects almost
 nothing on a modern gateway), zone and DoS protection, and the two implicit
-`default-security-rules` which ship with logging disabled.
+`default-security-rules` which ship with logging disabled. Absence confirmed by search —
+no PAN-OS path mentions any of them, though zones themselves are parsed.
+
+The default-rule facts check out: `intrazone-default` (allow) and `interzone-default`
+(deny) are predefined, log nothing by default, and must be overridden before their
+logging can change. `default-security-rules` is confirmed as the configuration node,
+though from the `set` CLI form rather than a published xpath table. **The decryption
+rulebase xpath could not be confirmed in Palo Alto's documentation at all, and the
+zone-protection one only from community sources** — so neither should be written into a
+profile without a capture from a real device. That is the same position the PAN-OS route
+command is in.
 
 ---
 
 ## Fortinet
+
+> **Re-verified 2026-09-26.** Every claim in this section holds, and no string named
+> here is absent from FortiOS 7.x — the four bad names from the first pass are the ones
+> already called out at the end. Sourcing caveats are noted inline. Corrections to
+> claim 5 are recorded above, with that claim.
 
 **Certificate inspection silently defeats AV and IPS.** Fortinet states it plainly: cert-only
 inspection cannot see payload. A policy carrying an AV profile, an IPS sensor *and*
@@ -227,7 +323,11 @@ referenced by no policy, unmodified shipped defaults are all invisible.
 **FortiManager is used for inventory only.** `conf_status` (`outofsync` = changed directly
 on the firewall, out of band) and `db_status` (`mod` = staged in FortiManager, never
 pushed) grade an estate of hundreds of FortiGates with **zero contact with production
-devices**.
+devices**. Confirmed absent from the codebase: `adapters/children.py` issues
+`get /dvmdb/device` and reads only name, ip, sn, platform, version and `conn_status`.
+The enum values are documented in Fortinet's own Ansible collection for `/dvmdb/device`
+rather than on docs.fortinet.com, so treat the exact strings as correct but
+semi-officially sourced until seen on a real FortiManager.
 
 Note that several settings recommended in a first research pass do **not exist** in FortiOS
 7.x — `config system settings / set inspection-mode` (it is per-policy), the antivirus

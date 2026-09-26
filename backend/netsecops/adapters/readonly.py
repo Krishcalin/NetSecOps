@@ -69,8 +69,17 @@ PIPE: Final[str] = "|"
 #: SRS §8.1 item 2, verbatim in intent: obvious write verbs, blocked even when an
 #: allow-list entry would have permitted them.
 #:
-#: ``diagnose`` carries a negative lookahead because FortiGate's ``diagnose sys`` and
-#: ``diagnose hardware`` are read-only, while the rest of the ``diagnose`` tree is not.
+#: ``diagnose`` carries a negative lookahead because most of FortiGate's ``diagnose sys``
+#: and ``diagnose hardware`` subtrees read rather than act, while the rest of the
+#: ``diagnose`` tree does not.
+#:
+#: **The lookahead is not a safety boundary, and the earlier wording here claimed it was.**
+#: ``diagnose sys kill <signal> <pid>`` is a documented FortiGate command that terminates
+#: a process, and this pattern lets it through. What actually contains the damage is the
+#: allow-list, which admits exactly ``diagnose sys top`` from the whole tree — and which
+#: is consulted *first*, so an unlisted ``diagnose`` command never reaches this pattern at
+#: all. Widening a ``diagnose`` allow-list entry on the strength of this lookahead would
+#: be relying on a guard that does not exist.
 DENY_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"^(?:"
     r"conf(?:igure)?(?:\s+t(?:erminal)?)?"

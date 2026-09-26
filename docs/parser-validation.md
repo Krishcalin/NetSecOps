@@ -163,7 +163,9 @@ FortiAuthenticator, FortiManager, FreeRADIUS and tac_plus have no outside corpus
 — their parsers have only ever seen configurations we wrote ourselves.
 
 That is not a theoretical gap. Vendor-documentation research in September 2026 found that
-`parsers/checkpoint/gaia.py` matches password-policy parameters Gaia does not emit:
+`parsers/checkpoint/gaia.py` matched password-policy parameters Gaia does not emit.
+**Fixed in `2c360b0`**; the account below is kept because the way it survived matters
+more than the fix, and because the corpus gap that allowed it is still open.
 
 | Parser looks for | Gaia actually writes |
 |---|---|
@@ -171,9 +173,12 @@ That is not a theoretical gap. Vendor-documentation research in September 2026 f
 | `password-expiration-days` | `password-expiration` (value may be the literal `never`) |
 | `deny-on-nonuse-enable` | `deny-on-nonuse enable` — and this is *dormant-account* lockout, not failed-login lockout, which is `deny-on-fail failures-allowed` |
 
-So `password_policy.history`, `max_age_days` and `lockout_threshold` are never populated
-on any Check Point device, and every check reading them reports *Not evaluated* across the
-entire estate.
+So `password_policy.history`, `max_age_days` and `lockout_threshold` were never populated
+on any Check Point device, and every check reading them reported *Not evaluated* across
+the entire estate. Re-verified against the Gaia Administration Guide's *Configuring
+Password Policy – Gaia Clish* in September 2026: the real parameter names are
+`history-length`, `password-expiration`, `deny-on-fail failures-allowed` and
+`deny-on-nonuse allowed-days`, confirming all three of the rows above.
 
 **The fixture encodes the same invented syntax**, which is why nothing caught it: the
 tests confirm the parser's assumptions rather than test them. This is the precise failure

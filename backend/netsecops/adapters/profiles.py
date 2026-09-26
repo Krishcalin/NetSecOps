@@ -455,7 +455,9 @@ CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
     platform="checkpoint_mgmt",
     # The Management API is POST-only by design, so there is no session to configure and
     # no read-only guarantee to be had from the method. Every entry below is a `show-*`
-    # command, which is what `checkpoint_show_only` in policies.py actually enforces.
+    # command, which is what `_checkpoint_show_only` in readonly.py enforces — the login
+    # itself is also opened with `read-only: true` (http_transport.py), so both a
+    # client-side and a server-side restriction apply.
     setup=(),
     transport=Transport.RPC,
     bundled=True,

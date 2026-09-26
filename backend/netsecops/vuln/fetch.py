@@ -83,10 +83,14 @@ class FeedSource:
 
 #: The three feeds that are global, free and fetchable without a contract.
 #:
-#: Vendor PSIRT feeds (FR-VUL-02) are absent on purpose: Cisco's openVuln API needs an
-#: OAuth client credential, and Palo Alto, Fortinet and Check Point publish CSAF at
-#: per-advisory URLs that have to be walked from an index. Both are real work rather than
-#: an oversight, and both already have a working offline path today.
+#: Vendor PSIRT feeds (FR-VUL-02) are absent on purpose, but not for the reason this
+#: comment used to give. Cisco's openVuln API does need an OAuth client credential.
+#: Palo Alto does *not* need an index walk and does not publish CSAF at all:
+#: `security.paloaltonetworks.com/json` returns the whole corpus unauthenticated with
+#: `affected` and `fixed`, in CVE Record v5.0, and that host has no
+#: `/.well-known/csaf/provider-metadata.json`. So adding Palo Alto is smaller work than
+#: recorded here — a fetch and a schema guard, the API being marked Beta. The Fortinet
+#: and Check Point halves of the original claim remain unverified.
 DEFAULT_SOURCES: Final[dict[str, FeedSource]] = {
     "kev": FeedSource(
         name="kev",
