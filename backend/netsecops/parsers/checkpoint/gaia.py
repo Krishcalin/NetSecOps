@@ -46,7 +46,8 @@ from netsecops.parsers.base import (
     is_default_community,
     mask_secret,
 )
-from netsecops.parsers.routes import connected_routes, store, to_cidr
+from netsecops.parsers.route_tables import parse_gaia_route_table, store_routes
+from netsecops.parsers.routes import connected_routes, to_cidr
 
 log = get_logger(__name__)
 
@@ -255,7 +256,17 @@ class CheckPointGaiaParser(ConfigParser):
 
         collected.extend((route, None) for route in connected_routes(result.ncm.interfaces))
 
-        store(result, collected)
+        # `show configuration` holds the static routes somebody typed and nothing the
+        # gateway learned, so a Check Point in a routed core used to reach the topology
+        # graph with its statics only. `show route` is the forwarding table; where it
+        # was captured it supersedes the configuration, and where it was not this falls
+        # back rather than erasing what the config does say.
+        store_routes(
+            result,
+            "show route",
+            parser=parse_gaia_route_table,
+            from_config=collected,
+        )
 
     # ── administrators ──────────────────────────────────────────────────
 

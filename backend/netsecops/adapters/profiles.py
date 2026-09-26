@@ -441,6 +441,7 @@ CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
         CollectionCommand("show password-controls all", "The effective password policy"),
         CollectionCommand("show ntp servers", "NTP peering"),
         CollectionCommand("show clock", "Whether the clock is plausibly synchronised"),
+        CollectionCommand("show route", "The forwarding table, including learned routes"),
         CollectionCommand("fw ver", "Firewall module version"),
         CollectionCommand("fw stat", "Which policy is installed, and when"),
         CollectionCommand("enabled_blades", "Which software blades are actually running"),

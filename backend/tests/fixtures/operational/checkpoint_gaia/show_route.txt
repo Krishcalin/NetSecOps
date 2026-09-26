@@ -1,0 +1,14 @@
+Codes: C - Connected, S - Static, R - RIP, B - BGP (D - Default),
+       O - OSPF IntraArea (IA - InterArea, E - External, N - NSSA)
+       A - Aggregate, K - Kernel Remnant, H - Hidden, P - Suppressed,
+       U - Unreachable, i - Inactive
+
+S         0.0.0.0/0           via 192.168.211.254, eth0, cost 0, age 16426
+C         192.168.211.0/24    is directly connected, eth0
+C         172.16.8.0/24       is directly connected, eth1
+C         127.0.0.0/8         is directly connected, lo
+S         10.5.0.0/16         via 172.16.8.1, eth1, cost 0, age 16426
+B         10.20.0.0/16        via 172.16.8.2, eth1, cost 20, age 904
+B         10.21.0.0/16        via 172.16.8.2, eth1, cost 20, age 904
+O         10.30.4.0/24        via 172.16.8.9, eth1, cost 12, age 88
+O IA      10.31.0.0/16        via 172.16.8.9, eth1, cost 30, age 88

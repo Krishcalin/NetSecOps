@@ -40,9 +40,11 @@ found anywhere in this research, and it strengthens the claim the whole product 
 `checkpoint_gaia` allow-list in `adapters/policies.py` and none appears in
 `CHECKPOINT_GAIA_PROFILE`. They are permitted and never sent.
 
-`show route` is the one that matters: it is why the SNMP route walk exists, and it makes
-it unnecessary. See the topology section of the [README](../README.md) for the full
-account.
+`show route` was the one that mattered: it is why the SNMP route walk existed, and it
+made it unnecessary. **Actioned** — `show route` is now in `CHECKPOINT_GAIA_PROFILE`,
+parsed by `parse_gaia_route_table`, and the walk has been removed. See the topology
+section of the [README](../README.md) for the full account. The PAN-OS half is still
+open, pending a real capture of the op command's XML response.
 
 ### 3. The Gaia password-policy parser matches parameters Gaia does not emit
 

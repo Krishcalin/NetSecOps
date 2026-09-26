@@ -447,6 +447,133 @@ def parse_nxos_route_table(text: str) -> list[Route]:
     return routes
 
 
+#: Gaia's legend, which reuses Cisco's letters for different things.
+#:
+#: Kept separate from :data:`PROTOCOL_BY_CODE` rather than merged into it, because four
+#: of the letters collide outright: Gaia's `D` is a BGP default route where Cisco's is
+#: EIGRP, `P` is Suppressed where Cisco's is a periodic static, `U` is Unreachable where
+#: Cisco's is a per-user static, and `i` is Inactive where Cisco's is IS-IS. Reusing the
+#: Cisco map would not fail — it would return a confident, wrong protocol for each, and
+#: a graph edge labelled `eigrp` on a Check Point gateway is harder to disbelieve than
+#: one labelled nothing at all.
+GAIA_PROTOCOL_BY_CODE: Final[dict[str, str]] = {
+    "C": "connected",
+    "S": "static",
+    "R": "rip",
+    "B": "bgp",
+    #: A BGP default route — a qualifier on `B`, not a protocol of its own.
+    "D": "bgp",
+    "O": "ospf",
+    "IA": "ospf",
+    "E": "ospf",
+    "N": "ospf",
+    #: Aggregate and kernel remnant. Real forwarding entries, but neither names a
+    #: routing protocol, and `Route.protocol` documents a closed set.
+    "A": "other",
+    "K": "other",
+    "U": "other",
+}
+
+#: Codes marking a route the device is *not* forwarding on: hidden, suppressed by a
+#: route map, or inactive. Plain `show route` should not print these at all — they need
+#: `show route all` — so this is a guard rather than an expectation, and they are
+#: dropped because a graph edge for a route the device will not use is a path that does
+#: not exist.
+_GAIA_NOT_FORWARDING: Final[frozenset[str]] = frozenset({"H", "P", "i"})
+
+#: `S   0.0.0.0/0   via 192.168.211.254, eth0, cost 0, age 16426`
+#: `C   192.168.211.0/24   is directly connected, eth0`
+_GAIA_ROUTE: Final[re.Pattern[str]] = re.compile(
+    r"^(?P<codes>[A-Za-z]{1,2}(?:\s+[A-Za-z]{1,2})*)\s+"
+    r"(?P<destination>\d{1,3}(?:\.\d{1,3}){3}(?:/\d{1,2})?)\s+"
+    r"(?P<tail>.+)$"
+)
+
+#: Gaia prints `cost 0` where Cisco prints `[110/2]`, so `_AD_METRIC` finds nothing.
+_GAIA_COST: Final[re.Pattern[str]] = re.compile(r"\bcost\s+(\d+)")
+
+
+def parse_gaia_route_table(text: str) -> list[Route]:
+    """Parse Check Point Gaia `show route` output.
+
+    Gaia's forwarding table is not in `show configuration`, which carries the static
+    routes somebody typed and nothing the gateway learned. A Check Point gateway in a
+    routed core therefore appeared in the topology graph with its static routes only,
+    and the graph had no way to say so.
+
+    Two line shapes, both with a leading code:
+
+        S    0.0.0.0/0          via 192.168.211.254, eth0, cost 0, age 16426
+        C    192.168.211.0/24   is directly connected, eth0
+
+    **The interface is taken by position, not by elimination.** `_interface_from` walks
+    the comma-separated fields from the right and skips anything that looks like an
+    uptime — which works where the tail ends with the interface, and fails here: Gaia
+    ends with `cost 0, age 16426`, and `16426` is not a recognised uptime spelling, so
+    that helper would hand back `16426` as the egress interface. That is the exact bug
+    `_is_age` exists to prevent, arriving through a format it was not written against.
+    In Gaia's grammar the interface always follows the next hop, so it is read there.
+    """
+    routes: list[Route] = []
+
+    for raw in text.splitlines()[:MAX_LINES]:
+        line = raw.strip()
+        match = _GAIA_ROUTE.match(line)
+        if match is None:
+            continue
+
+        tail = match.group("tail")
+        # The legend lists the same letters followed by ` - Connected`, and a route
+        # line always says where the traffic goes. Without this the legend parses as
+        # a table of routes to nowhere.
+        directly_connected = "is directly connected" in tail
+        if "via" not in tail and not directly_connected:
+            continue
+
+        codes = match.group("codes").split()
+        if _GAIA_NOT_FORWARDING.intersection(codes):
+            continue
+
+        destination = to_cidr(match.group("destination"))
+        if destination is None:
+            continue
+
+        protocol: str | None = None
+        for code in codes:
+            if found := GAIA_PROTOCOL_BY_CODE.get(code):
+                protocol = found
+                break
+
+        fields = [part.strip() for part in tail.split(",")]
+        interface: str | None = None
+        next_hop: str | None = None
+
+        if directly_connected:
+            # `is directly connected, eth0`
+            interface = fields[1] if len(fields) > 1 else None
+        else:
+            # `via 10.0.0.1, eth0, cost 0, age 16426` — the interface follows the hop.
+            if via := _VIA_ADDRESS.search(fields[0]):
+                next_hop = via.group(1)
+            interface = fields[1] if len(fields) > 1 else None
+
+        metric: int | None = None
+        if cost := _GAIA_COST.search(tail):
+            metric = int(cost.group(1))
+
+        routes.append(
+            Route(
+                destination=destination,
+                next_hop=next_hop,
+                interface=interface or None,
+                protocol=protocol,
+                metric=metric,
+            )
+        )
+
+    return routes
+
+
 def store_routes(
     result: ParseResult,
     *commands: str,
@@ -487,10 +614,12 @@ def store_routes(
 
 
 __all__ = [
+    "GAIA_PROTOCOL_BY_CODE",
     "MAX_LINES",
     "PROTOCOL_BY_CODE",
     "PROTOCOL_BY_NAME",
     "parse_cisco_route_table",
+    "parse_gaia_route_table",
     "parse_nxos_route_table",
     "store_routes",
 ]

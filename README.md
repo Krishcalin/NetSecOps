@@ -763,44 +763,63 @@ interface name. All three are fixture-tested, and the operational table supersed
 configuration's statics rather than adding to them, since the device's own table already
 contains them.
 
-**Check Point and PAN-OS have no routing table, and the SNMP walk built to give them one
-does not work.** This is recorded rather than quietly fixed, because the way it went
-wrong is more instructive than the feature was.
+**Check Point now reads its forwarding table the way every other platform does, and the
+SNMP route walk that used to stand in for it has been removed.** The removal is recorded
+rather than quietly done, because the way the walk went wrong is more instructive than
+the feature ever was.
 
-The reasoning was: five platforms reach their routing tables over the CLI, Check Point
-and PAN-OS have no route command in their collection profile, so read the table over
-SNMP instead. `netsecops/snmp/` walks `ipCidrRouteTable` (RFC 2096) and merges what it
-finds into the same `routing.routes` the parsers fill. It is carefully built — the codec
-has no encoder for a SET PDU at all, reject routes are excluded and counted, a truncated
-walk is recorded as truncated, and a failed walk costs a note rather than the snapshot.
+The reasoning behind it was: five platforms reach their routing tables over the CLI,
+Check Point and PAN-OS have no route command in their collection profile, so read the
+table over SNMP instead. `netsecops/snmp/` walked `ipCidrRouteTable` (RFC 2096) and
+merged what it found into the same `routing.routes` the parsers fill. It was carefully
+built — no encoder for a SET PDU existed at all, reject routes were excluded and counted,
+a truncated walk was recorded as truncated, and a failed walk cost a note rather than the
+snapshot. Every one of those is a good property of a thing that should not have existed.
 
 Both halves of the premise were wrong, and neither was checked first.
 
-**The platforms do have route commands.** Gaia's `show route` is on the `checkpoint_gaia`
-allow-list in [`policies.py`](backend/netsecops/adapters/policies.py) and was simply never
-added to the collection profile — approved, permitted, never issued. PAN-OS answers
-`<show><routing><route/></routing></show>`, which the read-only guard already permits
-because it begins with `<show>`. The gap the feature exists to fill was two lines of
-configuration in a profile.
+**The platforms do have route commands.** Gaia's `show route` was already on the
+`checkpoint_gaia` allow-list in [`policies.py`](backend/netsecops/adapters/policies.py)
+and simply never added to the collection profile — approved, permitted, never issued.
+PAN-OS answers `<show><routing><route/></routing></show>`, which the read-only guard
+already permits because it begins with `<show>`. The gap the feature existed to fill was
+a line of configuration in a profile.
 
 **And the MIB is not there anyway.** Palo Alto's documentation states that PAN-OS
 "currently support[s] only the ipAddressTable and ipAddrTable in IP-MIB" — neither route
 table, in any version. Check Point does not document standard-MIB routing at all; sk90860
 puts the routing table under the enterprise tree at `.1.3.6.1.4.1.2620.1.6.6`, so the
-standard OID this walks was never the right one for Gaia either. For the record, of the
-platforms checked only IOS, IOS-XE and IOS-XR populate `ipCidrRouteTable` — and all three
-already collect routes over the CLI. FortiOS carries only the legacy `ipRouteTable`, ASA
-exposes a route *count* and nothing more, and NX-OS has neither. The comment in
-`routes.py` calling it "the table every mainstream platform still populates" was an
-assertion, not a finding, and it is false.
+standard OID the walk used was never the right one for Gaia either. Of the platforms
+checked, only IOS, IOS-XE and IOS-XR populate `ipCidrRouteTable` — and all three already
+collect routes over the CLI. FortiOS carries only the legacy `ipRouteTable`, ASA exposes
+a route *count* and nothing more, and NX-OS has neither. The comment calling it "the
+table every mainstream platform still populates" was an assertion, not a finding, and it
+was false.
 
-The walk is also IPv4-only by construction (RFC 2096 types the index as `IpAddress`) and
-reads only the default SNMP context, so per-VRF routes would be silently absent — two
-more complete-looking partial answers in a feature written to prevent exactly that.
+The walk was also IPv4-only by construction (RFC 2096 types the index as `IpAddress`) and
+read only the default SNMP context, so per-VRF routes would have been silently absent —
+two more complete-looking partial answers in a feature written to prevent exactly that.
 
-The fix is to issue the two route commands and retire the walk. What is worth keeping is
-the BER codec unification: discovery and collection now share one SNMP implementation
-instead of two, which was a real improvement independent of the walk.
+`show route` is now in the Gaia profile and parsed by `parse_gaia_route_table`. Gaia's
+legend reuses Cisco's letters for different things — its `D` is a BGP default where
+Cisco's is EIGRP, `U` is Unreachable where Cisco's is a per-user static, `i` is Inactive
+where Cisco's is IS-IS — so it has its own code map rather than sharing one, since the
+failure mode of sharing is a confident wrong protocol on a graph edge rather than a
+missing one. Routes the gateway is not forwarding on are dropped, and the interface is
+read by position: Gaia ends its lines `cost 0, age 16426`, and the shared helper that
+works backwards past anything resembling an uptime would return `16426` as an interface
+name.
+
+**PAN-OS is still outstanding.** The op command is permitted and the response is XML, but
+its element structure is not documented — Palo Alto's own guidance is to read it off a
+live device or the API browser. Writing a parser against a guessed schema is how the Gaia
+password-policy parser came to match syntax Gaia never emits, with a fixture encoding the
+same fiction so the test agreed with the mistake. It waits for a real capture.
+
+What was worth keeping is the BER codec unification: discovery and collection briefly
+shared one SNMP implementation instead of two. Collection no longer speaks SNMP at all,
+so discovery is again the only caller, but the codec stays in `netsecops/snmp/` because
+it is a protocol rather than a discovery detail.
 
 **A path can now be traced across devices, and the answer has two axes.** Give it a
 source, a destination, a protocol and a port, and it finds the devices in between and asks

@@ -1,12 +1,16 @@
 """SNMP, read-only.
 
-The BER codec lived under ``discovery`` while discovery was its only caller. Collection
-now walks route tables from onboarded devices (SRS §8: "SNMP v2c/v3 GET only
-(discovery/fingerprint & optional inventory), never SET"), and collection importing from
-discovery would invert the layering — so the protocol lives here and both call in.
+The BER codec lived under ``discovery`` while discovery was its only caller. It was
+moved here when collection also began speaking SNMP, so that collection would not have
+to import from discovery and invert the layering. Collection no longer does — the route
+walk that needed it has been removed, because the devices it existed for answer a route
+command instead — so discovery is once again the only caller. The codec stays here
+rather than moving back: it is a protocol, not a discovery detail, and moving it twice
+would churn every import for no gain.
 
-Nothing in this package can encode a SET. ``codec`` exposes no PDU builder for one, and
-``test_snmp_readonly.py`` asserts that the tag never appears in an encoded packet.
+Nothing in this package can encode a SET (SRS §8). ``codec`` exposes no PDU builder for
+one, and ``test_snmp_readonly.py`` asserts that the tag never appears in an encoded
+packet.
 """
 
 from netsecops.snmp.codec import (
@@ -21,17 +25,9 @@ from netsecops.snmp.codec import (
     parse_response,
     parse_varbinds,
 )
-from netsecops.snmp.routes import (
-    IP_CIDR_ROUTE_TABLE,
-    RouteWalk,
-    parse_route_index,
-    walk_routes,
-)
 
 __all__ = [
-    "IP_CIDR_ROUTE_TABLE",
     "SNMP_PORT",
-    "RouteWalk",
     "SnmpError",
     "VarBind",
     "build_get",
@@ -40,7 +36,5 @@ __all__ = [
     "decode_oid",
     "encode_oid",
     "parse_response",
-    "parse_route_index",
     "parse_varbinds",
-    "walk_routes",
 ]

@@ -47,7 +47,7 @@ from netsecops.db.models.collection import (
     Snapshot,
 )
 from netsecops.db.models.inventory import Device
-from netsecops.ncm.models import NCM_VERSION, NormalisedConfig, Route
+from netsecops.ncm.models import NCM_VERSION, NormalisedConfig
 from netsecops.parsers.base import ParseContext
 from netsecops.parsers.registry import NoParserError, get_parser
 from netsecops.services.audit import AuditService
@@ -150,34 +150,6 @@ SECURITY_RELEVANT_PREFIXES: tuple[str, ...] = (
     "firewall.security_rules",
     "acls",
 )
-
-
-def merge_learned_routes(parsed: Sequence[Route], learned: Sequence[Route]) -> list[Route]:
-    """Add a forwarding table read over SNMP to the one parsed from a configuration.
-
-    **Additive, and the parsed route wins.** Where a platform's profile issues a route
-    command — the Cisco platforms, FortiOS — the parsed table is already the real one,
-    read in the device's own vocabulary by a parser that understands its quirks. SNMP
-    then agrees with it and contributes nothing, which is the correct outcome and why
-    this merges rather than replaces. On Check Point and PAN-OS, whose profiles have no
-    route command, the parsed side holds whatever the configuration yielded and SNMP
-    contributes the rest.
-
-    Identity is ``(destination, next_hop, vrf)``. Not destination alone: equal-cost
-    paths to one prefix are ordinary, and collapsing them would silently discard half of
-    a resilient design and make a path look single-homed when it is not.
-    """
-    seen = {(route.destination, route.next_hop, route.vrf) for route in parsed}
-    merged = list(parsed)
-
-    for route in learned:
-        key = (route.destination, route.next_hop, route.vrf)
-        if key in seen:
-            continue
-        seen.add(key)
-        merged.append(route)
-
-    return merged
 
 
 def normalise_config(text: str) -> str:
@@ -482,8 +454,6 @@ class SnapshotService:
         artifact_id: uuid.UUID | None = None,
         command: str | None = None,
         supporting: Mapping[str, str] | None = None,
-        learned_routes: Sequence[Route] | None = None,
-        learned_truncated: bool = False,
     ) -> Snapshot:
         """Parse a configuration and store it, de-duplicating identical ones.
 
@@ -492,12 +462,11 @@ class SnapshotService:
         the NCM fields that do not appear in a running configuration — version, model,
         serial — without which no CVE can be matched (FR-VUL-01).
 
-        ``learned_routes`` carries a forwarding table read over SNMP, which is merged
-        into the parsed routing table rather than replacing it — see
-        :func:`merge_learned_routes`. It does not affect the configuration hash: two
-        collections of an unchanged device must still de-duplicate to one snapshot, and
-        hashing a routing table that reconverges on its own would make every collection
-        look like a configuration change.
+        A forwarding table arrives the same way, as the output of the platform's own
+        route command, and :func:`netsecops.parsers.route_tables.store_routes` decides
+        how it combines with the routes the configuration declares. It is deliberately
+        not hashed: a routing table reconverges on its own, so folding one into the
+        digest would make every collection of an unchanged device look like drift.
         """
         platform = platform or device.platform
         if not platform:
@@ -519,11 +488,6 @@ class SnapshotService:
                 supporting=dict(supporting or {}),
             )
         )
-
-        if learned_routes:
-            ncm.routing.routes = merge_learned_routes(ncm.routing.routes, learned_routes)
-        if learned_truncated:
-            ncm.routing.routes_truncated = True
 
         digest = config_hash(config_text)
         meaningful = [

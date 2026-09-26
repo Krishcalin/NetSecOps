@@ -11,9 +11,12 @@ speak SNMP" rather than as a bug.
 
 **What this module does not do is the point.** FR-DISC-02 permits two OIDs against a host
 nobody has agreed to assess yet; everything else in the MIB is inventory, which is
-collection's job and needs an onboarded device with approved credentials. The route walk
-is therefore deliberately *not* reachable from here — see
-:mod:`netsecops.snmp.routes`, which the collection runner calls instead.
+collection's job and needs an onboarded device with approved credentials.
+
+Collection once walked ``ipCidrRouteTable`` from here downstream. It no longer does, and
+the walk has been removed rather than left dormant: the platforms it was built for answer
+a route command over the session already open to them, and most of them do not implement
+that MIB at all.
 
 **v2c only, and v3 is refused rather than degraded.** SNMPv3's User Security Model needs
 a username, an authentication protocol and key, and a privacy protocol and key —
