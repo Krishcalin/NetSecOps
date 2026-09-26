@@ -64,6 +64,33 @@ Two traps if that is built: hit counting is a **global toggle**, so an estate wi
 disabled must report "hit counting is off" rather than "this rule is unused"; and
 `show-threat-rulebase` does not support `show-hits` at all.
 
+### 4a. The API platforms were handed an artefact their parsers cannot read
+
+Found while implementing §4, and larger than it. Check Point, ISE and FortiAuthenticator
+have no configuration file — their configuration is every response together, and all
+three parsers look responses up by endpoint. The collector assigned the body of the one
+command marked `yields_config` to `config_text`, so each parser received a single
+response and searched inside it for a key naming a different one.
+
+A Check Point management server therefore collected in production parsed to **zero
+security rules and zero NAT rules**, with `parse_failed` False. Not a failure — a
+firewall with no policy, reported confidently.
+
+**Actioned** — `CollectionProfile.bundled` now files every response under its endpoint.
+`test_bundled_collection_shape.py` asserts the seam, which nothing did: every parser
+test feeds a bundle, and the only test of `_collect_profile` used Cisco IOS over SSH.
+
+Two ISE divergences surfaced and are **open**, because only a real deployment settles
+either:
+
+- The profile fetches `GET /api/v1/system-settings/admin-access`; the parser reads
+  `admin/settings`. They are keyed to agree so the response is not discarded, but one of
+  the two names is wrong about ISE's API.
+- The parser reads five endpoints no profile collects — `internaluser`,
+  `networkdevicegroup`, `repository`, `guestsettings` and
+  `backup-restore/config/last-backup-status` — so those NCM fields are always empty in
+  production, whatever the deployment contains.
+
 ### 5. The deny-list blocks a command we want
 
 `adapters/readonly.py` denies `diagnose\s(?!sys|hardware)` and the deny-list runs *before*

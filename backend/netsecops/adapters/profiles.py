@@ -52,11 +52,27 @@ class CollectionCommand:
     required: bool = False
     #: This command's output is the running configuration, and is what gets parsed.
     yields_config: bool = False
+    #: The key this response takes in a bundled profile's artefact, where the last path
+    #: segment is not what the parser looks for. ISE needs several — it asks for
+    #: `/api/v1/policy/network-access/authorization` and reads
+    #: `policy/network-access/authorization`, which is three segments, not one.
+    bundle_key: str | None = None
 
     def as_request(self) -> tuple[str, str]:
         """Split an HTTP entry into (method, path)."""
         method, _, path = self.command.partition(" ")
         return method.upper(), path
+
+    def key_in_bundle(self) -> str:
+        """The name this response is filed under for the parser to find it.
+
+        Defaults to the last path segment, which is what Check Point's operation names
+        and FortiAuthenticator's endpoints reduce to. Anything else declares itself.
+        """
+        if self.bundle_key is not None:
+            return self.bundle_key
+        _method, path = self.as_request()
+        return path.strip("/").split("/")[-1].lower()
 
     def as_body(self) -> dict[str, str]:
         """The JSON body an RPC entry sends.
@@ -79,6 +95,16 @@ class CollectionProfile:
     setup: tuple[str, ...]
     commands: tuple[CollectionCommand, ...]
     transport: Transport = Transport.CLI
+    #: The parsed artefact is every response together, keyed by command, rather than
+    #: the output of one command.
+    #:
+    #: True for the platforms whose "configuration" is not a document but an API: a
+    #: Check Point management server's policy, ISE's deployment, a FortiAuthenticator.
+    #: Their parsers are all built around `ResponseBundle` and look responses up by
+    #: endpoint, so handing them the body of a single command leaves every lookup
+    #: empty — a policy that parses to no rules at all, with nothing reporting failure.
+    #: PAN-OS is deliberately not bundled: its configuration really is one XML document.
+    bundled: bool = False
 
     @property
     def config_command(self) -> str:
@@ -286,6 +312,7 @@ CISCO_ISE_PROFILE: Final = CollectionProfile(
     # rather than a failure.
     setup=(),
     transport=Transport.HTTP,
+    bundled=True,
     commands=(
         CollectionCommand(
             "GET /ers/config/networkdevice",
@@ -293,7 +320,11 @@ CISCO_ISE_PROFILE: Final = CollectionProfile(
             required=True,
             yields_config=True,
         ),
-        CollectionCommand("GET /api/v1/deployment/node", "Node names, roles and version"),
+        CollectionCommand(
+            "GET /api/v1/deployment/node",
+            "Node names, roles and version",
+            bundle_key="deployment/node",
+        ),
         CollectionCommand(
             "GET /ers/config/activedirectory", "Active Directory joins used as identity sources"
         ),
@@ -303,20 +334,36 @@ CISCO_ISE_PROFILE: Final = CollectionProfile(
             "Which authentication protocols the server will accept — PAP, MS-CHAPv1, EAP-MD5",
         ),
         CollectionCommand(
-            "GET /api/v1/policy/network-access/authentication", "Authentication rules, in order"
+            "GET /api/v1/policy/network-access/authentication",
+            "Authentication rules, in order",
+            bundle_key="policy/network-access/authentication",
         ),
         CollectionCommand(
-            "GET /api/v1/policy/network-access/authorization", "Authorisation rules, in order"
+            "GET /api/v1/policy/network-access/authorization",
+            "Authorisation rules, in order",
+            bundle_key="policy/network-access/authorization",
         ),
         CollectionCommand(
             "GET /api/v1/policy/device-admin/command-sets",
             "TACACS+ command authorisation sets",
+            bundle_key="policy/device-admin/command-sets",
         ),
         CollectionCommand("GET /ers/config/adminuser", "Administrators of ISE itself"),
         CollectionCommand(
-            "GET /api/v1/system-settings/admin-access", "Admin session timeout and MFA"
+            "GET /api/v1/system-settings/admin-access",
+            "Admin session timeout and MFA",
+            # The parser reads `admin/settings` and the path asks for
+            # `system-settings/admin-access`. Keyed to what the parser reads so the
+            # response is not discarded — but the two names disagree about ISE's real
+            # API and only a deployment can settle which is right. Recorded in
+            # docs/vendor-research.md rather than silently picked.
+            bundle_key="admin/settings",
         ),
-        CollectionCommand("GET /api/v1/certs/system-certificate", "EAP and admin certificates"),
+        CollectionCommand(
+            "GET /api/v1/certs/system-certificate",
+            "EAP and admin certificates",
+            bundle_key="certs/system-certificate",
+        ),
     ),
 )
 
@@ -324,6 +371,7 @@ FORTIAUTHENTICATOR_PROFILE: Final = CollectionProfile(
     platform="fortiauthenticator",
     setup=(),
     transport=Transport.HTTP,
+    bundled=True,
     commands=(
         CollectionCommand(
             "GET /api/v1/radiusclients/",
@@ -394,6 +442,7 @@ CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
     # command, which is what `checkpoint_show_only` in policies.py actually enforces.
     setup=(),
     transport=Transport.RPC,
+    bundled=True,
     commands=(
         CollectionCommand(
             "POST /web_api/show-access-rulebase",

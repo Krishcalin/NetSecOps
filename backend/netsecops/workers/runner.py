@@ -11,6 +11,7 @@ still produces useful results for the rest.
 
 from __future__ import annotations
 
+import json
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -833,6 +834,9 @@ async def _collect_profile(
     #: drift. The parsers read version, model and serial from here (FR-VUL-01).
     supporting: dict[str, str] = {}
     failures: list[str] = []
+    #: Responses for a bundled profile, keyed by endpoint. Serialised as the
+    #: configuration once every command has been issued.
+    bundle: dict[str, Any] = {}
 
     over_api = profile.transport is not Transport_.CLI
 
@@ -868,12 +872,25 @@ async def _collect_profile(
             duration_ms=result.duration_ms,
             succeeded=result.succeeded,
         )
-        if entry.yields_config:
+        if profile.bundled:
+            # Every response goes into one artefact keyed by endpoint, because that is
+            # what these parsers read. Filed even when the body is not JSON, so a
+            # response that arrived malformed is visible to the parser's unread-endpoint
+            # accounting rather than indistinguishable from one never requested.
+            if result.succeeded:
+                bundle[entry.key_in_bundle()] = _as_payload(result.output)
+        elif entry.yields_config:
             config_text = result.output
         elif result.succeeded:
             supporting[entry.command] = result.output
         if not result.succeeded:
             failures.append(entry.command)
+
+    if profile.bundled:
+        # Sorted so that two collections of an unchanged deployment serialise
+        # identically: dict order here would otherwise follow profile order, which is
+        # stable, but the hash should not depend on that staying true.
+        config_text = json.dumps(bundle, sort_keys=True) if bundle else None
 
     collection.finished_at = datetime.now(UTC)
     collection.partial = bool(failures)
@@ -982,6 +999,20 @@ async def _assess_vulnerabilities(
         f"; {vulns.confirmed} confirmed, {vulns.likely} likely"
         f" of {vulns.advisories_considered} advisories"
     )
+
+
+def _as_payload(body: str) -> Any:
+    """A response body as structured data, or the raw text if it is not JSON.
+
+    Keeping the text rather than dropping it matters: these parsers report which
+    endpoints nothing read, and a response filed as a string is one their extractors
+    find no objects in and *say so*. Dropping it would make a malformed response
+    indistinguishable from one that was never requested.
+    """
+    try:
+        return json.loads(body)
+    except ValueError:
+        return body
 
 
 @dataclass(frozen=True, slots=True)
