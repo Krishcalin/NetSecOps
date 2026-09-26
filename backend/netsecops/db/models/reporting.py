@@ -48,11 +48,16 @@ from netsecops.db.base import Base, OrgMixin, TimestampMixin, UUIDPrimaryKeyMixi
 
 
 class ReportTemplate(StrEnum):
-    """The nine templates FR-RPT-02 names.
+    """The nine templates FR-RPT-02 names, plus `path_analysis`.
 
     Kept as an enum rather than free text so a template that was never built cannot be
     requested and silently produce an empty report — `NotFoundError` is the honest
     answer to "generate something I do not know how to assemble".
+
+    Adding a member means touching five places: this enum, `TEMPLATE_CATALOGUE`, the
+    `match` in `ReportingService._assemble`, the `_<name>` method it dispatches to, and
+    `TABLE_PROJECTIONS` (or `NO_TABLE`). `test_every_template_is_registered_everywhere`
+    enumerates this enum and fails if any of them was missed.
     """
 
     EXECUTIVE_SUMMARY = "executive_summary"
@@ -64,6 +69,10 @@ class ReportTemplate(StrEnum):
     DRIFT = "drift"
     EXCEPTIONS_REGISTER = "exceptions_register"
     TREND = "trend"
+    #: One reachability question and its answer, frozen. Unlike the other templates this
+    #: one records a *question* as well as findings, so its `parameters` carry the path
+    #: that was asked about and the content is meaningless without them.
+    PATH_ANALYSIS = "path_analysis"
 
 
 class ReportStatus(StrEnum):

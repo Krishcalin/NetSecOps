@@ -76,6 +76,10 @@ REQUIRED_PARAMETERS: dict[str, tuple[str, str]] = {
         "compare_to_id",
         "a trend report compares against an earlier report",
     ),
+    ReportTemplate.PATH_ANALYSIS.value: (
+        "path",
+        "a path analysis report records the answer to one reachability question",
+    ),
 }
 
 
@@ -171,6 +175,7 @@ async def create_report(
         scope_group_id=payload.scope_group_id,
         compare_to_id=payload.compare_to_id,
         framework=payload.framework,
+        path=payload.path,
         title=payload.title,
     )
 

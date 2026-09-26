@@ -51,6 +51,8 @@ from netsecops.db.models.collection import Finding, FindingKind, FindingStatus, 
 from netsecops.db.models.inventory import Device, DeviceGroup
 from netsecops.db.models.policy import CheckResult, FindingException, RiskScore
 from netsecops.db.models.reporting import Report, ReportStatus, ReportTemplate
+from netsecops.schemas.reporting import PathSpec
+from netsecops.services.topology import TopologyService, latest_snapshot_ids
 
 log = get_logger(__name__)
 
@@ -128,6 +130,14 @@ TEMPLATE_CATALOGUE: dict[ReportTemplate, dict[str, str]] = {
         "audience": "Leadership",
         "description": "This report against an earlier one: what opened, what closed, what stayed.",
     },
+    ReportTemplate.PATH_ANALYSIS: {
+        "title": "Path analysis",
+        "audience": "Change manager",
+        "description": (
+            "Whether one host can reach another on a port, hop by hop, with the rule "
+            "that decides at each firewall. The evidence a change ticket asks for."
+        ),
+    },
 }
 
 
@@ -161,6 +171,7 @@ class ReportingService:
         scope_group_id: uuid.UUID | None = None,
         compare_to_id: uuid.UUID | None = None,
         framework: str | None = None,
+        path: PathSpec | None = None,
         title: str | None = None,
     ) -> Report:
         """Assemble a report and freeze it.
@@ -186,6 +197,10 @@ class ReportingService:
                 "scope_group_id": str(scope_group_id) if scope_group_id else None,
                 "compare_to_id": str(compare_to_id) if compare_to_id else None,
                 "framework": framework,
+                # The path report's content cannot be read without these: "allowed" is
+                # not a fact about the estate, it is the answer to one question, and a
+                # frozen answer whose question was lost is worse than no record.
+                "path": path.model_dump() if path else None,
             },
             scope_device_id=scope_device_id,
             scope_group_id=scope_group_id,
@@ -203,6 +218,7 @@ class ReportingService:
                 scope_group_id=scope_group_id,
                 compare_to_id=compare_to_id,
                 framework=framework,
+                path=path,
             )
         except Exception as exc:
             report.status = ReportStatus.FAILED.value
@@ -254,6 +270,7 @@ class ReportingService:
         scope_group_id: uuid.UUID | None,
         compare_to_id: uuid.UUID | None,
         framework: str | None = None,
+        path: PathSpec | None = None,
     ) -> dict[str, Any]:
         match template:
             case ReportTemplate.EXECUTIVE_SUMMARY:
@@ -274,6 +291,8 @@ class ReportingService:
                 return await self._aaa_review(scope)
             case ReportTemplate.DRIFT:
                 return await self._drift(scope, scope_device_id)
+            case ReportTemplate.PATH_ANALYSIS:
+                return await self._path_analysis(path)
 
         # Unreachable while every member of the enum is handled above; kept so that
         # adding a template without assembling it fails loudly rather than silently
@@ -476,6 +495,126 @@ class ReportingService:
                 }
                 for row in worst
             ],
+        }
+
+    async def _path_analysis(self, path: PathSpec | None) -> dict[str, Any]:
+        """One reachability question, answered hop by hop and frozen (FR-TOPO-03).
+
+        Every other template summarises what is true of the estate. This one records the
+        answer to a question somebody asked, which makes it the report a change ticket
+        can carry: "we asked whether 10.0.0.10 can reach 10.20.0.5 on 443 before the
+        change, and here is what decided it, rule by rule".
+
+        Three things it is careful about.
+
+        **Both axes, never merged.** Routing and policy are separate verdicts and a
+        report that collapsed them into "allowed"/"blocked" would lose the case that
+        matters most: a permit found on the devices that *were* traced, where the trace
+        stopped early. That reads as `partially-allowed`, and it means the answer speaks
+        only for the hops listed.
+
+        **The snapshots are cited.** A path answer is only as current as the
+        configurations it was computed from, so their ids go in the record — a report
+        that cannot be traced back to its evidence cannot settle a later argument.
+
+        **The graph is the whole estate, not the reader's slice.** Unlike every other
+        template here, this one does not narrow to the caller's scope, because a graph
+        truncated to the devices someone may see produces a *wrong path* rather than a
+        redacted one: it would stop at the first hop outside their scope and report it
+        as unreachable. That is a real disclosure property and it is stated in the
+        caveats rather than left for someone to infer.
+        """
+        if path is None:
+            raise ValidationProblem(
+                "A path analysis report needs the path to analyse. Supply `path` with a "
+                "source, a destination, a protocol and a port."
+            )
+
+        topology = TopologyService(self.session, org_id=self.org_id)
+        graph = await topology.graph()
+        result = await topology.path(
+            source=path.source,
+            destination=path.destination,
+            protocol=path.protocol,
+            port=path.port,
+        )
+
+        hops = [
+            {
+                "sequence": index,
+                "device_id": str(hop.device_id),
+                "hostname": hop.hostname,
+                "platform": hop.platform,
+                "matched_route": hop.matched_route,
+                "next_hop": hop.next_hop,
+                "egress_interface": hop.egress_interface,
+                "ingress_zone": hop.ingress_zone,
+                "egress_zone": hop.egress_zone,
+                # None is not "allow". A device with no rulebase forwarded the packet
+                # without deciding anything, and a report that printed "allow" there
+                # would credit a switch with a security decision it never made.
+                "action": hop.action,
+                "rule_name": hop.rule_name,
+                "rule_order": hop.rule_order,
+                "limitations": list(hop.limitations),
+            }
+            for index, hop in enumerate(result.hops, start=1)
+        ]
+
+        return {
+            "question": {
+                "source": result.source,
+                "destination": result.destination,
+                "protocol": result.protocol,
+                "port": result.port,
+            },
+            "verdict": {
+                # Two axes, kept apart. `policy: allowed` only ever appears with
+                # `routing: routed`; anywhere the trace could not be followed to the
+                # end, a permit reports as `partially-allowed` instead.
+                "routing": result.routing.value,
+                "policy": result.policy.value,
+                # Projected rather than handed over whole: `blocked_by` is a `Hop`, and
+                # the content dict is frozen into JSONB. Naming the device and the rule
+                # is also what a reader needs — "blocked" without where is not evidence
+                # anybody can act on.
+                "blocked_by": (
+                    {
+                        "hostname": blocker.hostname,
+                        "rule_name": blocker.rule_name,
+                        "rule_order": blocker.rule_order,
+                    }
+                    if (blocker := result.blocked_by) is not None
+                    else None
+                ),
+            },
+            "totals": {
+                "hops": len(hops),
+                "devices_traversed": result.devices_traversed,
+                "firewalls_consulted": sum(1 for hop in hops if hop["action"] is not None),
+                "hops_without_a_rulebase": sum(1 for hop in hops if hop["action"] is None),
+            },
+            "caveats": {
+                "stopped_at_prefix": result.stopped_at_prefix,
+                "stopped_at_next_hop": result.stopped_at_next_hop,
+                "stopped_at_device": result.stopped_at_device,
+                #: Devices carrying NAT rules that the path continued past. Presence
+                #: only — the translation itself is not modelled, so an address may have
+                #: changed at these hops in a way the trace did not follow.
+                "translated_at": list(result.translated_at),
+                #: Equal-cost next hops. The trace took one; the others were not walked.
+                "branched_at": list(result.branched_at),
+                "graph_is_whole_estate": True,
+                "notes": list(result.notes),
+            },
+            "evidence": {
+                "snapshot_ids": sorted(
+                    str(sid) for sid in latest_snapshot_ids(list(graph.nodes.values()))
+                ),
+                "devices_in_graph": len(graph.nodes),
+                "devices_without_route_data": len(graph.unknown_route_tables),
+            },
+            "hops": hops,
         }
 
     async def _exceptions_register(self, scope: Scope) -> dict[str, Any]:

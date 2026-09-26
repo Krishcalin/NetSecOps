@@ -17,6 +17,7 @@ compliant estate.
 
 from __future__ import annotations
 
+import inspect
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -32,9 +33,10 @@ from netsecops.db.models.collection import Finding, FindingKind, FindingStatus
 from netsecops.db.models.inventory import Criticality, DeviceClass, Vendor
 from netsecops.db.models.policy import ExceptionScope, FindingException
 from netsecops.db.models.reporting import ReportFormat, ReportStatus, ReportTemplate
+from netsecops.schemas.reporting import PathSpec
 from netsecops.services.inventory import InventoryService
-from netsecops.services.report_render import render
-from netsecops.services.reporting import ReportingService, canonical_hash
+from netsecops.services.report_render import NO_TABLE, TABLE_PROJECTIONS, render
+from netsecops.services.reporting import TEMPLATE_CATALOGUE, ReportingService, canonical_hash
 from tests.conftest import make_user
 
 REPORTS = "/api/v1/reports"
@@ -104,6 +106,49 @@ async def estate(session: AsyncSession, principal: Principal, analyst_user: User
     await session.commit()
     authenticate(analyst_user)
     return {"bad": bad, "ok": ok}
+
+
+class TestEveryTemplateIsFullyRegistered:
+    """Adding a template means touching five places that know nothing about each other.
+
+    Before this, nothing checked that they agreed. A member added to the enum and the
+    catalogue but missing from `_assemble` fails only when someone generates it, and a
+    member missing from `TABLE_PROJECTIONS` fails only when someone downloads it as
+    CSV — both long after the change that caused it.
+    """
+
+    def test_every_template_is_registered_everywhere(self) -> None:
+        catalogued = set(TEMPLATE_CATALOGUE)
+        projected = set(TABLE_PROJECTIONS) | set(NO_TABLE)
+        missing_catalogue = {t.value for t in ReportTemplate if t not in catalogued}
+        missing_projection = {t.value for t in ReportTemplate if t.value not in projected}
+
+        assert not missing_catalogue, f"no TEMPLATE_CATALOGUE entry: {missing_catalogue}"
+        assert not missing_projection, (
+            f"no TABLE_PROJECTIONS or NO_TABLE entry: {missing_projection}"
+        )
+
+    def test_every_template_has_an_assembly_method_reachable_from_dispatch(self) -> None:
+        """`_assemble` is a `match` over the enum, so a missing arm falls through to the
+        defensive raise rather than to a type error. Reading the source for the arm is
+        the only way to tell the two apart without generating every report."""
+        source = inspect.getsource(ReportingService._assemble)
+
+        for template in ReportTemplate:
+            assert f"ReportTemplate.{template.name}:" in source, (
+                f"{template.value} has no arm in _assemble, so it would fall through "
+                "to the defensive raise"
+            )
+
+    def test_every_projection_names_a_content_key_its_template_produces(self) -> None:
+        """A projection pointing at a key the assembler never writes renders an empty
+        grid, which reads as "nothing to report" rather than as a wiring mistake."""
+        for template in ReportTemplate:
+            if template.value in NO_TABLE:
+                continue
+            key, columns = TABLE_PROJECTIONS[template.value]
+            assert key, f"{template.value} projection names no content key"
+            assert columns, f"{template.value} projection names no columns"
 
 
 class TestTheArchiveProperty:
@@ -442,7 +487,10 @@ class TestTheApi:
     async def test_templates_say_which_can_be_generated(self, client: AsyncClient, estate) -> None:
         rows = (await client.get(TEMPLATES)).json()
 
-        assert len(rows) == 9
+        # Against the enum rather than a literal count: the endpoint's job is to offer
+        # every template there is, and a hardcoded number only ever fails on the commit
+        # that adds one, which is the commit least in need of the reminder.
+        assert {r["id"] for r in rows} == {t.value for t in ReportTemplate}
         assert all(r["implemented"] for r in rows), "every catalogued template assembles"
 
     async def test_a_template_needing_a_scope_says_so_before_generating(
@@ -788,6 +836,278 @@ class TestDriftReport:
         report = await ReportingService(session).generate(ReportTemplate.DRIFT, actor=principal)
 
         assert {d["state"] for d in report.content["devices"]} == {"never_assessed"}
+
+
+@pytest.fixture
+async def routed_estate(session: AsyncSession, principal: Principal):
+    """edge-fw — core-rtr — dmz-fw, the same shape the topology tests walk.
+
+    Built here rather than imported so this file stays readable on its own; the point
+    of interest is that dmz-fw denies telnet and permits 443, so the same path answers
+    differently on two ports.
+    """
+    from netsecops.db.models.collection import Snapshot
+
+    async def add(hostname: str, mgmt_ip: str, body: dict[str, Any]) -> None:
+        device = await InventoryService(session).create_device(
+            mgmt_ip=mgmt_ip,
+            actor=principal,
+            hostname=hostname,
+            vendor=Vendor.CISCO,
+            platform="cisco_asa",
+            device_class=DeviceClass.FIREWALL,
+        )
+        digest = f"{hostname:x<64}"[:64]
+        session.add(
+            Snapshot(
+                org_id=1,
+                device_id=device.id,
+                ncm=body,
+                ncm_version="1.1",
+                config_hash=digest,
+                normalized_hash=digest,
+                config_redacted=f"! {hostname}",
+            )
+        )
+        await session.flush()
+
+    def ncm(interfaces, routes, firewall=None):
+        return {
+            "ncm_version": "1.1",
+            "interfaces": interfaces,
+            "routing": {"routes": routes, "protocols": []},
+            "firewall": firewall or {},
+        }
+
+    def connected(prefix, interface):
+        return {"destination": prefix, "interface": interface, "protocol": "connected"}
+
+    def static(prefix, via, interface=None):
+        return {
+            "destination": prefix,
+            "next_hop": via,
+            "interface": interface,
+            "protocol": "static",
+        }
+
+    await add(
+        "edge-fw",
+        "10.0.0.1",
+        ncm(
+            [
+                {"name": "outside", "ip_addresses": ["203.0.113.2/29"], "zone": "outside"},
+                {"name": "inside", "ip_addresses": ["10.0.0.1/30"], "zone": "inside"},
+            ],
+            [
+                connected("203.0.113.0/29", "outside"),
+                connected("10.0.0.0/30", "inside"),
+                static("0.0.0.0/0", "203.0.113.1", "outside"),
+                static("10.10.0.0/24", "10.0.0.2", "inside"),
+            ],
+            {"security_rules": [{"order": 1, "name": "permit-any", "action": "allow"}]},
+        ),
+    )
+    await add(
+        "core-rtr",
+        "10.0.0.2",
+        ncm(
+            [
+                {"name": "up", "ip_addresses": ["10.0.0.2/30"]},
+                {"name": "lan", "ip_addresses": ["10.10.0.1/24"]},
+                {"name": "dmz", "ip_addresses": ["10.0.1.1/30"]},
+            ],
+            [
+                connected("10.0.0.0/30", "up"),
+                connected("10.10.0.0/24", "lan"),
+                connected("10.0.1.0/30", "dmz"),
+                static("0.0.0.0/0", "10.0.0.1", "up"),
+                static("10.20.0.0/24", "10.0.1.2", "dmz"),
+            ],
+        ),
+    )
+    await add(
+        "dmz-fw",
+        "10.0.1.2",
+        ncm(
+            [
+                {"name": "up", "ip_addresses": ["10.0.1.2/30"], "zone": "trust"},
+                {"name": "dmz", "ip_addresses": ["10.20.0.1/24"], "zone": "dmz"},
+            ],
+            [
+                connected("10.0.1.0/30", "up"),
+                connected("10.20.0.0/24", "dmz"),
+                static("0.0.0.0/0", "10.0.1.1", "up"),
+            ],
+            {
+                "security_rules": [
+                    {"order": 1, "name": "no-telnet", "action": "deny", "services": ["tcp/23"]},
+                    {"order": 2, "name": "permit-web", "action": "allow", "services": ["tcp/443"]},
+                ]
+            },
+        ),
+    )
+    await session.commit()
+
+
+class TestPathAnalysisReport:
+    """The report a change ticket carries: one reachability question, frozen.
+
+    Every other template summarises the estate. This one records an *answer*, which is
+    why its parameters are part of the evidence rather than metadata — "allowed" means
+    nothing without the question it answers.
+    """
+
+    async def test_it_records_the_question_alongside_the_answer(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS,
+            actor=principal,
+            path=PathSpec(source="10.10.0.5", destination="10.20.0.5", protocol="tcp", port=443),
+        )
+
+        assert report.status == ReportStatus.READY.value
+        assert report.content["question"] == {
+            "source": "10.10.0.5",
+            "destination": "10.20.0.5",
+            "protocol": "tcp",
+            "port": 443,
+        }
+        # And on the row too, so "generate that again" is answerable without opening it.
+        assert report.parameters["path"]["destination"] == "10.20.0.5"
+
+    async def test_the_same_path_on_a_denied_port_reports_blocked_and_names_the_rule(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        """The rule that decided is the whole point. "Blocked" without naming where is
+        not evidence anyone can act on."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS,
+            actor=principal,
+            path=PathSpec(source="10.10.0.5", destination="10.20.0.5", protocol="tcp", port=23),
+        )
+
+        assert report.content["verdict"]["policy"] == "blocked"
+        assert report.content["verdict"]["blocked_by"] == {
+            "hostname": "dmz-fw",
+            "rule_name": "no-telnet",
+            "rule_order": 1,
+        }
+        denied = [h for h in report.content["hops"] if h["action"] == "deny"]
+        assert [h["rule_name"] for h in denied] == ["no-telnet"]
+
+    async def test_the_two_verdict_axes_are_never_merged(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        """`allowed` only ever appears with `routed`. A single verdict would lose the
+        case that matters most: a permit on the hops that were traced, where the trace
+        stopped early and an untraced remainder may hold another firewall."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS,
+            actor=principal,
+            path=PathSpec(source="10.10.0.5", destination="10.20.0.5", protocol="tcp", port=443),
+        )
+
+        verdict = report.content["verdict"]
+        assert set(verdict) >= {"routing", "policy"}
+        if verdict["policy"] == "allowed":
+            assert verdict["routing"] == "routed"
+
+    async def test_a_hop_with_no_rulebase_is_not_recorded_as_a_permit(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        """core-rtr is a router with no policy. It forwarded the packet without deciding
+        anything, and printing "allow" there would credit it with a security decision it
+        never made."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS,
+            actor=principal,
+            path=PathSpec(source="10.10.0.5", destination="10.20.0.5", protocol="tcp", port=443),
+        )
+
+        router_hop = next(h for h in report.content["hops"] if h["hostname"] == "core-rtr")
+        assert router_hop["action"] is None
+        assert report.content["totals"]["hops_without_a_rulebase"] >= 1
+
+    async def test_it_cites_the_snapshots_it_was_computed_from(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        """A path answer is only as current as the configurations behind it, so a report
+        that cannot be traced back to them cannot settle a later argument."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS,
+            actor=principal,
+            path=PathSpec(source="10.10.0.5", destination="10.20.0.5", protocol="tcp", port=443),
+        )
+
+        evidence = report.content["evidence"]
+        assert len(evidence["snapshot_ids"]) == 3
+        assert evidence["devices_in_graph"] == 3
+
+    async def test_hops_keep_their_order_explicitly(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        """A hop means nothing except in relation to the one before it, and the CSV
+        rendering can be re-sorted by any column. `sequence` is what lets it be put
+        back."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS,
+            actor=principal,
+            path=PathSpec(source="10.10.0.5", destination="10.20.0.5", protocol="tcp", port=443),
+        )
+
+        hops = report.content["hops"]
+        assert [h["sequence"] for h in hops] == list(range(1, len(hops) + 1))
+
+    async def test_it_says_the_graph_was_the_whole_estate(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        """Unlike every other template this one does not narrow to the reader's scope,
+        because a graph truncated to what they may see produces a *wrong* path rather
+        than a redacted one — it stops at the first hop outside their scope and calls it
+        unreachable. That is a disclosure property and it is stated, not inferred."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS,
+            actor=principal,
+            path=PathSpec(source="10.10.0.5", destination="10.20.0.5", protocol="tcp", port=443),
+        )
+
+        assert report.content["caveats"]["graph_is_whole_estate"] is True
+
+    async def test_a_report_with_no_path_is_refused_not_generated_empty(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        """An empty path report would read as "nothing reaches anything"."""
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS, actor=principal
+        )
+
+        assert report.status == ReportStatus.FAILED.value
+        assert "needs the path" in (report.error_message or "")
+
+    async def test_the_api_names_the_missing_parameter_rather_than_failing_the_report(
+        self, client: AsyncClient, routed_estate, analyst_user: User, authenticate
+    ) -> None:
+        authenticate(analyst_user)
+        response = await client.post(REPORTS, json={"template": "path_analysis"})
+
+        assert response.status_code == 422
+        assert "path" in response.json()["detail"]
+
+    async def test_it_renders_as_csv_with_the_hops_in_order(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        report = await ReportingService(session).generate(
+            ReportTemplate.PATH_ANALYSIS,
+            actor=principal,
+            path=PathSpec(source="10.10.0.5", destination="10.20.0.5", protocol="tcp", port=443),
+        )
+        body = render(report, ReportFormat.CSV).decode()
+
+        rows = [line for line in body.splitlines() if line and not line.startswith("#")]
+        assert rows[0].startswith("sequence,hostname")
+        assert "core-rtr" in body
+        assert "dmz-fw" in body
 
 
 class TestFirewallRulebaseReport:

@@ -19,6 +19,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { api, ApiError } from '../api/client';
+import { PathDiagram } from '../features/topology/PathDiagram';
 import type { MissingDevice, PathResult, TopologySummary } from '../features/topology/types';
 import { POLICY_LABELS, ROUTING_LABELS } from '../features/topology/types';
 
@@ -50,7 +51,18 @@ function HopRow({ hop, index }: { hop: PathResult['hops'][number]; index: number
         {hop.hostname}
         {hop.platform && <span className="finding__note"> {hop.platform}</span>}
       </td>
-      <td className="mono">{hop.matched_route ?? '—'}</td>
+      <td className="mono">
+        {hop.matched_route ?? '—'}
+        {/* Returned by the API since this endpoint shipped and never shown. "Which
+            way did it leave" is most of what makes a route line checkable against
+            the device. */}
+        {(hop.next_hop || hop.egress_interface) && (
+          <span className="finding__note">
+            {hop.next_hop && ` via ${hop.next_hop}`}
+            {hop.egress_interface && ` out ${hop.egress_interface}`}
+          </span>
+        )}
+      </td>
       <td>
         {hop.ingress_zone || hop.egress_zone
           ? `${hop.ingress_zone ?? '—'} → ${hop.egress_zone ?? '—'}`
@@ -67,6 +79,17 @@ function HopRow({ hop, index }: { hop: PathResult['hops'][number]; index: number
           <span className="pill pill--low">permitted</span>
         )}
         {hop.rule_name && <span className="finding__note"> {hop.rule_name}</span>}
+        {/* Carried in the payload from the start and never rendered. These say what
+            the simulation could not model at this specific hop — App-ID narrowing, a
+            rulebase bound to nothing — so a permit here is weaker than it looks and
+            the reader has to be told at the hop, not in a page-level footnote. */}
+        {hop.limitations.length > 0 && (
+          <ul className="finding__note">
+            {hop.limitations.map((limit) => (
+              <li key={limit}>{limit}</li>
+            ))}
+          </ul>
+        )}
       </td>
     </tr>
   );
@@ -102,9 +125,19 @@ function PathAnswer({ result }: { result: PathResult }) {
         </div>
       )}
 
+      {/* The picture first, the table below it. The diagram makes the shape of the
+          answer readable at a glance; the table is the authoritative reading and the
+          navigable equivalent, so neither replaces the other. */}
+      {result.hops.length > 0 && <PathDiagram result={result} />}
+
       {result.hops.length > 0 && (
         <div className="table-wrap">
           <table className="table">
+            {/* This page carries two tables and neither had a name, so a screen
+                reader's table list read "table" twice. */}
+            <caption className="visually-hidden">
+              Hops from {result.source} to {result.destination}, in path order
+            </caption>
             <thead>
               <tr>
                 <th>#</th>
@@ -290,6 +323,9 @@ export function TopologyPage() {
         ) : (
           <div className="table-wrap">
             <table className="table">
+              <caption className="visually-hidden">
+                Unmanaged next hops, ranked by how much reachability each conceals
+              </caption>
               <thead>
                 <tr>
                   <th>Address</th>

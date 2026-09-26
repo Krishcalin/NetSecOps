@@ -34,6 +34,16 @@ export interface PathResult {
   stopped_at_prefix: string | null;
   stopped_at_next_hop: string | null;
   stopped_at_device: string | null;
+  /** Hostnames of devices carrying NAT rules that the path continued past.
+   *
+   *  Presence only — the translation itself is not modelled, because `original` and
+   *  `translated` mean different things on PAN-OS, FortiOS, Check Point and ASA. So an
+   *  address may have changed at these hops in a way the trace did not follow, and the
+   *  answer past them is about the address as written, not as it arrived. */
+  translated_at: string[];
+  /** Hostnames where equal-cost routes diverged. The trace took one; the others were
+   *  never walked, and a firewall on an unwalked branch is not in this answer. */
+  branched_at: string[];
   notes: string[];
 }
 

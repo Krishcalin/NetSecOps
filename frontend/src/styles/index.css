@@ -657,6 +657,108 @@ a {
   text-align: center;
 }
 
+/* ── the path diagram ───────────────────────────────────────────────────────
+   Every colour comes from a token so both themes resolve, and every state is
+   carried by an outline style and a glyph as well as by tone — the diagram has to
+   survive greyscale, print and colour-blindness (WCAG 1.4.1). */
+.pathdiagram {
+  margin: 16px 0;
+}
+
+/* A long path is wider than a phone. It scrolls in its own container rather than
+   shrinking to illegibility or pushing the page sideways. */
+.pathdiagram__svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  overflow-x: auto;
+}
+
+.pathdiagram__node {
+  fill: var(--surface-muted);
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+.pathdiagram__node--endpoint {
+  fill: var(--surface);
+  stroke-dasharray: none;
+}
+
+/* Not in the inventory: drawn as an outline with nothing inside it, because that is
+   exactly what is known about it. */
+.pathdiagram__node--unknown {
+  fill: none;
+  stroke-dasharray: 4 3;
+}
+
+.pathdiagram__node--allow {
+  stroke: var(--ok);
+}
+
+.pathdiagram__node--deny {
+  stroke: var(--error);
+  stroke-width: 2.5;
+}
+
+.pathdiagram__node--unreached {
+  opacity: 0.55;
+  stroke-dasharray: 4 3;
+}
+
+.pathdiagram__title {
+  fill: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+.pathdiagram__subtitle,
+.pathdiagram__marker {
+  fill: var(--text-muted);
+  font-size: 10px;
+  text-anchor: middle;
+}
+
+.pathdiagram__marker {
+  font-weight: 650;
+  letter-spacing: 0.04em;
+}
+
+.pathdiagram__glyph {
+  fill: var(--text-muted);
+  font-size: 11px;
+  text-anchor: end;
+}
+
+.pathdiagram__edge {
+  stroke: var(--border-strong);
+  stroke-width: 1.5;
+}
+
+.pathdiagram__edge--broken {
+  stroke-dasharray: 4 3;
+  opacity: 0.6;
+}
+
+/* The bar across the path where a deny ends it. */
+.pathdiagram__stop {
+  stroke: var(--error);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+
+.pathdiagram__arrowhead {
+  fill: var(--border-strong);
+}
+
+.pathdiagram__key {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
 .muted {
   color: var(--text-muted);
   font-style: italic;

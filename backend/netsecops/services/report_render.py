@@ -120,6 +120,26 @@ TABLE_PROJECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
         "devices",
         ("hostname", "mgmt_ip", "state", "severity", "headline", "latest_assessed_at"),
     ),
+    # The hops, in path order — which `sequence` preserves explicitly so that a
+    # spreadsheet sorted by any other column can still be put back. Sorting a path by
+    # hostname and losing the order would make the document unreadable, because a hop
+    # only means anything in relation to the one before it.
+    ReportTemplate.PATH_ANALYSIS.value: (
+        "hops",
+        (
+            "sequence",
+            "hostname",
+            "platform",
+            "ingress_zone",
+            "egress_zone",
+            "action",
+            "rule_name",
+            "rule_order",
+            "matched_route",
+            "next_hop",
+            "egress_interface",
+        ),
+    ),
 }
 
 #: The trend report has no single table — it is two sets of totals and the deltas

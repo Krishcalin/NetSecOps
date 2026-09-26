@@ -9,6 +9,24 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
+class PathSpec(BaseModel):
+    """The reachability question a path-analysis report is about.
+
+    Deliberately the same shape and the same bounds as `PathRequest` on the topology
+    endpoint: a report should answer exactly the question the console answers
+    interactively, and two definitions of "a path" would drift.
+
+    Names are never resolved — a literal address or CIDR, IPv4 only — because resolving
+    one would make the frozen report depend on what DNS said at generation time, which
+    is not evidence anybody can re-check.
+    """
+
+    source: str = Field(min_length=1, max_length=45)
+    destination: str = Field(min_length=1, max_length=45)
+    protocol: str = Field(default="tcp", max_length=8)
+    port: int = Field(default=443, ge=0, le=65535)
+
+
 class TemplateRead(BaseModel):
     """One report template, and whether it can actually be generated yet.
 
@@ -82,6 +100,9 @@ class ReportCreate(BaseModel):
     #: Required by the group-compliance template, ignored by the others. A compliance
     #: report with no framework is just a list of checks.
     framework: str | None = Field(default=None, max_length=60)
+    #: Required by the path-analysis template, ignored by the others. That report
+    #: records an answer, and an answer whose question was lost is not evidence.
+    path: PathSpec | None = None
 
 
 class PaginatedReports(BaseModel):
@@ -91,6 +112,7 @@ class PaginatedReports(BaseModel):
 
 __all__ = [
     "PaginatedReports",
+    "PathSpec",
     "ReportCreate",
     "ReportDetail",
     "ReportRead",

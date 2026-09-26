@@ -82,6 +82,11 @@ const ROUTED_AND_ALLOWED = {
   stopped_at_prefix: null,
   stopped_at_next_hop: null,
   stopped_at_device: null,
+  // Returned by the API since the endpoint shipped. They were absent from this
+  // fixture and from the TS type, so the NAT and equal-cost caveats never reached
+  // the console at all.
+  translated_at: [],
+  branched_at: [],
   notes: [],
 };
 
@@ -249,7 +254,11 @@ describe('TopologyPage', () => {
       renderPage();
       await trace();
 
-      expect(await screen.findByText('trust → dmz')).toBeInTheDocument();
+      // Scoped to the table: the diagram above it labels the same hop with the same
+      // zones, which is deliberate duplication rather than a collision to design away.
+      // This assertion is about the table, so it says so.
+      const table = await screen.findByRole('table', { name: /Hops from/ });
+      expect(within(table).getByText('trust → dmz')).toBeInTheDocument();
     });
   });
 
