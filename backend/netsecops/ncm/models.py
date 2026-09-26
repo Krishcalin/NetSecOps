@@ -949,6 +949,14 @@ class Features(NcmBase):
     #: `missing: fail` rather than the usual `equals: false`.
     tcp_keepalives_in: bool | None = None
     tcp_keepalives_out: bool | None = None
+    #: FortiGate SSL-VPN, from `config vpn ssl settings` / `set status`.
+    #:
+    #: Here for FR-VUL-03 rather than for a check: every mass-exploited FortiGate CVE —
+    #: 2018-13379, 2022-42475, 2023-27997, 2024-21762 — is conditional on SSL-VPN being
+    #: enabled, and Fortinet's advisories say so. Matching on version alone reports all
+    #: four against every FortiGate of the right version, most of which do not run it.
+    #: SSL-VPN being *on* is not itself a finding; it is a legitimate feature.
+    ssl_vpn: bool | None = None
     #: Anything else the parser recognised but the model has no field for yet.
     extra: dict[str, bool] = Field(default_factory=dict)
 

@@ -718,6 +718,7 @@
     "features.extra.admin_contractor_trusthost",
     "features.extra.admin_netsecops_trusthost",
     "features.extra.strong_crypto",
+    "features.ssl_vpn",
     "firewall.address_groups",
     "firewall.address_groups.members",
     "firewall.address_groups.name",

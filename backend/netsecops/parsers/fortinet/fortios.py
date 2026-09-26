@@ -66,6 +66,7 @@ class FortiOsParser(ConfigParser):
             self._parse_firewall,
             self._parse_wireless,
             self._parse_certificates,
+            self._parse_ssl_vpn,
         ):
             try:
                 section(config, result)
@@ -723,6 +724,34 @@ class FortiOsParser(ConfigParser):
                 if suppression is not None:
                     wireless.rogue_detection["darrp"] = suppression == "enable"
                     self._record(result, "wireless.rogue_detection", entry)
+
+    def _parse_ssl_vpn(self, config: ParsedConfig, result: ParseResult) -> None:
+        """Whether SSL-VPN is running, for feature-aware CVE matching (FR-VUL-03).
+
+        Only `status` is read. The rest of `config vpn ssl settings` — the port, the
+        source interfaces, the minimum TLS version — would all be useful, and the exact
+        spelling of each could not be confirmed: docs.fortinet.com renders its CLI
+        reference in JavaScript and serves a table of contents to anything that fetches
+        it. `status` is confirmed from Fortinet's own advisory text, which gives
+        `config vpn ssl settings / set status disable` as the workaround for
+        FG-IR-22-398 and FG-IR-24-015.
+
+        Guessing the others is how the first research pass produced four FortiOS
+        settings that do not exist in 7.x, and a misspelled key here does not fail —
+        it reads as "not configured" forever.
+
+        **Absent means absent, not disabled.** A FortiGate with no `vpn ssl settings`
+        section at all leaves this None: SSL-VPN not being in the configuration we were
+        given is not the same as the device having it off, and the difference decides
+        whether four advisories are ruled out or merely unconfirmed.
+        """
+        section = config.section("vpn ssl settings")
+        if not section:
+            return
+
+        if (status := section.flag("status")) is not None:
+            result.ncm.features.ssl_vpn = status
+            self._record(result, "features.ssl_vpn", section, "status")
 
     def _parse_certificates(self, config: ParsedConfig, result: ParseResult) -> None:
         for section_name in ("vpn certificate local", "certificate local"):
