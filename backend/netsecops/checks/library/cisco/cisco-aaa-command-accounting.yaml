@@ -1,0 +1,44 @@
+id: cisco-aaa-command-accounting
+title: Privileged commands are accounted to the AAA servers
+description: >-
+  An `aaa accounting commands` method list exists, so every command an administrator
+  runs is recorded centrally.
+rationale: >-
+  This is the per-command audit trail, and it is the record that survives the device.
+  Local logging is on the box an attacker has just reached and can clear; command
+  accounting is written to a server they have not necessarily reached, as they type.
+  Without it an investigation can establish that someone logged in and not what they
+  did, which is the difference between reconstructing an incident and guessing at it.
+  Most regulatory regimes that ask for administrator accountability are asking for this
+  specifically, and syslog of configuration changes is not a substitute — it records
+  what changed, not the `show` commands that reveal what an attacker went looking for.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+  # As with command authorization: only where central AAA exists at all, so a device
+  # with no AAA produces one finding rather than three.
+  requires_features: [aaa.servers]
+
+logic:
+  type: ncm
+  expression: "aaa.accounting[?purpose == 'commands'].name"
+  assert:
+    empty: false
+
+remediation: >-
+  `aaa accounting commands 15 default start-stop group <tacacs-group>`, and the same for
+  any other privilege level in use. Prefer `start-stop` over `stop-only`: it records the
+  command as it is issued rather than after it completes, so a command that hangs the
+  device or drops the session is still in the log.
+
+references:
+  cis: ["1.1.9"]
+  nist_800_53: ["AU-2", "AU-3", "AU-12"]
+  pci_dss: ["10.2.1", "10.2.2"]
+  iso_27001: ["A.8.15"]
+  cwe: ["CWE-778"]
+  cea: ["Logging and Monitoring"]
+
+tags: [aaa, tacacs, logging, cisco, cis-level-1]

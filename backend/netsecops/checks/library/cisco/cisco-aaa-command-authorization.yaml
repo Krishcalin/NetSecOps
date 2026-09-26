@@ -1,0 +1,48 @@
+id: cisco-aaa-command-authorization
+title: Privileged commands are authorised against the AAA servers
+description: >-
+  An `aaa authorization commands` method list exists, so the AAA servers decide which
+  commands an administrator may run rather than only who may log in.
+rationale: >-
+  Authentication settles who someone is; authorisation settles what they may do, and
+  without a command authorization list the answer is "anything". A device with TACACS+
+  configured and no command authorization gives every administrator who reaches
+  privilege 15 the full command set, and the central policy that was supposed to
+  constrain them constrains nothing — which is materially different from what "we use
+  TACACS+" is understood to mean in an audit. It also removes the server's ability to
+  refuse a command in the moment, which is the only control that acts before damage
+  rather than after it.
+severity: high
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+  # Only where central AAA is in use at all. A device with no AAA servers has a
+  # different and larger problem, already reported by `cisco-aaa-new-model` — raising
+  # this one as well would be two findings about one fact, and the second is the less
+  # useful of them.
+  requires_features: [aaa.servers]
+
+logic:
+  type: ncm
+  expression: "aaa.authorization[?purpose == 'commands'].name"
+  assert:
+    empty: false
+
+remediation: >-
+  Add a command authorization list for the privilege levels administrators actually
+  reach — `aaa authorization commands 15 default group <tacacs-group> local` — and one
+  for level 1 if unprivileged sessions are used. Keep the `local` fallback so a server
+  outage does not lock the device, and confirm the AAA server has a command set that
+  denies what it does not explicitly permit: an authorization list pointing at a server
+  that permits everything is the same as having none.
+
+references:
+  cis: ["1.1.7", "1.1.8"]
+  nist_800_53: ["AC-3", "AC-6", "AU-2"]
+  pci_dss: ["7.2.1", "8.3.1"]
+  iso_27001: ["A.8.2", "A.8.18"]
+  cwe: ["CWE-862"]
+  cea: ["Access Control"]
+
+tags: [aaa, tacacs, management-plane, cisco, cis-level-1]
