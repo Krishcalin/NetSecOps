@@ -606,19 +606,29 @@ class FortiOsParser(ConfigParser):
             mapped_port = entry.get("mappedport")
             port_forward = (entry.get("portforward") or "").lower() == "enable"
 
-            firewall.nat_rules.append(
-                NatRule(
-                    order=len(firewall.nat_rules) + 1,
-                    name=entry.name,
-                    original=external_ip,
-                    translated=f"{mapped}:{mapped_port}"
-                    if port_forward and mapped_port
-                    else mapped,
-                    service=entry.get("extport") or "any",
-                    # A VIP always translates the destination. That is what a VIP is.
-                    direction="destination",
-                )
+            rule = NatRule(
+                order=len(firewall.nat_rules) + 1,
+                name=entry.name,
+                original=external_ip,
+                translated=f"{mapped}:{mapped_port}" if port_forward and mapped_port else mapped,
+                service=entry.get("extport") or "any",
+                # A VIP always translates the destination. That is what a VIP is.
+                direction="destination",
             )
+
+            # The normalised form (FR-TOPO-03). A VIP is the one NAT construct that
+            # needs no interpretation: `extip` is the address as seen from outside and
+            # `mappedip` is what it becomes, both as literals. `original` above means
+            # the external *destination* here, which is why it could not be matched on
+            # generically — the same field holds a source on PAN-OS.
+            rule.original_destination = [external_ip]
+            rule.translated_destination = [mapped]
+            if extport := (entry.get("extport") or "").strip():
+                rule.original_ports = [extport]
+            if port_forward and mapped_port and str(mapped_port).strip().isdigit():
+                rule.translated_port = int(str(mapped_port).strip())
+
+            firewall.nat_rules.append(rule)
             result.record(
                 f"firewall.nat_rules.{len(firewall.nat_rules) - 1}",
                 line=entry.line,

@@ -62,6 +62,10 @@ function HopRow({ hop, index }: { hop: PathResult['hops'][number]; index: number
             {hop.egress_interface && ` out ${hop.egress_interface}`}
           </span>
         )}
+        {/* Where the question changed. Every hop below this one was evaluated against
+            different addresses, and without this the table reads as though one packet
+            crossed the whole path unchanged. */}
+        {hop.translation && <span className="hop__nat">NAT: {hop.translation}</span>}
       </td>
       <td>
         {hop.ingress_zone || hop.egress_zone

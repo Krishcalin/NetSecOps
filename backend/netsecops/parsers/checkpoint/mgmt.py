@@ -510,20 +510,40 @@ class CheckPointMgmtParser(ConfigParser):
         for entry in self._flatten(_as_list(response.get("rulebase"))):
             original = _names(entry.get("original-source")) or ["any"]
             translated_dst = _names(entry.get("translated-destination"))
-            firewall.nat_rules.append(
-                NatRule(
-                    order=len(firewall.nat_rules) + 1,
-                    name=str(entry.get("name") or f"NAT {len(firewall.nat_rules) + 1}"),
-                    original=", ".join(original),
-                    translated=", ".join(
-                        translated_dst or _names(entry.get("translated-source")) or ["original"]
-                    ),
-                    service=", ".join(_names(entry.get("original-service")) or ["any"]),
-                    # A translated *destination* is what publishes an internal host to
-                    # the outside; a translated source is not (FR-FW-04).
-                    direction="destination" if translated_dst else "source",
-                )
+            rule = NatRule(
+                order=len(firewall.nat_rules) + 1,
+                name=str(entry.get("name") or f"NAT {len(firewall.nat_rules) + 1}"),
+                original=", ".join(original),
+                translated=", ".join(
+                    translated_dst or _names(entry.get("translated-source")) or ["original"]
+                ),
+                service=", ".join(_names(entry.get("original-service")) or ["any"]),
+                # A translated *destination* is what publishes an internal host to
+                # the outside; a translated source is not (FR-FW-04).
+                direction="destination" if translated_dst else "source",
             )
+
+            # The normalised form (FR-TOPO-03). The original *destination* was never
+            # captured before — only the source — which meant a destination-NAT rule
+            # recorded what it translated to and not what it matched on, and so could
+            # not be matched against a packet at all.
+            #
+            # These are object names, not addresses. Check Point NAT is expressed
+            # entirely in terms of the object database, and resolving them is the
+            # consumer's job because only it holds the address objects. A name that
+            # resolves to nothing is reported as unreadable rather than treated as
+            # "matches nothing", which would silently skip the translation.
+            rule.original_source = [n for n in _names(entry.get("original-source")) if n != "Any"]
+            rule.original_destination = [
+                n for n in _names(entry.get("original-destination")) if n != "Any"
+            ]
+            rule.translated_destination = [n for n in translated_dst if n != "Original"]
+            rule.translated_source = [
+                n for n in _names(entry.get("translated-source")) if n != "Original"
+            ]
+            rule.original_ports = [n for n in _names(entry.get("original-service")) if n != "Any"]
+
+            firewall.nat_rules.append(rule)
             self._record(result, f"firewall.nat_rules.{len(firewall.nat_rules) - 1}")
 
 

@@ -752,6 +752,15 @@ a {
   fill: var(--border-strong);
 }
 
+/* The translation, in the hop table's route cell. Its own line and its own tone: it
+   is not part of the route, it is the point at which the question changed. */
+.hop__nat {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: var(--warn);
+}
+
 .pathdiagram__key {
   margin: 8px 0 0;
   padding-left: 18px;

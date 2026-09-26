@@ -838,20 +838,145 @@ class CiscoAsaParser(CiscoStyleParser):
 
         for obj in parse.find_objects(r"^nat\s+\("):
             order += 1
-            firewall.nat_rules.append(
-                NatRule(
-                    order=order,
-                    direction=self.capture(obj, r"^nat\s+\(([^)]+)\)"),
-                    raw=obj.text.strip(),
-                )
+            rule = NatRule(
+                order=order,
+                direction=self.capture(obj, r"^nat\s+\(([^)]+)\)"),
+                raw=obj.text.strip(),
             )
+            _normalise_twice_nat(rule)
+            firewall.nat_rules.append(rule)
             result.consume(self.line_number(obj))
 
         for obj in parse.find_objects(r"^object\s+network\s"):
+            object_name = self.capture(obj, r"^object\s+network\s+(\S+)")
             for child in obj.all_children:
                 if child.text.strip().startswith("nat ("):
                     order += 1
-                    firewall.nat_rules.append(NatRule(order=order, raw=child.text.strip()))
+                    rule = NatRule(order=order, raw=child.text.strip())
+                    _normalise_object_nat(rule, object_name)
+                    firewall.nat_rules.append(rule)
+
+
+#  ───────────────────────────── NAT normalisation ─────────────────────────────
+#
+# ASA is the only one of the four platforms that ships no structured NAT at all: the
+# collector returns configuration text, so the grammar has to be read here. Both forms
+# are handled, and both leave `translation_unreadable` set rather than guessing when
+# the line says something this does not model.
+
+
+#: The keyword that must follow `source` or `destination` in a twice-NAT line.
+_NAT_KINDS = frozenset({"static", "dynamic"})
+
+
+def _normalise_twice_nat(rule: NatRule) -> None:
+    """`nat (real,mapped) source {static|dynamic} REAL MAPPED [destination static …]`.
+
+    Two traps in ASA's own syntax, and getting either backwards inverts the answer.
+
+    **`destination static` reverses its arguments.** In `source static A B`, A is real
+    and B is mapped; in `destination static C D`, C is *mapped* and D is *real*. Cisco
+    writes it that way because the clause reads from the perspective of a packet
+    arriving on the mapped interface, and it is the single most-confused thing in the
+    syntax.
+
+    **`interface` is not an address.** It means whichever address the named interface
+    currently holds, which is not in this line. Resolving it needs the device's
+    interface table, so it is recorded as unreadable here and the consumer decides.
+    """
+    tokens = rule.raw.split()
+    if not tokens or tokens[0] != "nat":
+        return
+
+    interfaces = rule.direction or ""
+    real_ifc, _, mapped_ifc = interfaces.partition(",")
+
+    index = 0
+    while index < len(tokens):
+        word = tokens[index]
+
+        # Both clauses are `<clause> static|dynamic A B`. The keyword is checked rather
+        # than assumed: without it, a malformed or unfamiliar line consumes four tokens
+        # from the wrong offset and silently produces confident nonsense.
+        if word == "source" and index + 3 < len(tokens) and tokens[index + 1] in _NAT_KINDS:
+            kind = tokens[index + 1]
+            real, mapped = tokens[index + 2], tokens[index + 3]
+            rule.original_source = [] if real == "any" else [real]
+            if mapped == "interface":
+                rule.translation_unreadable = (
+                    f"the source becomes whichever address interface "
+                    f"{mapped_ifc or 'the mapped interface'} holds, which this line "
+                    "does not state"
+                )
+            elif kind == "dynamic" and mapped == "any":
+                rule.translation_unreadable = "a dynamic pool, chosen per session"
+            else:
+                rule.translated_source = [mapped]
+            index += 4
+            continue
+
+        if word == "destination" and index + 3 < len(tokens) and tokens[index + 1] in _NAT_KINDS:
+            # Reversed, deliberately: mapped first, then real. See the docstring.
+            mapped, real = tokens[index + 2], tokens[index + 3]
+            rule.original_destination = [] if mapped == "any" else [mapped]
+            if mapped == "interface":
+                rule.original_destination = []
+                rule.translation_unreadable = (
+                    f"the destination matched is whichever address interface "
+                    f"{real_ifc or 'the real interface'} holds, which this line "
+                    "does not state"
+                )
+            else:
+                rule.translated_destination = [real]
+            index += 4
+            continue
+
+        if word == "service" and index + 2 < len(tokens):
+            rule.original_ports = [tokens[index + 1]]
+            index += 3
+            continue
+
+        index += 1
+
+
+def _normalise_object_nat(rule: NatRule, object_name: str | None) -> None:
+    """`nat (real,mapped) static|dynamic MAPPED`, inside `object network NAME`.
+
+    The object itself is the real address — the line never names it — so without the
+    enclosing object's name this form says nothing matchable. That is why the name is
+    threaded in rather than parsed out of the line.
+    """
+    tokens = rule.raw.split()
+    if len(tokens) < 3 or tokens[0] != "nat":
+        return
+
+    rule.direction = rule.direction or (
+        tokens[1][1:-1] if tokens[1].startswith("(") and tokens[1].endswith(")") else None
+    )
+
+    try:
+        kind_at = next(i for i, t in enumerate(tokens) if t in {"static", "dynamic"})
+    except StopIteration:
+        return
+    if kind_at + 1 >= len(tokens):
+        return
+
+    mapped = tokens[kind_at + 1]
+    if not object_name:
+        rule.translation_unreadable = (
+            "this NAT line sits inside a network object whose name could not be read, "
+            "so what it translates is unknown"
+        )
+        return
+
+    rule.original_source = [object_name]
+    if mapped == "interface":
+        rule.translation_unreadable = (
+            f"{object_name} is translated to whichever address the mapped interface "
+            "holds, which this line does not state"
+        )
+    else:
+        rule.translated_source = [mapped]
 
 
 __all__ = ["CiscoAsaParser"]

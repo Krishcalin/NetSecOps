@@ -91,6 +91,7 @@ async def query_path(request: PathRequest, topology: ServiceDep) -> PathResponse
                 rule_name=hop.rule_name,
                 rule_order=hop.rule_order,
                 limitations=list(hop.limitations),
+                translation=hop.translation,
             )
             for hop in result.hops
         ],
@@ -99,6 +100,7 @@ async def query_path(request: PathRequest, topology: ServiceDep) -> PathResponse
         stopped_at_device=result.stopped_at_device,
         branched_at=list(result.branched_at),
         translated_at=list(result.translated_at),
+        translation_unknown_at=list(result.translation_unknown_at),
         notes=list(result.notes),
     )
 

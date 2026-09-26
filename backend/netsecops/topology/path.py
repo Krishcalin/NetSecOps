@@ -44,6 +44,7 @@ from netsecops.firewall.intervals import IntervalSet
 from netsecops.firewall.model import PROTOCOL_NUMBERS, ResolvedRule, resolve_rulebase
 from netsecops.ncm.models import Route
 from netsecops.topology.graph import DeviceNode, TopologyGraph
+from netsecops.topology.translation import Translation, touches, translate
 
 log = get_logger(__name__)
 
@@ -110,6 +111,11 @@ class Hop:
     #: Caveats from the rule query, carried through rather than dropped: matching is over
     #: addresses, protocol and port only, so App-ID and User-ID narrowing is not simulated.
     limitations: tuple[str, ...] = ()
+    #: What this device's NAT did to the packet — "destination 203.0.113.10 →
+    #: 10.20.0.10" — or None where nothing was translated. Every hop after this one was
+    #: traced with the rewritten addresses, so this is where the reader finds out that
+    #: the question changed mid-path.
+    translation: str | None = None
 
 
 @dataclass(slots=True)
@@ -137,10 +143,20 @@ class PathResult:
     #: trace follows one; a real router picks per flow by a hash this cannot see, so the
     #: others are paths this answer does not describe.
     branched_at: list[str] = field(default_factory=list)
-    #: Devices the path continued past that carry NAT rules. Translation is not modelled,
-    #: so the hops after one of these were asked about the addresses in the query rather
-    #: than the ones the packet may actually have been carrying.
+    #: Translations the walk *followed*: "edge-fw: destination 203.0.113.10 →
+    #: 10.20.0.10". Informational, and deliberately not a caveat any more. The hops
+    #: after one of these were asked about the rewritten addresses, which is the
+    #: correct question — so a followed translation no longer weakens the verdict.
     translated_at: list[str] = field(default_factory=list)
+    #: NAT that may apply here and could not be followed — a pool chosen per session,
+    #: an object nothing defines, a form no parser reads. This one *does* weaken every
+    #: hop after it, because those hops were asked about addresses the packet may no
+    #: longer have been carrying, and it downgrades the policy verdict accordingly.
+    #:
+    #: Split from `translated_at` when translation became real. While the two were one
+    #: list, every path through any NAT device reported `partially-allowed` — which is
+    #: right for "we could not tell" and wrong for "we followed it".
+    translation_unknown_at: list[str] = field(default_factory=list)
 
     @property
     def devices_traversed(self) -> int:
@@ -224,25 +240,93 @@ def _protocol_number(protocol: str) -> int:
     return number
 
 
-def _nat_rule_count(node: DeviceNode) -> int:
-    """How many NAT rules this device carries, or zero.
+def _unnormalised_nat_rules(node: DeviceNode) -> int:
+    """NAT rules on this device that carry no normalised fields at all.
 
-    **Presence, not matching, and that is a deliberate limit.** Deciding whether a
-    particular packet is translated would mean reading each rule's original and
-    translated addresses, and those fields do not mean the same thing across platforms:
-    PAN-OS puts the *source* members in `original` whatever the rule translates, FortiOS
-    puts a VIP's *external* address there, Check Point joins several originals into one
-    string, and Cisco ASA sets neither field — only the raw configuration line and an
-    interface pair. `direction` collides the same way: "source"/"destination" on PAN-OS
-    and FortiOS, an interface pair on ASA.
+    This used to be the whole of the NAT story: a count, and a caveat on every path
+    through any firewall that does NAT. The parsers now emit a normalised form
+    (`NatRule.original_source` and friends) and `translation.translate` follows it, so
+    what is left here is the residue — a rule from a snapshot taken before that, or a
+    configuration form no parser recognised.
 
-    A matcher built on that would be wrong differently on each platform, and a wrong path
-    verdict is somebody opening a firewall. Normalising NAT across the four parsers is
-    the prerequisite and is its own piece of work; until then this reports that
-    translation *could* apply and declines to say whether it does.
+    It is still counted, because a device whose NAT nobody could read must not look
+    like a device with no NAT.
     """
     rules = node.firewall.get("nat_rules") if node.firewall else None
-    return len(rules) if isinstance(rules, list) else 0
+    if not isinstance(rules, list):
+        return 0
+    return sum(
+        1
+        for rule in rules
+        if isinstance(rule, dict)
+        and not rule.get("translated_source")
+        and not rule.get("translated_destination")
+        and not rule.get("translation_unreadable")
+    )
+
+
+def _translate_at(
+    node: DeviceNode,
+    source: int,
+    destination: int,
+    port: int,
+    dst_endpoint: Endpoint,
+) -> Translation | None:
+    """This device's NAT applied to the packet, or None if nothing is to be said.
+
+    A ranged destination is deliberately not translated. NAT rewrites addresses one at
+    a time, and a range that a rule covers only part of does not become one other
+    range — so following the translation for a range would produce a single path for
+    traffic that takes several. The range case is reported rather than translated.
+    """
+    if not node.firewall:
+        return None
+
+    if dst_endpoint.is_range:
+        # Probing the range's representative address would only find a rule that
+        # happens to match that one address, and miss a rule matching any other
+        # address in the range — which is most of them. The question here is whether
+        # the rules touch the range *at all*, so it is asked that way.
+        if not touches(node.firewall, dst_endpoint.addresses):
+            return None
+        return Translation(
+            applied=False,
+            reason=(
+                f"{node.hostname} translates addresses inside the range asked about, "
+                "and a range does not translate to one other range. Ask about a "
+                "single address to follow the translation."
+            ),
+        )
+
+    result = translate(
+        node.firewall,
+        source=source,
+        destination=destination,
+        port=port,
+        interface_addresses=node.interface_addresses,
+    )
+    return result if (result.applied or result.unreadable) else None
+
+
+#: Platforms whose rulebase matches the *translated* address rather than the original.
+#: ASA from 8.3 onwards changed this, and it is the one place where evaluating with the
+#: pre-NAT address — which is what PAN-OS does and what this walk does — gives an answer
+#: the device would not.
+_POST_NAT_MATCHING = ("asa", "ftd")
+
+
+def _note_nat_semantics(result: PathResult, node: DeviceNode) -> None:
+    platform = (node.platform or "").lower()
+    if not any(family in platform for family in _POST_NAT_MATCHING):
+        return
+    note = (
+        f"{node.hostname} is an ASA-family device, whose access lists match the "
+        "translated address rather than the original. This walk evaluated its rulebase "
+        "against the address as it arrived, so the policy verdict at that hop may "
+        "differ from what the device does."
+    )
+    if note not in result.notes:
+        result.notes.append(note)
 
 
 def _describe(route: Route) -> str:
@@ -414,7 +498,10 @@ def _record(hop: Hop, verdict: _Verdict) -> None:
     hop.action = verdict.action
     hop.rule_name = verdict.rule_name
     hop.rule_order = verdict.rule_order
-    hop.limitations = verdict.limitations
+    # Extended, not replaced. The NAT step runs before this one and may already have
+    # put a caveat on the hop; assigning here silently dropped it, which is the exact
+    # failure this field exists to prevent.
+    hop.limitations = (*hop.limitations, *verdict.limitations)
 
 
 def _evaluate(
@@ -448,6 +535,7 @@ def _evaluate(
     except Exception as exc:  # a malformed stored rulebase must not abort the path
         log.warning("topology.rulebase_unreadable", device=node.hostname, error=str(exc))
         hop.limitations = (
+            *hop.limitations,
             f"{node.hostname} carries a rulebase this could not resolve, so its decision "
             "is unknown and is not counted as a permit.",
         )
@@ -469,6 +557,7 @@ def _evaluate(
         # with no rulebase: somebody wrote a policy here and did not apply it. Saying so
         # is worth more than silently reporting no decision.
         hop.limitations = (
+            *hop.limitations,
             f"{node.hostname} carries {len(detached)} rule(s), all in access lists bound "
             "to no interface, so none of them filters this traffic. It was treated as "
             "forwarding without an opinion.",
@@ -495,6 +584,7 @@ def _evaluate(
             # hop's interfaces. No confident verdict from an arbitrary choice: a false
             # `blocked` says a control is already in place and somebody stops looking.
             hop.limitations = (
+                *hop.limitations,
                 f"{node.hostname} carries {len(contexts)} access lists and none of them "
                 "is bound to the interface this packet arrives on or leaves by, so "
                 "which one governs this hop could not be determined. Its decision is "
@@ -588,6 +678,34 @@ def walk(
             ingress_zone=current.zone_containing(arrived_from),
         )
 
+        # ── NAT, before the route lookup ──────────────────────────────────
+        #
+        # Destination translation has to be applied here or the whole point is lost:
+        # a packet addressed to a public VIP is rewritten to an internal address and
+        # *then* routed, so looking the public address up in the inside table finds
+        # nothing and reports "unreachable" about a service that works.
+        #
+        # The rulebase below is still evaluated against the addresses as they arrived.
+        # That is PAN-OS's model — security rules match the pre-NAT address and the
+        # post-NAT zone — and it is the majority platform here. ASA from 8.3 matches
+        # its ACLs on the translated address instead, so at an ASA hop the policy
+        # verdict may differ; `_note_nat_semantics` says so rather than leaving it.
+        pre_nat_destination = dst
+        if (translation := _translate_at(current, src, dst, port, dst_endpoint)) is not None:
+            if translation.unreadable:
+                hop.limitations = (*hop.limitations, translation.reason or "")
+                result.translation_unknown_at.append(f"{current.hostname}: {translation.reason}")
+            elif translation.applied:
+                hop.translation = translation.detail
+                result.translated_at.append(f"{current.hostname}: {translation.detail}")
+                _note_nat_semantics(result, current)
+                if translation.destination is not None:
+                    dst = translation.destination
+                if translation.source is not None:
+                    src = translation.source
+                if translation.port is not None:
+                    port = translation.port
+
         # Arrived: the destination is on a subnet this device is directly attached to.
         if current.serves(dst):
             # The interface as well as the zone: an outbound access list is bound by
@@ -600,7 +718,7 @@ def walk(
                 current,
                 hop,
                 source=src,
-                destination=dst,
+                destination=pre_nat_destination,
                 protocol=proto,
                 port=port,
                 src_range=src_endpoint.addresses,
@@ -699,7 +817,7 @@ def walk(
             current,
             hop,
             source=src,
-            destination=dst,
+            destination=pre_nat_destination,
             protocol=proto,
             port=port,
             src_range=src_endpoint.addresses,
@@ -729,18 +847,16 @@ def walk(
             )
             return _finalise(result)
 
-        # The packet is about to leave a device that may have rewritten it. Recorded here
-        # rather than when the hop was built, because a translating device at the *end*
-        # of the path does not invalidate anything: the trace is over, and the addresses
-        # it reasoned about were the ones asked for. It is carrying on past one that
-        # makes every hop after this about a packet that may differ.
-        translators = _nat_rule_count(current)
-        if translators:
-            result.translated_at.append(
-                f"{current.hostname} carries {translators} NAT rule(s), and translation "
-                "is not modelled. If any of them rewrites this traffic, the devices after "
-                "it were asked about the original addresses rather than the ones the "
-                "packet actually carried."
+        # A device carrying NAT rules none of which this could read at all. The
+        # per-packet cases are handled at the top of the loop; this catches a device
+        # whose parser has no normalised NAT — every rule skipped, nothing said — which
+        # would otherwise be indistinguishable from a device with no NAT.
+        if (unread := _unnormalised_nat_rules(current)) and not hop.translation:
+            result.translation_unknown_at.append(
+                f"{current.hostname} carries {unread} NAT rule(s) in a form this cannot "
+                "read, so whether they rewrite this traffic is unknown. If any of them "
+                "does, the devices after it were asked about the original addresses "
+                "rather than the ones the packet actually carried."
             )
 
         arrived_from = _address(route.next_hop, "next hop") if route.next_hop else arrived_from
@@ -829,23 +945,32 @@ def _finalise(result: PathResult) -> PathResult:
             )
 
         if result.translated_at:
-            # The path continued past a device that may have rewritten the packet, so
-            # the hops after it were asked about addresses the packet may no longer have
-            # been carrying.
-            #
-            # Only a device the path *continued past* counts. A translating firewall at
-            # the end of the path invalidates nothing: the trace is over and the
-            # addresses it reasoned about were the ones asked for. Degrading on any NAT
-            # anywhere would hedge nearly every path through an internet edge and teach
-            # a reader to ignore the caveat.
+            # A translation the walk *followed*. Stated, because the reader asked
+            # about one address and the later hops were evaluated about another — but
+            # not a caveat, because those later hops were asked the right question.
             result.notes.append(
-                "The path continues past a device that may translate addresses: "
-                + " ".join(result.translated_at)
+                "Addresses were rewritten along this path and the trace followed the "
+                "rewrite: " + " ".join(result.translated_at) + " Hops after each of "
+                "those were evaluated against the translated addresses."
             )
 
+        if result.translation_unknown_at:
+            # NAT that may apply and could not be followed. This is the one that still
+            # weakens the answer: the hops after it were asked about addresses the
+            # packet may no longer have been carrying.
+            result.notes.append(
+                "The path continues past a device whose NAT could not be followed: "
+                + " ".join(result.translation_unknown_at)
+            )
+
+        # Note what is *not* here: `translated_at`. While a followed translation and an
+        # unreadable one shared a list, every path through an internet edge came back
+        # `partially-allowed` — correct for "we could not tell", wrong for "we followed
+        # it", and a caveat that fires on nearly every path teaches a reader to ignore
+        # the caveat.
         result.policy = (
             PolicyVerdict.PARTIALLY_ALLOWED
-            if result.branched_at or result.translated_at
+            if result.branched_at or result.translation_unknown_at
             else PolicyVerdict.ALLOWED
         )
         return result

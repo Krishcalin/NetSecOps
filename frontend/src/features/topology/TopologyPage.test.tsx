@@ -63,6 +63,7 @@ const ROUTED_AND_ALLOWED = {
       rule_name: null,
       rule_order: null,
       limitations: [],
+      translation: null,
     },
     {
       device_id: 'd2',
@@ -77,6 +78,7 @@ const ROUTED_AND_ALLOWED = {
       rule_name: 'permit-web',
       rule_order: 2,
       limitations: [],
+      translation: null,
     },
   ],
   stopped_at_prefix: null,
@@ -86,6 +88,7 @@ const ROUTED_AND_ALLOWED = {
   // fixture and from the TS type, so the NAT and equal-cost caveats never reached
   // the console at all.
   translated_at: [],
+  translation_unknown_at: [],
   branched_at: [],
   notes: [],
 };

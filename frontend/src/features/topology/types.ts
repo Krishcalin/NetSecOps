@@ -16,6 +16,10 @@ export interface Hop {
   rule_name: string | null;
   rule_order: number | null;
   limitations: string[];
+  /** What this device's NAT did — "destination 203.0.113.10 → 10.20.0.10" — or null.
+   *  Every hop after one that translates was traced with the rewritten addresses, so
+   *  this is where a reader sees the question change part-way along the path. */
+  translation: string | null;
 }
 
 export type Routing = 'unreachable' | 'same-zone' | 'routed' | 'partially-routed' | 'unknown';
@@ -34,13 +38,16 @@ export interface PathResult {
   stopped_at_prefix: string | null;
   stopped_at_next_hop: string | null;
   stopped_at_device: string | null;
-  /** Hostnames of devices carrying NAT rules that the path continued past.
+  /** Translations the walk followed: "edge-fw: destination 203.0.113.10 → 10.20.0.10".
    *
-   *  Presence only — the translation itself is not modelled, because `original` and
-   *  `translated` mean different things on PAN-OS, FortiOS, Check Point and ASA. So an
-   *  address may have changed at these hops in a way the trace did not follow, and the
-   *  answer past them is about the address as written, not as it arrived. */
+   *  Informational, not a caveat. The hops after each of these were evaluated against
+   *  the rewritten addresses, which is the right question — so a followed translation
+   *  does not weaken the verdict. */
   translated_at: string[];
+  /** NAT that may apply and could not be followed — a pool chosen per session, an
+   *  object nothing defines, a form no parser reads. This one does weaken everything
+   *  after it, and non-empty means the policy verdict is `partially-allowed`. */
+  translation_unknown_at: string[];
   /** Hostnames where equal-cost routes diverged. The trace took one; the others were
    *  never walked, and a firewall on an unwalked branch is not in this answer. */
   branched_at: string[];

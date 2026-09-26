@@ -51,6 +51,10 @@ class HopRead(BaseModel):
     rule_name: str | None = None
     rule_order: int | None = None
     limitations: list[str] = Field(default_factory=list)
+    #: What this device's NAT did to the packet, or None. Every hop after one that
+    #: translates was traced with the rewritten addresses, so this is where a reader
+    #: finds out the question changed part-way along the path.
+    translation: str | None = None
 
 
 class PathResponse(BaseModel):
@@ -78,11 +82,15 @@ class PathResponse(BaseModel):
     stopped_at_next_hop: str | None = None
     stopped_at_device: str | None = None
 
-    #: Devices the path continued past that carry NAT rules. Translation is not
-    #: modelled — the fields differ in meaning across platforms — so the hops after one
-    #: of these were asked about the queried addresses rather than the ones the packet
-    #: may have carried. Non-empty implies `policy` is `partially-allowed`.
+    #: Translations the walk followed — "edge-fw: destination 203.0.113.10 →
+    #: 10.20.0.10". Informational, and deliberately not a caveat: the hops after each
+    #: of these were evaluated against the rewritten addresses, which is the correct
+    #: question, so a followed translation does not weaken the verdict.
     translated_at: list[str] = Field(default_factory=list)
+    #: NAT that may apply here and could not be followed — a pool chosen per session,
+    #: an object nothing defines, a form no parser reads. This one does weaken
+    #: everything after it, and non-empty implies `policy` is `partially-allowed`.
+    translation_unknown_at: list[str] = Field(default_factory=list)
 
     #: Devices where the packet had more than one equal-cost route and this trace
     #: followed one of them. Structured beside the note for the same reason

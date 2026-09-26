@@ -816,6 +816,22 @@ class SecurityRule(NcmBase):
 
 
 class NatRule(NcmBase):
+    """One NAT rule.
+
+    The first block is what the parsers have always emitted, and it is kept because the
+    NAT *hygiene* analysis and the rulebase viewer read it. It is not usable for
+    deciding whether a particular packet is translated, because the fields do not mean
+    the same thing across platforms: PAN-OS puts the rule's *source* members in
+    `original` whatever the rule translates, FortiOS puts a VIP's *external* address
+    there, Check Point joins several object names into one string, and ASA sets neither.
+
+    The second block is the normalised form, added so the path walk can follow a
+    translation instead of only reporting that one might apply. Each field means exactly
+    one thing on every platform, and a parser that cannot determine a field leaves it
+    `None` rather than guessing — `None` here means "not known", never "not translated",
+    and `translation_unreadable` says which it is.
+    """
+
     order: int = 0
     name: str | None = None
     original: str | None = None
@@ -823,6 +839,28 @@ class NatRule(NcmBase):
     service: str | None = None
     direction: str | None = None
     raw: str = ""
+
+    # ── the normalised form (FR-TOPO-03) ──────────────────────────────────
+    #: Addresses or object names the rule matches on, before translation. Empty means
+    #: "any", matching how every platform treats an omitted match condition.
+    original_source: list[str] = Field(default_factory=list)
+    original_destination: list[str] = Field(default_factory=list)
+    #: What each becomes. Empty means that side is not translated by this rule — which
+    #: is the normal case: most rules translate one side only.
+    translated_source: list[str] = Field(default_factory=list)
+    translated_destination: list[str] = Field(default_factory=list)
+    #: Port the destination becomes, for port-forwarding rules. None means the port is
+    #: unchanged, which is different from translating it to the same number only in
+    #: that nothing has to be said about it.
+    translated_port: int | None = None
+    #: Ports the rule matches on before translation, as written. Empty means any.
+    original_ports: list[str] = Field(default_factory=list)
+    #: Set when the rule was recognised but could not be normalised — an unsupported
+    #: form, an object the parser could not resolve, an `interface` keyword whose
+    #: address is not known here. Carries the reason, which is surfaced rather than
+    #: swallowed: a path crossing a rule nobody could read is a weaker answer than one
+    #: crossing a rule that plainly does not match, and the two must not look alike.
+    translation_unreadable: str | None = None
 
 
 class Firewall(NcmBase):

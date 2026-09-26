@@ -89,6 +89,14 @@ class TestThePathItDemonstrates:
         but it crossed a device carrying NAT rules on the way, so the firewalls after
         that device were asked about the addresses in the query rather than the ones the
         packet was carrying. `allowed` would be a claim the data does not support.
+
+        The edge firewall's rule is `nat (inside,outside) source dynamic OBJ-INSIDE-NET
+        interface`, which is now *recognised* and still cannot be followed: the source
+        becomes whichever address the outside interface holds, and the line does not
+        say what that is. So the caveat is a named reason rather than "this device
+        carries 2 NAT rules", and it lands in `translation_unknown_at` — the list that
+        still degrades the verdict — rather than in `translated_at`, which now holds
+        only translations the walk actually followed.
         """
         await seed_demo_estate(session, vault=vault)
         graph = await build_graph_from_estate(session)
@@ -97,8 +105,11 @@ class TestThePathItDemonstrates:
 
         assert result.routing is RoutingConfidence.ROUTED
         assert result.policy is PolicyVerdict.PARTIALLY_ALLOWED
-        assert result.translated_at, "the NAT caveat did not fire on a path that crosses NAT"
-        assert "demo-edge-fw-01" in result.translated_at[0]
+        assert result.translation_unknown_at, "the NAT caveat did not fire on a path crossing NAT"
+        assert "demo-edge-fw-01" in result.translation_unknown_at[0]
+        # The point of normalising: the reason names the rule's own words, instead of
+        # reporting a count and leaving the reader to open the configuration.
+        assert "interface" in result.translation_unknown_at[0]
         assert [hop.hostname for hop in result.hops][:2] == [
             "demo-access-sw-01",
             "demo-core-sw-01",

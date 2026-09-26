@@ -163,13 +163,25 @@ export function PathDiagram({ result }: { result: PathResult }) {
 
       {/* Spelled out under the picture as well as inside it. The markers are two
           letters on a diagram and each one changes what the answer means. */}
-      {(result.translated_at.length > 0 || result.branched_at.length > 0) && (
+      {(result.translated_at.length > 0 ||
+        result.translation_unknown_at.length > 0 ||
+        result.branched_at.length > 0) && (
         <ul className="pathdiagram__key">
           {result.translated_at.length > 0 && (
             <li>
-              <strong>NAT</strong> — {result.translated_at.join(', ')} carry NAT rules. The
-              translation itself is not modelled, so an address may have changed here in a way the
-              trace did not follow.
+              <strong>NAT</strong> — the address was rewritten here and the trace followed it:{' '}
+              {result.translated_at.join('; ')}. Hops after each of these were evaluated against the
+              translated addresses.
+            </li>
+          )}
+          {/* A separate entry, not a softer wording of the one above. "We followed the
+              rewrite" and "the address may have changed and we could not tell" are
+              different claims, and only the second weakens everything downstream. */}
+          {result.translation_unknown_at.length > 0 && (
+            <li>
+              <strong>NAT?</strong> — NAT may apply here and could not be followed:{' '}
+              {result.translation_unknown_at.join('; ')}. Everything past such a hop was asked about
+              addresses the packet may no longer have been carrying.
             </li>
           )}
           {result.branched_at.length > 0 && (

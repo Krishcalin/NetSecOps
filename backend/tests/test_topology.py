@@ -189,18 +189,22 @@ def equal_cost_estate():
 
 
 class TestTranslationIsDeclaredNotModelled:
-    """A path that continues past a device which may rewrite the packet (FR-TOPO-04).
+    """A path that continues past NAT this cannot follow (FR-TOPO-04).
 
-    Translation is not modelled, and the reason is data rather than effort: `original`
-    holds the *source* members on PAN-OS whatever the rule translates, a VIP's *external*
-    address on FortiOS, several joined originals on Check Point, and nothing at all on
-    Cisco ASA, which records only the raw line and an interface pair. `direction` collides
-    the same way. A matcher built on that is wrong differently on each platform, and a
-    wrong path verdict is somebody opening a firewall.
+    Translation *is* modelled now — `TestNatIsFollowedAcrossHops` covers that — but only
+    where the parsed rule says enough to follow. What is left is the residue, and it is
+    what these tests are about: a rule carrying no normalised fields (a snapshot from
+    before the parsers emitted them, or a form none of them reads), a pool chosen per
+    session, an object name nothing defines.
 
-    So the engine reports that translation *could* apply and declines to say whether it
-    does — which still beats the alternative, because the alternative was reporting a
-    clean end-to-end permit across a boundary that may have rewritten the packet.
+    The property is unchanged and is the important one: the hops after such a device
+    were asked about the addresses in the query, and if it rewrites them they answered
+    about a packet that does not exist. So the permit is not reported as `allowed`.
+
+    What *did* change is that this no longer fires on every path through any firewall
+    that does NAT. A translation the walk followed leaves the verdict alone, because the
+    later hops were asked the right question — and a caveat that fires on nearly every
+    answer is one nobody reads.
     """
 
     @staticmethod
@@ -255,8 +259,8 @@ class TestTranslationIsDeclaredNotModelled:
 
         assert result.routing is RoutingConfidence.ROUTED
         assert result.policy is PolicyVerdict.PARTIALLY_ALLOWED
-        assert result.translated_at
-        assert "mid-fw" in result.translated_at[0]
+        assert result.translation_unknown_at
+        assert "mid-fw" in result.translation_unknown_at[0]
 
     def test_the_same_estate_without_nat_is_plainly_allowed(self) -> None:
         """The caveat must attach to translation, not to having three hops."""
@@ -269,6 +273,7 @@ class TestTranslationIsDeclaredNotModelled:
 
         assert result.policy is PolicyVerdict.ALLOWED
         assert result.translated_at == []
+        assert result.translation_unknown_at == []
 
     def test_nat_on_the_final_device_does_not_degrade_the_verdict(self) -> None:
         """A translating firewall at the end invalidates nothing.
@@ -299,6 +304,7 @@ class TestTranslationIsDeclaredNotModelled:
 
         assert result.policy is PolicyVerdict.ALLOWED
         assert result.translated_at == []
+        assert result.translation_unknown_at == []
 
     def test_a_denial_still_stands_over_a_translating_device(self) -> None:
         """Blocked stays definitive. The packet died before the uncertainty mattered."""
@@ -363,9 +369,9 @@ class TestTranslationIsDeclaredNotModelled:
         notes = " ".join(result.notes)
 
         assert result.policy is PolicyVerdict.PARTIALLY_ALLOWED
-        assert result.branched_at and result.translated_at
+        assert result.branched_at and result.translation_unknown_at
         assert "equal-cost" in notes
-        assert "translate addresses" in notes
+        assert "could not be followed" in notes
 
 
 class TestWhichRulebaseGoverns:
@@ -1301,3 +1307,185 @@ class TestMissingDevices:
 
         assert found[0].adjacent_to == "203.0.113.0/29"
         assert "203.0.113.0/29" in found[0].reason
+
+
+# ───────────────────────────── NAT across hops ─────────────────────────────
+
+
+@pytest.fixture
+def published():
+    """edge-fw publishes 10.20.0.10 to the world as 203.0.113.10.
+
+        192.0.2.50  ──►  ┌─────────┐  inside 10.0.0.1/30   ┌────────┐  10.20.0.10
+        (a client)       │ edge-fw │ ────────────────────► │ dmz-fw │
+                         └─────────┘                       └────────┘
+                      clients 192.0.2.1/24            up 10.0.0.2/30
+                      outside 203.0.113.2/29          dmz 10.20.0.1/24
+                      NAT: 203.0.113.10 → 10.20.0.10
+
+    This is the arrangement the walk could not answer. The VIP is not on any subnet
+    any device is attached to and nothing routes it, so without following the
+    translation the trace stops at edge-fw and reports unreachable — about a service
+    that works.
+    """
+    edge = node(
+        "edge-fw",
+        addresses={
+            "clients": "192.0.2.1/24",
+            "outside": "203.0.113.2/29",
+            "inside": "10.0.0.1/30",
+        },
+        zones={"clients": "trust", "outside": "outside", "inside": "inside"},
+        routes=[
+            connected("192.0.2.0/24", "clients"),
+            connected("203.0.113.0/29", "outside"),
+            connected("10.0.0.0/30", "inside"),
+            static("10.20.0.0/24", "10.0.0.2", "inside"),
+        ],
+        firewall={
+            **permit_all(),
+            "nat_rules": [
+                {
+                    "order": 1,
+                    "name": "VIP-WEB",
+                    "original_destination": ["203.0.113.10"],
+                    "translated_destination": ["10.20.0.10"],
+                }
+            ],
+        },
+    )
+    dmz = node(
+        "dmz-fw",
+        addresses={"up": "10.0.0.2/30", "dmz": "10.20.0.1/24"},
+        zones={"up": "trust", "dmz": "dmz"},
+        routes=[connected("10.0.0.0/30", "up"), connected("10.20.0.0/24", "dmz")],
+        firewall=permit_all(),
+    )
+    return build_graph([edge, dmz])
+
+
+def edge_of(graph):
+    return graph.nodes[uuid.uuid5(uuid.NAMESPACE_DNS, "edge-fw")]
+
+
+class TestNatIsFollowedAcrossHops:
+    """Destination NAT is the case that makes a path answerable at all."""
+
+    def test_a_published_service_is_traced_through_to_the_real_host(self, published) -> None:
+        result = walk(published, source="192.0.2.50", destination="203.0.113.10", port=443)
+
+        assert result.routing is RoutingConfidence.ROUTED
+        assert [hop.hostname for hop in result.hops] == ["edge-fw", "dmz-fw"]
+
+    def test_without_the_rule_the_same_query_reaches_nothing(self, published) -> None:
+        """The control. Strip the NAT rule and the public address goes nowhere, which
+        is what this walk used to report for a working service."""
+        edge_of(published).firewall = permit_all()
+
+        result = walk(published, source="192.0.2.50", destination="203.0.113.10", port=443)
+
+        assert result.routing is not RoutingConfidence.ROUTED
+        assert [hop.hostname for hop in result.hops] == ["edge-fw"]
+
+    def test_the_hop_that_translated_says_what_it_did(self, published) -> None:
+        """Every hop after this one was traced with different addresses, so the reader
+        has to be able to see where the question changed."""
+        result = walk(published, source="192.0.2.50", destination="203.0.113.10", port=443)
+
+        assert result.hops[0].translation == "destination 203.0.113.10 -> 10.20.0.10".replace(
+            "->", "\u2192"
+        )
+        assert any("10.20.0.10" in note for note in result.translated_at)
+
+    def test_the_last_hop_is_reached_on_the_rewritten_address(self, published) -> None:
+        """dmz-fw is attached to 10.20.0.0/24 and to nothing resembling the VIP.
+        Arriving there `connected` proves the rewritten address was carried forward."""
+        result = walk(published, source="192.0.2.50", destination="203.0.113.10", port=443)
+
+        assert result.hops[-1].hostname == "dmz-fw"
+        assert result.hops[-1].matched_route == "connected"
+
+    def test_a_port_forward_changes_the_port_the_later_hops_are_asked_about(
+        self, published
+    ) -> None:
+        """A rule publishing 443 to an internal 8443 means downstream rulebases are
+        asked about 8443. Asking them about 443 would consult the wrong rule."""
+        edge_of(published).firewall["nat_rules"][0]["translated_port"] = 8443
+        dmz = published.nodes[uuid.uuid5(uuid.NAMESPACE_DNS, "dmz-fw")]
+        dmz.firewall = {
+            "security_rules": [
+                {"order": 1, "name": "only-8443", "action": "allow", "services": ["tcp/8443"]},
+                {"order": 2, "name": "deny-rest", "action": "deny"},
+            ]
+        }
+
+        result = walk(published, source="192.0.2.50", destination="203.0.113.10", port=443)
+
+        assert result.hops[-1].rule_name == "only-8443"
+        assert result.policy is PolicyVerdict.ALLOWED
+
+
+class TestNatThatCannotBeFollowed:
+    def test_an_unreadable_rule_is_recorded_on_the_hop_and_in_the_caveats(self, published) -> None:
+        """A rule that may apply and could not be read weakens every hop after it, and
+        must not look like a rule that plainly did not match."""
+        edge_of(published).firewall["nat_rules"] = [
+            {
+                "order": 1,
+                "name": "OUTBOUND-PAT",
+                "original_source": ["192.0.2.0/24"],
+                "translation_unreadable": "it uses a pool chosen per session",
+            }
+        ]
+
+        result = walk(published, source="192.0.2.50", destination="10.20.0.10", port=443)
+
+        assert any("pool chosen per session" in limit for limit in result.hops[0].limitations)
+        assert any("pool chosen per session" in note for note in result.translation_unknown_at)
+
+    def test_a_ranged_destination_is_not_translated_and_says_so(self, published) -> None:
+        """NAT rewrites addresses one at a time. A range a rule covers part of does not
+        become one other range, so following it would give a single path for traffic
+        that takes several."""
+        result = walk(published, source="192.0.2.50", destination="203.0.113.8/29", port=443)
+
+        assert any("single address" in note for note in result.translation_unknown_at)
+
+    def test_a_device_whose_nat_nobody_can_read_still_says_so(self, published) -> None:
+        """A snapshot from before the parsers emitted the normalised form. It carries
+        nothing to match on, and must not look like a device with no NAT at all."""
+        edge_of(published).firewall["nat_rules"] = [
+            {"order": 1, "original": "any", "translated": "interface"}
+        ]
+
+        result = walk(published, source="192.0.2.50", destination="10.20.0.10", port=443)
+
+        assert any("cannot read" in note for note in result.translation_unknown_at)
+
+    def test_a_clean_path_carries_no_nat_caveat_at_all(self, published) -> None:
+        """The caveat used to appear on every path through any firewall that does NAT,
+        which is most of them. A rule that plainly does not match this packet should
+        now say nothing."""
+        result = walk(published, source="192.0.2.50", destination="10.20.0.10", port=443)
+
+        assert result.translated_at == []
+        assert result.translation_unknown_at == []
+
+
+class TestPlatformSemantics:
+    def test_an_asa_hop_warns_that_its_acls_match_the_translated_address(self, published) -> None:
+        """ASA from 8.3 matches ACLs on the real address; this walk evaluates the hop
+        against the address as it arrived, which is PAN-OS's model. Where the two
+        differ the answer says so rather than quietly picking one."""
+        result = walk(published, source="192.0.2.50", destination="203.0.113.10", port=443)
+
+        assert any("ASA-family" in note for note in result.notes)
+
+    def test_a_panos_hop_carries_no_such_warning(self, published) -> None:
+        """The note is about a real divergence, not decoration. On the platform whose
+        semantics this walk implements there is nothing to warn about."""
+        edge_of(published).platform = "panos"
+
+        result = walk(published, source="192.0.2.50", destination="203.0.113.10", port=443)
+
+        assert not any("ASA-family" in note for note in result.notes)

@@ -31,6 +31,7 @@ function hop(hostname: string, overrides: Partial<Hop> = {}): Hop {
     rule_name: 'permit-web',
     rule_order: 2,
     limitations: [],
+    translation: null,
     ...overrides,
   };
 }
@@ -48,6 +49,7 @@ function path(overrides: Partial<PathResult> = {}): PathResult {
     stopped_at_next_hop: null,
     stopped_at_device: null,
     translated_at: [],
+    translation_unknown_at: [],
     branched_at: [],
     notes: [],
     ...overrides,
@@ -110,11 +112,30 @@ describe('buildChain', () => {
 
   it('marks the hops where NAT or equal-cost routing changes what the answer means', () => {
     const { cells } = buildChain(
-      path({ translated_at: ['edge-fw'], branched_at: ['edge-fw', 'dmz-fw'] }),
+      path({
+        translated_at: ['edge-fw: destination 203.0.113.10 → 10.20.0.10'],
+        branched_at: ['edge-fw', 'dmz-fw'],
+      }),
     );
 
     expect(cells.find((c) => c.title === 'edge-fw')?.markers).toEqual(['NAT', 'ECMP']);
     expect(cells.find((c) => c.title === 'dmz-fw')?.markers).toEqual(['ECMP']);
+  });
+
+  it('marks a translation it could not follow differently from one it did', () => {
+    // These used to be one marker. "The address changed here and we followed it" and
+    // "the address may have changed and everything after this is doubtful" are
+    // different claims, and only the second weakens the verdict.
+    const { cells } = buildChain(
+      path({
+        translated_at: ['edge-fw: destination 203.0.113.10 → 10.20.0.10'],
+        translation_unknown_at: ['mid-fw: it uses a pool chosen per session'],
+        hops: [hop('edge-fw'), hop('mid-fw')],
+      }),
+    );
+
+    expect(cells.find((c) => c.title === 'edge-fw')?.markers).toEqual(['NAT']);
+    expect(cells.find((c) => c.title === 'mid-fw')?.markers).toEqual(['NAT?']);
   });
 });
 
@@ -145,10 +166,28 @@ describe('PathDiagram', () => {
     expect(image).toHaveAccessibleDescription(/reaching the destination/);
   });
 
-  it('spells out the NAT caveat rather than leaving two letters on a drawing', () => {
-    render(<PathDiagram result={path({ translated_at: ['edge-fw'] })} />);
+  it('spells out a followed translation rather than leaving two letters on a drawing', () => {
+    render(
+      <PathDiagram
+        result={path({ translated_at: ['edge-fw: destination 203.0.113.10 → 10.20.0.10'] })}
+      />,
+    );
 
-    expect(screen.getByText(/translation itself is not modelled/)).toBeInTheDocument();
+    expect(screen.getByText(/the trace followed it/)).toBeInTheDocument();
+    expect(screen.getByText(/10\.20\.0\.10/)).toBeInTheDocument();
+  });
+
+  it('says separately when NAT could not be followed', () => {
+    render(
+      <PathDiagram
+        result={path({ translation_unknown_at: ['mid-fw: a pool chosen per session'] })}
+      />,
+    );
+
+    expect(screen.getByText(/could not be followed/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/addresses the packet may no longer have been carrying/),
+    ).toBeInTheDocument();
   });
 
   it('spells out the equal-cost caveat', () => {

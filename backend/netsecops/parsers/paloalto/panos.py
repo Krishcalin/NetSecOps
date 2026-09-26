@@ -641,18 +641,18 @@ class PanOsParser(ConfigParser):
 
             nat = vsys.find("rulebase/nat/rules")
             for nat_name, entry in _entries(nat, ".") if nat is not None else []:
-                firewall.nat_rules.append(
-                    NatRule(
-                        order=len(firewall.nat_rules) + 1,
-                        name=f"{prefix}{nat_name}",
-                        original=", ".join(_members(entry, "source")) or "any",
-                        translated=_translated(entry),
-                        service=_text(entry, "service", "any"),
-                        direction="destination"
-                        if entry.find("destination-translation") is not None
-                        else "source",
-                    )
+                nat_rule = NatRule(
+                    order=len(firewall.nat_rules) + 1,
+                    name=f"{prefix}{nat_name}",
+                    original=", ".join(_members(entry, "source")) or "any",
+                    translated=_translated(entry),
+                    service=_text(entry, "service", "any"),
+                    direction="destination"
+                    if entry.find("destination-translation") is not None
+                    else "source",
                 )
+                _normalise_nat(entry, nat_rule)
+                firewall.nat_rules.append(nat_rule)
                 self._record(result, f"firewall.nat_rules.{len(firewall.nat_rules) - 1}", entry)
 
         firewall.zones = sorted(zones)
@@ -801,6 +801,59 @@ def _service_value(entry: Element) -> tuple[str, str]:
             return f"{protocol}/{port}" if port else protocol, protocol
 
     return "any", "any"
+
+
+def _normalise_nat(entry: Element, rule: NatRule) -> None:
+    """Fill the normalised NAT fields from a PAN-OS `rulebase/nat/rules` entry.
+
+    PAN-OS is the one platform whose configuration says everything plainly: `source`
+    and `destination` are the pre-translation match conditions, and the two
+    `*-translation` blocks say what each becomes. The legacy `original` field could not
+    express that — it holds the source members whatever the rule translates — which is
+    why a matcher could never be built on it.
+
+    Two forms are deliberately left unreadable rather than approximated. A
+    `dynamic-ip-and-port` source translation to an *interface* becomes whatever address
+    that interface holds, which is not in this rule; and `dynamic-translated-address`
+    picks from a pool per session, so no single answer is correct. Both set
+    `translation_unreadable`, because a path crossing a rule nobody could read is a
+    weaker answer than one crossing a rule that plainly does not match.
+    """
+    rule.original_source = [m for m in _members(entry, "source") if m.lower() != "any"]
+    rule.original_destination = [m for m in _members(entry, "destination") if m.lower() != "any"]
+    service = _text(entry, "service")
+    if service and service.lower() != "any":
+        rule.original_ports = [service]
+
+    destination = entry.find("destination-translation")
+    if destination is not None:
+        address = _text(destination, "translated-address")
+        if address:
+            rule.translated_destination = [address]
+        port = _text(destination, "translated-port")
+        if port and port.isdigit():
+            rule.translated_port = int(port)
+
+    source = entry.find("source-translation")
+    if source is not None:
+        static = _text(source, "static-ip/translated-address")
+        if static:
+            rule.translated_source = [static]
+        else:
+            pool = _members(source, "dynamic-ip-and-port/translated-address")
+            interface = _text(source, "dynamic-ip-and-port/interface-address/interface")
+            if interface:
+                rule.translation_unreadable = (
+                    f"the source is translated to whatever address {interface} holds, "
+                    "which this rule does not state"
+                )
+            elif len(pool) == 1:
+                rule.translated_source = list(pool)
+            elif pool:
+                rule.translation_unreadable = (
+                    f"the source is translated to one of {len(pool)} pool addresses, "
+                    "chosen per session"
+                )
 
 
 def _translated(entry: Element) -> str:

@@ -28,8 +28,14 @@ export interface Chain {
   brokenAfter: number | null;
 }
 
+/** Hostnames named at the start of an entry like "edge-fw: destination … → …". */
+function hostnamesIn(entries: string[]): Set<string> {
+  return new Set(entries.map((entry) => entry.split(':')[0]?.trim() ?? '').filter(Boolean));
+}
+
 export function buildChain(result: PathResult): Chain {
-  const translated = new Set(result.translated_at);
+  const translated = hostnamesIn(result.translated_at);
+  const unknown = hostnamesIn(result.translation_unknown_at);
   const branched = new Set(result.branched_at);
 
   const cells: Cell[] = [
@@ -48,7 +54,12 @@ export function buildChain(result: PathResult): Chain {
   result.hops.forEach((hop, index) => {
     const decision = hop.action === null ? 'none' : hop.action === 'deny' ? 'deny' : 'allow';
     const markers: string[] = [];
+    // A translation the walk followed and one it could not are marked differently.
+    // They used to be one thing, and the distinction is the difference between "the
+    // address changed here, and we followed it" and "the address may have changed here
+    // and everything after this is doubtful".
     if (translated.has(hop.hostname)) markers.push('NAT');
+    if (unknown.has(hop.hostname)) markers.push('NAT?');
     if (branched.has(hop.hostname)) markers.push('ECMP');
 
     cells.push({
