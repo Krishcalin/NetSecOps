@@ -62,6 +62,6 @@ references:
   nist_800_53: ["AC-4", "SC-7", "AC-17"]
   iso_27001: ["A.8.20", "A.8.22"]
   cwe: ["CWE-1327"]
-  cea: ["Network Segmentation"]
+  cea: ["Remote Access"]
 
 tags: [management-plane, lateral-movement, cisco, hardening-guide]
