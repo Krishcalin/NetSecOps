@@ -99,6 +99,35 @@ either:
   `backup-restore/config/last-backup-status` — so those NCM fields are always empty in
   production, whatever the deployment contains.
 
+### 4b. Two Cisco hardening controls were verified and deliberately not built
+
+Both were on the implementation list and both were dropped after checking the vendor
+documentation rather than after writing them. Recorded so they are not re-proposed.
+
+**Control Plane Policing.** Cisco's IOS XE documentation describes disabling the
+*default* CoPP policy with `no service-policy input policy-default-autocopp`, so on the
+Catalyst platforms CoPP can be active without any `control-plane` block appearing in the
+running configuration. A check asserting "CoPP is configured" would therefore report a
+finding against devices that are already protected, and there is no way to tell the two
+apart from configuration text. Cisco's hardening guide gives no CLI for it either.
+
+**Unicast RPF.** Built as far as the parser and no further.
+`interfaces.security.urpf_mode` now records `rx` or `any` — it was previously consumed
+with the interface body and extracted into nothing, so a router with strict uRPF and one
+that had never heard of it produced identical NCMs, with full parse coverage for both.
+
+No check reads it, on purpose. Strict uRPF drops legitimate traffic on any interface
+carrying an asymmetric path, so "every routed interface should have it" is wrong advice
+in most real topologies. Cisco recommends it at the edge facing single-homed customers,
+and NetSecOps cannot yet tell an edge interface from a core one — `Interface.zone`
+exists and nothing populates it for IOS. The check becomes possible the day it does.
+
+**Also found while doing this**, and fixed: the `snmp-server community` line was read
+positionally, so `community X view V RW` parsed as read-only with an access list named
+`view`. `snmp-no-write-community` passed on writable communities and
+`cisco-snmp-community-acl` passed on unrestricted ones, on every device that had
+configured a view.
+
 ### 5. The deny-list blocks a command we want
 
 `adapters/readonly.py` denies `diagnose\s(?!sys|hardware)` and the deny-list runs *before*

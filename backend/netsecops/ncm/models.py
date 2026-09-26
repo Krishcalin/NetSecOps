@@ -578,6 +578,16 @@ class InterfaceSecurity(NcmBase):
     storm_control: bool | None = None
     ip_source_guard: bool | None = None
     dot1x: bool | None = None
+    #: Unicast RPF: `rx` (strict — the source must be reachable back out of this
+    #: interface), `any` (loose — reachable by some route), or None where the
+    #: interface does not configure it.
+    #:
+    #: Recorded as a fact and deliberately not asserted on. Strict uRPF on an
+    #: interface carrying asymmetric traffic drops legitimate packets, so "every
+    #: routed interface should have it" is wrong advice in most real topologies, and
+    #: NetSecOps cannot yet tell an edge interface from a core one. The value is here
+    #: for evidence and reporting until it can.
+    urpf_mode: str | None = None
 
 
 class Interface(NcmBase):

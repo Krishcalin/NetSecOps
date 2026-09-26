@@ -99,9 +99,14 @@ def populated(value: Any, prefix: str, into: set[str]) -> None:
     if isinstance(value, list):
         if value:
             into.add(prefix)
-            # One representative element, so a list of interfaces records which interface
-            # *fields* parse rather than only that interfaces exist at all.
-            populated(value[0], prefix, into)
+            # Every element, not one representative. The first element was cheaper and
+            # missed anything a parser only fills in on some members of a list —
+            # `interfaces.security.urpf_mode` is set on an SVI and on no access port,
+            # so with a single sample the gate could not see it at all, and deleting
+            # the parsing for it would have turned nothing red. That is the failure
+            # this file exists to prevent, in this file.
+            for element in value:
+                populated(element, prefix, into)
         return
 
     if value not in (None, "", {}, []):

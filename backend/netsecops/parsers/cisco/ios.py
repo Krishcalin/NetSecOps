@@ -772,6 +772,18 @@ class CiscoIosParser(CiscoStyleParser):
             ) or None
             security.root_guard = "spanning-tree guard root" in children or None
 
+            # `ip verify unicast source reachable-via {rx|any} [allow-default]`.
+            # This was consumed with the rest of the interface body and extracted into
+            # nothing, so a device configuring uRPF and one that had never heard of it
+            # produced identical NCMs — and coverage scored full for both, which is
+            # the blind spot `test_parser_field_baseline` documents.
+            if urpf := re.search(
+                r"^\s*ip verify unicast source reachable-via\s+(rx|any)\b",
+                children,
+                re.MULTILINE,
+            ):
+                security.urpf_mode = urpf.group(1)
+
             interface.proxy_arp = self._negatable(children, "ip proxy-arp")
             interface.ip_redirects = self._negatable(children, "ip redirects")
             interface.ip_unreachables = self._negatable(children, "ip unreachables")
