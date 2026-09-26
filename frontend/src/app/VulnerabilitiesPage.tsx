@@ -37,6 +37,7 @@ import {
   kevLabel,
 } from '../features/vulnerabilities/types';
 import type { Paginated } from '../features/inventory/types';
+import { useUrlFilters } from './useUrlFilters';
 
 const PAGE_SIZE = 25;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
@@ -752,10 +753,13 @@ function CvePanel({ cveId, onClose }: { cveId: string; onClose: () => void }) {
 }
 
 export function VulnerabilitiesPage() {
-  const [severity, setSeverity] = useState('');
-  const [confidence, setConfidence] = useState('');
-  const [kevOnly, setKevOnly] = useState(false);
-  const [offset, setOffset] = useState(0);
+  // In the URL so a dashboard tile can link to "KEV, confirmed" and land here with
+  // that filter already applied, and so the filtered view can be shared.
+  const filters = useUrlFilters({ severity: '', confidence: '', kev: 'false', offset: '0' });
+  const severity = filters.read('severity');
+  const confidence = filters.read('confidence');
+  const kevOnly = filters.read('kev') === 'true';
+  const offset = Number(filters.read('offset')) || 0;
   const [selectedCve, setSelectedCve] = useState<string | null>(null);
   const [showFeeds, setShowFeeds] = useState(false);
   const [showCoverage, setShowCoverage] = useState(false);
@@ -811,10 +815,7 @@ export function VulnerabilitiesPage() {
         <select
           className="field__input field__input--small"
           value={severity}
-          onChange={(event) => {
-            setSeverity(event.target.value);
-            setOffset(0);
-          }}
+          onChange={(event) => filters.write({ severity: event.target.value })}
           aria-label="Filter by severity"
         >
           <option value="">All severities</option>
@@ -828,10 +829,7 @@ export function VulnerabilitiesPage() {
         <select
           className="field__input field__input--small"
           value={confidence}
-          onChange={(event) => {
-            setConfidence(event.target.value);
-            setOffset(0);
-          }}
+          onChange={(event) => filters.write({ confidence: event.target.value })}
           aria-label="Filter by match confidence"
         >
           <option value="">Any confidence</option>
@@ -843,10 +841,7 @@ export function VulnerabilitiesPage() {
           <input
             type="checkbox"
             checked={kevOnly}
-            onChange={(event) => {
-              setKevOnly(event.target.checked);
-              setOffset(0);
-            }}
+            onChange={(event) => filters.write({ kev: String(event.target.checked) })}
           />
           Known exploited only
         </label>
@@ -980,7 +975,9 @@ export function VulnerabilitiesPage() {
         <button
           className="button button--ghost button--small"
           disabled={offset === 0}
-          onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+          onClick={() =>
+            filters.write({ offset: String(Math.max(0, offset - PAGE_SIZE)) }, { keepOffset: true })
+          }
         >
           Previous
         </button>
@@ -995,7 +992,9 @@ export function VulnerabilitiesPage() {
         <button
           className="button button--ghost button--small"
           disabled={offset + PAGE_SIZE >= total}
-          onClick={() => setOffset(offset + PAGE_SIZE)}
+          onClick={() =>
+            filters.write({ offset: String(offset + PAGE_SIZE) }, { keepOffset: true })
+          }
         >
           Next
         </button>

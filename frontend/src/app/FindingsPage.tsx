@@ -16,6 +16,7 @@ import { useAuth } from '../features/auth/useAuth';
 import type { Finding, FindingDetail, FindingStatus, Severity } from '../features/findings/types';
 import { SETTABLE_STATUSES, STATUS_LABELS } from '../features/findings/types';
 import type { Paginated } from '../features/inventory/types';
+import { useUrlFilters } from './useUrlFilters';
 
 const PAGE_SIZE = 25;
 
@@ -189,9 +190,12 @@ function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () =
 }
 
 export function FindingsPage() {
-  const [severity, setSeverity] = useState<string>('');
-  const [activeOnly, setActiveOnly] = useState(true);
-  const [offset, setOffset] = useState(0);
+  // In the URL, not in component state, so a dashboard tile can link straight to
+  // "open critical findings" and so a filtered list can be sent to someone.
+  const filters = useUrlFilters({ severity: '', active_only: 'true', offset: '0' });
+  const severity = filters.read('severity');
+  const activeOnly = filters.read('active_only') !== 'false';
+  const offset = Number(filters.read('offset')) || 0;
   const [selected, setSelected] = useState<string | null>(null);
 
   const findings = useQuery({
@@ -223,10 +227,7 @@ export function FindingsPage() {
         <select
           className="field__input field__input--small"
           value={severity}
-          onChange={(event) => {
-            setSeverity(event.target.value);
-            setOffset(0);
-          }}
+          onChange={(event) => filters.write({ severity: event.target.value })}
           aria-label="Filter by severity"
         >
           <option value="">All severities</option>
@@ -241,10 +242,7 @@ export function FindingsPage() {
           <input
             type="checkbox"
             checked={activeOnly}
-            onChange={(event) => {
-              setActiveOnly(event.target.checked);
-              setOffset(0);
-            }}
+            onChange={(event) => filters.write({ active_only: String(event.target.checked) })}
           />
           Open findings only
         </label>
@@ -308,7 +306,9 @@ export function FindingsPage() {
         <button
           className="button button--ghost button--small"
           disabled={offset === 0}
-          onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+          onClick={() =>
+            filters.write({ offset: String(Math.max(0, offset - PAGE_SIZE)) }, { keepOffset: true })
+          }
         >
           Previous
         </button>
@@ -319,7 +319,9 @@ export function FindingsPage() {
         <button
           className="button button--ghost button--small"
           disabled={offset + PAGE_SIZE >= total}
-          onClick={() => setOffset(offset + PAGE_SIZE)}
+          onClick={() =>
+            filters.write({ offset: String(offset + PAGE_SIZE) }, { keepOffset: true })
+          }
         >
           Next
         </button>

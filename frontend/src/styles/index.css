@@ -1560,3 +1560,119 @@ code {
   color: var(--text-muted);
   font-size: 0.9rem;
 }
+
+/* ── dashboard tiles (FR-RPT-01) ──────────────────────────────────────────
+   Every tile is a link to the list it counts, already filtered. The severity
+   tone is carried by a left stripe *and* by the hint text below the number, so
+   the state survives both a greyscale print and a screen reader — the stripe is
+   never the only thing saying a number matters. */
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border);
+  border-radius: 4px;
+  text-decoration: none;
+  color: inherit;
+}
+
+.tile:hover {
+  border-color: var(--accent);
+  border-left-color: var(--accent);
+}
+
+.tile--alert {
+  border-left-color: var(--error);
+}
+.tile--warn {
+  border-left-color: var(--warn);
+}
+
+.tile__value {
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.tile__label {
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.tile__hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* ── first-run checklist ──────────────────────────────────────────────────
+   Shown instead of six zeroes on an empty estate. Each step ticks itself off
+   from a real count, never from an assumption about what the operator did. */
+
+.steps {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.step--done {
+  background: var(--ok-soft);
+  border-color: var(--ok);
+}
+
+.step__n {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  font-weight: 700;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.step--done .step__n {
+  background: var(--ok);
+  color: var(--surface);
+}
+
+.step__title {
+  margin: 2px 0 4px;
+  font-size: 1rem;
+}
+
+.step__state {
+  font-weight: 400;
+  color: var(--ok);
+}
+
+.step__text {
+  margin: 0 0 8px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
