@@ -37,6 +37,9 @@ class RuleIssue(StrEnum):
     NO_PROFILES = "no_profiles"
     #: The rule permits `any` application on a platform that can identify them.
     NO_APPLICATION_IDENTITY = "no_application_identity"
+    #: Content profiles are attached but the SSL profile does not decrypt, so they
+    #: cannot see the traffic they are supposed to inspect.
+    INSPECTION_NOT_DECRYPTED = "inspection_not_decrypted"
     DISABLED = "disabled"
     NO_RECENT_HITS = "no_recent_hits"
     NEVER_HIT = "never_hit"
@@ -56,6 +59,10 @@ ISSUE_SEVERITY: dict[RuleIssue, str] = {
     # rulebase migrated from a legacy firewall it will be most of the rules — a high
     # would drown the findings that need acting on this week.
     RuleIssue.NO_APPLICATION_IDENTITY: "medium",
+    # The same exposure as NO_PROFILES — traffic passes uninspected — so the same
+    # severity. What differs is only that this one is harder for a human to see: the
+    # rule lists an anti-virus profile and an IPS sensor and looks protected.
+    RuleIssue.INSPECTION_NOT_DECRYPTED: "medium",
     RuleIssue.DISABLED: "info",
     RuleIssue.NO_RECENT_HITS: "low",
     RuleIssue.NEVER_HIT: "low",
@@ -263,6 +270,37 @@ def _insecure_services(rule: ResolvedRule, thresholds: PolicyThresholds) -> list
     return found
 
 
+#: SSL profiles that read the handshake and stop, by name.
+#:
+#: Only FortiOS's predefined `certificate-inspection` is listed. `deep-inspection` does
+#: decrypt, and a custom profile could do either — its body is not parsed, so judging it
+#: by its name would be a guess, and a wrong guess here means telling somebody their
+#: inspection does not work when it does.
+CERT_ONLY_SSL_PROFILES: frozenset[str] = frozenset({"certificate-inspection"})
+
+#: Profile slots whose whole job is reading payload. `decryption` is excluded because it
+#: *is* the SSL profile, and `group` because a profile group's members are not resolved
+#: here, so whether it contains a content profile is unknown rather than false.
+CONTENT_PROFILE_KINDS: frozenset[str] = frozenset(
+    {"antivirus", "ips", "url", "dns", "file", "application"}
+)
+
+
+def _cert_only_inspection(rule: ResolvedRule) -> bool:
+    """Whether this rule's SSL profile is one that is known not to decrypt."""
+    profile = (rule.profiles or {}).get("decryption")
+    return bool(profile) and str(profile).strip().lower() in CERT_ONLY_SSL_PROFILES
+
+
+def _content_profiles(rule: ResolvedRule) -> list[str]:
+    """The payload-inspecting profiles attached to a rule, by kind."""
+    return [
+        kind
+        for kind, value in (rule.profiles or {}).items()
+        if value and kind in CONTENT_PROFILE_KINDS
+    ]
+
+
 def _days_since(timestamp: str | None) -> int | None:
     if not timestamp:
         return None
@@ -421,6 +459,24 @@ def examine(
                 "This rule permits traffic without any security profile (IPS, "
                 "anti-virus, URL or DNS filtering), so the traffic is passed "
                 "uninspected.",
+            )
+
+        # Content profiles that cannot see the content. Certificate inspection reads
+        # only the TLS handshake, so an anti-virus profile or an IPS sensor on the same
+        # rule inspects nothing inside HTTPS — and the rule looks fully protected while
+        # it happens, which is why this is worth saying separately from NO_PROFILES.
+        #
+        # Only the predefined profile whose behaviour is known by name. A custom
+        # profile could do either and its body is not parsed, so judging one by its
+        # name would be a guess; `deep-inspection` and customs are left alone.
+        if _cert_only_inspection(rule) and (blinded := _content_profiles(rule)):
+            add(
+                RuleIssue.INSPECTION_NOT_DECRYPTED,
+                rule,
+                f"This rule carries {', '.join(sorted(blinded))} but inspects SSL with "
+                "'certificate-inspection', which reads only the handshake. Those "
+                "profiles cannot see inside HTTPS, so encrypted traffic is passed "
+                "uninspected by a rule that appears to inspect it.",
             )
 
         # An explicit `any` application, on a platform that has application identity at
