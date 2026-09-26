@@ -99,8 +99,8 @@ function ArtifactBody({ artifact }: { artifact: Artifact }) {
 
       {unredacted && (
         <div className="alert alert--warning" role="status">
-          This is the unredacted response. Opening it was recorded in the audit log against
-          your account, with the command that produced it.
+          This is the unredacted response. Opening it was recorded in the audit log against your
+          account, with the command that produced it.
         </div>
       )}
 
@@ -114,8 +114,8 @@ function ArtifactBody({ artifact }: { artifact: Artifact }) {
         </div>
       ) : body.data?.response === '' ? (
         <p className="empty">
-          The command ran and returned nothing. That is the device&rsquo;s answer, not a
-          collection failure.
+          The command ran and returned nothing. That is the device&rsquo;s answer, not a collection
+          failure.
         </p>
       ) : (
         <pre className="evidence__pre">{body.data?.response}</pre>
@@ -144,8 +144,8 @@ export function EvidencePanel({ collectionId }: Props) {
       <section className="card">
         <h2 className="card__title">Evidence</h2>
         <p className="empty">
-          This configuration was uploaded rather than collected, so there is no command log
-          for it. Evidence exists only for snapshots this system collected itself.
+          This configuration was uploaded rather than collected, so there is no command log for it.
+          Evidence exists only for snapshots this system collected itself.
         </p>
       </section>
     );
@@ -169,16 +169,15 @@ export function EvidencePanel({ collectionId }: Props) {
       </div>
 
       <p className="page__subtitle">
-        Every command this system issued to the device, in the order it issued them. The
-        allow-list decides what may appear here; nothing that writes to a device can.
+        Every command this system issued to the device, in the order it issued them. The allow-list
+        decides what may appear here; nothing that writes to a device can.
       </p>
 
       {collection.data?.partial && (
         <div className="alert alert--warning" role="alert">
           <strong>This collection was partial.</strong>{' '}
-          {collection.data.error_message ??
-            'Some commands did not complete.'}{' '}
-          Checks that needed the missing output report Not Evaluated rather than passing.
+          {collection.data.error_message ?? 'Some commands did not complete.'} Checks that needed
+          the missing output report Not Evaluated rather than passing.
         </div>
       )}
 
@@ -192,8 +191,8 @@ export function EvidencePanel({ collectionId }: Props) {
         <p className="page-loading">Loading…</p>
       ) : rows.length === 0 ? (
         <p className="empty">
-          This collection recorded no commands. That is itself unexpected — a collection
-          that produced a snapshot must have issued something — and is worth raising.
+          This collection recorded no commands. That is itself unexpected — a collection that
+          produced a snapshot must have issued something — and is worth raising.
         </p>
       ) : (
         <>
@@ -237,7 +236,9 @@ export function EvidencePanel({ collectionId }: Props) {
                       )}
                     </td>
                     <td className="mono">{bytes(row.size_bytes)}</td>
-                    <td className="mono">{row.duration_ms == null ? '—' : `${row.duration_ms} ms`}</td>
+                    <td className="mono">
+                      {row.duration_ms == null ? '—' : `${row.duration_ms} ms`}
+                    </td>
                     <td className="table__actions">
                       <button
                         type="button"

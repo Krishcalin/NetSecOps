@@ -259,4 +259,3 @@ describe('the unredacted original', () => {
     expect(await screen.findByText(/REDACTED:community/)).toBeInTheDocument();
   });
 });
-
