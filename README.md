@@ -109,9 +109,11 @@ platforms.*
 *Routing and policy fail for independent reasons, so NetSecOps reports them separately
 rather than collapsing them into one word. The example is the demonstration estate, and
 it is the real answer — [a test pins it](backend/tests/test_demo_estate.py): the packet is
-routed end to end and every firewall permits it, but one of them translates addresses, so
-the firewalls after it were asked about the wrong addresses. Somebody opens a firewall
-rule on this answer, so it says what it does not know.*
+routed end to end and every firewall permits it, but one of them translates addresses in a
+way the trace cannot follow, so the firewalls after it were asked about the wrong ones.
+NAT that **can** be followed is followed, and does not weaken the verdict; this estate's
+edge rule translates to whatever address an interface happens to hold, which the rule
+never states. Somebody opens a firewall on this answer, so it says what it does not know.*
 
 ### What you actually run
 

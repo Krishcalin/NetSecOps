@@ -31,6 +31,41 @@ from PIL import Image, ImageDraw, ImageFont
 OUT = os.path.dirname(os.path.abspath(__file__))
 S = 3  # supersample factor
 
+#: Every type size in one place, in logical pixels.
+#:
+#: Sizes are relative to the canvas width, and that is the whole reason this dict
+#: exists. GitHub renders a README image into a column about 880px wide, so a
+#: 1180px-wide figure is displayed at roughly three quarters size and an 11px label
+#: arrives on screen at about 8px. Enlarging the canvas does not help — the browser
+#: just scales it down further — so the only lever that makes text bigger *as read* is
+#: its size relative to the layout around it. These are about a fifth larger than the
+#: first version for exactly that reason.
+#:
+#: Raising one of these can push text out of the box it sits in, which `box()` and
+#: `fits()` refuse rather than allow: the generator fails loudly instead of writing a
+#: figure with a caption hanging over its own border.
+TYPE = {
+    "title": 23,
+    "subtitle": 14.5,
+    #: The small uppercase label on a band or panel.
+    "band": 12,
+    #: A box's bold name, and the muted lines under it.
+    "heading": 15.5,
+    "detail": 13,
+    #: Standalone callouts that are not inside a box.
+    "note": 12.5,
+}
+
+#: Clear space kept inside a box before text may not go. Text wider than the box less
+#: twice this is treated as an overflow even though it would technically still be
+#: inside the border — a caption touching its own edge reads as a mistake.
+PAD = 12.0
+
+#: Collected by `fits()` and raised together at the end of a run. Reported all at once
+#: rather than on the first failure: raising a type size usually breaks several boxes,
+#: and fixing them one regeneration at a time is miserable.
+_OVERFLOWS: list[str] = []
+
 # ── palette, from the console's light theme ──────────────────────────────────
 WHITE = "#FFFFFF"
 BG = "#F6F7F9"
@@ -79,6 +114,30 @@ def sem(size: float):
 
 def mono(size: float):
     return _font(MON, size)
+
+
+def width_of(text: str, font: ImageFont.FreeTypeFont) -> float:
+    """How wide `text` renders, in logical pixels.
+
+    Fonts are built at `size * S`, so every measurement comes back supersampled and has
+    to be divided back down before it can be compared with a logical box width.
+    """
+    return font.getlength(text) / S
+
+
+def fits(where: str, text: str, font: ImageFont.FreeTypeFont, available: float) -> None:
+    """Record an overflow rather than drawing one.
+
+    The alternative — trusting that the sizes still fit after someone changes them — is
+    how a figure ends up with a caption lapping over its own border, which nobody
+    notices until it is in a README on the internet.
+    """
+    used = width_of(text, font)
+    if used > available:
+        _OVERFLOWS.append(
+            f"{where}: {text!r} needs {used:.0f}px, {available:.0f}px available "
+            f"(over by {used - available:.0f}px)"
+        )
 
 
 class Canvas:
@@ -181,9 +240,15 @@ class Canvas:
         )
 
     def title(self, text: str, subtitle: str = "") -> None:
-        self.text(self.w / 2, 34, text, bld(19), anchor="mm")
+        self.text(self.w / 2, 36, text, bld(TYPE["title"]), anchor="mm")
         if subtitle:
-            self.text(self.w / 2, 60, subtitle, reg(12.5), fill=SUBTLE, anchor="mm")
+            font = reg(TYPE["subtitle"])
+            fits("figure subtitle", subtitle, font, self.w - 120)
+            self.text(self.w / 2, 64, subtitle, font, fill=SUBTLE, anchor="mm")
+
+    def band(self, x: float, y: float, label: str, *, fill: str = SUBTLE) -> None:
+        """The small uppercase label that titles a panel."""
+        self.text(x, y, label, sem(TYPE["band"]), fill=fill)
 
     def save(self, name: str) -> None:
         path = os.path.join(OUT, name)
@@ -210,39 +275,77 @@ def box(
     outline: str = BORDER,
     accent: str | None = None,
 ) -> None:
-    """A labelled panel: bold heading, muted detail lines beneath."""
+    """A labelled panel: bold heading, muted detail lines beneath.
+
+    The geometry is derived from the type sizes rather than hardcoded, so raising a
+    size moves the text that follows it instead of letting it collide with the line
+    below. Both dimensions are checked: a caption can overflow a box sideways, and a
+    third detail line can push out through the bottom, and neither is visible from the
+    code that called this.
+    """
     c.rect(x, y, w, h, fill=fill, outline=outline)
     if accent:
         c.rect(x, y, 4.5, h, fill=accent, outline=None, radius=2)
-    c.text(x + w / 2, y + 21, heading, sem(13), anchor="mm")
+
+    heading_font, detail_font = sem(TYPE["heading"]), reg(TYPE["detail"])
+    inner = w - 2 * PAD
+    # The accent stripe eats into the usable width on the boxes that carry one.
+    if accent:
+        inner -= 4.5
+
+    fits(f"box {heading!r} heading", heading, heading_font, inner)
+    for row in rows:
+        fits(f"box {heading!r} row", row, detail_font, inner)
+
+    # Centred vertically rather than pinned to the top. The boxes grew to hold the
+    # larger type and top-aligning left a band of dead space along the bottom of every
+    # one of them, which reads as a layout that has come apart rather than as a
+    # deliberate margin.
+    step = TYPE["detail"] * 1.45
+    gap = TYPE["heading"] * 0.55
+    content = TYPE["heading"] + (gap + step * (len(rows) - 1) + TYPE["detail"] if rows else 0)
+
+    if content + 2 * PAD > h:
+        _OVERFLOWS.append(
+            f"box {heading!r}: heading and {len(rows)} row(s) need "
+            f"{content + 2 * PAD:.0f}px of height, box is {h:.0f}px"
+        )
+
+    top = y + (h - content) / 2
+    c.text(x + w / 2, top + TYPE["heading"] / 2, heading, heading_font, anchor="mm")
+
     if rows:
-        c.lines(x + w / 2, y + 42, rows, reg(10.8), fill=SUBTLE)
+        first = top + TYPE["heading"] + gap + TYPE["detail"] / 2
+        c.lines(x + w / 2, first, rows, detail_font, fill=SUBTLE, lh=step)
 
 
 # ─────────────────────── figure 1 — logical architecture ─────────────────────
 
 
 def fig1_architecture() -> None:
-    c = Canvas(1180, 660, BG)
+    c = Canvas(1180, 692, BG)
     c.title(
         "Logical architecture",
         "One origin, one control plane, and a worker pool that is the only thing "
         "that ever reaches a device",
     )
 
-    c.rect(60, 92, 1060, 150, fill=WHITE)
-    c.text(78, 112, "BROWSER AND EDGE", sem(10.5), fill=SUBTLE)
-    box(c, 90, 130, 210, 92, "React console", ["Vite + TypeScript", "cookie session"],
+    c.rect(60, 96, 1060, 158, fill=WHITE)
+    c.band(78, 118, "BROWSER AND EDGE")
+    # 244-wide boxes on a 260 pitch. The larger detail type needs about 30px more than
+    # the first version, and it comes out of the gaps rather than out of the canvas —
+    # a wider canvas would simply be scaled down further by the browser.
+    box(c, 90, 136, 236, 100, "React console", ["Vite + TypeScript", "cookie session"],
         fill=ACCENT_SOFT, accent=ACCENT)
-    box(c, 350, 130, 210, 92, "Caddy", ["TLS, security headers", "SPA + /api on one origin"])
-    box(c, 610, 130, 210, 92, "FastAPI", ["RBAC, CSRF, audit", "OpenAPI at /api/v1"])
-    box(c, 870, 130, 210, 92, "PostgreSQL 16", ["JSONB, INET, ltree", "Alembic migrations"])
-    c.arrow(300, 176, 348, 176)
-    c.arrow(560, 176, 608, 176)
-    c.arrow(820, 176, 868, 176)
+    box(c, 354, 136, 236, 100, "Caddy", ["TLS, security headers", "SPA + /api on one origin"])
+    box(c, 618, 136, 236, 100, "FastAPI", ["RBAC, CSRF, audit", "OpenAPI at /api/v1"])
+    box(c, 882, 136, 238, 100, "PostgreSQL 16", ["JSONB, INET, ltree", "Alembic migrations"])
+    c.arrow(330, 186, 352, 186)
+    c.arrow(594, 186, 616, 186)
+    c.arrow(858, 186, 880, 186)
 
-    c.rect(60, 268, 1060, 168, fill=WHITE)
-    c.text(78, 288, "SERVICES — BUSINESS LOGIC, INDEPENDENT OF HTTP", sem(10.5), fill=SUBTLE)
+    c.rect(60, 282, 1060, 176, fill=WHITE)
+    c.band(78, 304, "SERVICES — BUSINESS LOGIC, INDEPENDENT OF HTTP")
     services = [
         ("Inventory", ["devices, groups", "sites, tags"]),
         ("Credentials", ["AES-256-GCM vault", "never returned"]),
@@ -251,26 +354,26 @@ def fig1_architecture() -> None:
         ("Topology", ["layer-3 graph", "path analysis"]),
     ]
     for index, (name, rows) in enumerate(services):
-        box(c, 90 + index * 205, 306, 185, 112, name, rows)
+        box(c, 90 + index * 206, 322, 196, 116, name, rows)
 
-    c.text(590, 452, "services enqueue jobs and workers claim them — no worker ever serves HTTP",
-           reg(10.8), fill=SUBTLE, anchor="mm")
+    c.text(590, 476, "services enqueue jobs and workers claim them — no worker ever serves HTTP",
+           reg(TYPE["note"]), fill=SUBTLE, anchor="mm")
 
-    c.rect(60, 472, 1060, 160, fill=WHITE)
-    c.text(78, 492, "WORKERS AND ADAPTERS — THE ONLY PATH TO A DEVICE", sem(10.5), fill=SUBTLE)
-    box(c, 90, 510, 230, 104, "Job runner", ["claims work with", "FOR UPDATE SKIP LOCKED"])
-    box(c, 370, 510, 230, 104, "Read-only guard", ["allow-list, deny-list", "see figure 2"],
+    c.rect(60, 496, 1060, 168, fill=WHITE)
+    c.band(78, 518, "WORKERS AND ADAPTERS — THE ONLY PATH TO A DEVICE")
+    box(c, 90, 536, 244, 110, "Job runner", ["claims work with", "FOR UPDATE SKIP LOCKED"])
+    box(c, 372, 536, 244, 110, "Read-only guard", ["allow-list, deny-list", "see figure 2"],
         fill=OK_SOFT, accent=OK)
-    box(c, 650, 510, 200, 104, "Adapters", ["SSH and vendor", "HTTPS APIs"])
-    box(c, 900, 510, 180, 104, "Devices", ["13 platforms", "never written to"],
+    box(c, 654, 536, 220, 110, "Adapters", ["SSH and vendor", "HTTPS APIs"])
+    box(c, 904, 536, 216, 110, "Devices", ["13 platforms", "never written to"],
         fill=PANEL)
-    c.arrow(320, 562, 368, 562)
-    c.arrow(600, 562, 648, 562)
-    c.arrow(850, 562, 898, 562)
+    c.arrow(338, 591, 370, 591)
+    c.arrow(620, 591, 652, 591)
+    c.arrow(874, 591, 902, 591)
 
     # Into the gap between Assessment and Vulnerability, so it points at the band rather
     # than appearing to single out one service.
-    c.arrow(697, 242, 697, 300, dashed=True)
+    c.arrow(698, 254, 698, 316, dashed=True)
 
     c.save("fig1_architecture.png")
 
@@ -279,51 +382,54 @@ def fig1_architecture() -> None:
 
 
 def fig2_readonly() -> None:
-    c = Canvas(1180, 620, BG)
+    c = Canvas(1180, 650, BG)
     c.title(
         "The read-only guarantee",
         "Four layers, every one of them before transmission — nothing is filtered "
         "after the fact",
     )
 
-    c.rect(60, 92, 1060, 300, fill=WHITE)
+    c.rect(60, 96, 1060, 322, fill=WHITE)
 
-    box(c, 96, 128, 188, 118, "1 · Allow-list", ["every adapter declares", "exactly what it may send"],
+    # The four guard boxes widen to 214 on the same 222 pitch: the headings carry a
+    # numeral and a separator as well as a name, and they are the tightest strings in
+    # the set once the type grows.
+    box(c, 92, 132, 206, 128, "1 · Allow-list", ["every adapter declares", "exactly what it may send"],
         fill=OK_SOFT, accent=OK)
-    box(c, 318, 128, 188, 118, "2 · Deny-list", ["write verbs blocked even", "if an entry were wrong"],
+    box(c, 322, 132, 206, 128, "2 · Deny-list", ["write verbs blocked even", "if an entry were wrong"],
         fill=OK_SOFT, accent=OK)
-    box(c, 540, 128, 188, 118, "3 · GET-only REST", ["POST only for auth and", "POST-only vendor APIs"],
+    box(c, 552, 132, 206, 128, "3 · GET-only REST", ["POST only for auth and", "POST-only vendor APIs"],
         fill=OK_SOFT, accent=OK)
-    box(c, 762, 128, 188, 118, "4 · Guarded session", ["adapters hold no", "unchecked transport"],
+    box(c, 782, 132, 206, 128, "4 · Guarded session", ["adapters hold no", "unchecked transport"],
         fill=OK_SOFT, accent=OK)
 
-    for x in (284, 506, 728):
-        c.arrow(x, 187, x + 32, 187, colour=OK)
+    for x in (298, 528, 758):
+        c.arrow(x, 196, x + 22, 196, colour=OK)
 
-    box(c, 984, 128, 120, 118, "Device", ["read", "only"], fill=PANEL)
-    c.arrow(950, 187, 982, 187, colour=OK)
+    box(c, 1012, 132, 96, 128, "Device", ["read", "only"], fill=PANEL)
+    c.arrow(988, 196, 1010, 196, colour=OK)
 
-    c.rect(96, 278, 854, 92, fill=ERROR_SOFT, outline=ERROR)
-    c.text(120, 304, "REJECTED BEFORE TRANSMISSION", sem(12), fill=ERROR)
+    c.rect(92, 292, 904, 104, fill=ERROR_SOFT, outline=ERROR)
+    c.band(118, 320, "REJECTED BEFORE TRANSMISSION", fill=ERROR)
     c.lines(
-        523,
-        332,
+        544,
+        352,
         [
             "configure · write · copy · reload · commit · delete · ping · test aaa · debug",
             "anything an adapter did not declare, and anything with a side effect on the device",
         ],
-        reg(10.8),
+        reg(TYPE["note"]),
         fill=ERROR,
     )
-    c.arrow(523, 278, 523, 250, colour=ERROR)
+    c.arrow(544, 292, 544, 264, colour=ERROR)
 
-    c.rect(60, 418, 1060, 160, fill=WHITE)
-    c.text(78, 440, "HOW THE CLAIM IS CHECKED", sem(10.5), fill=SUBTLE)
-    box(c, 96, 458, 300, 100, "283 conformance assertions",
+    c.rect(60, 446, 1060, 172, fill=WHITE)
+    c.band(78, 470, "HOW THE CLAIM IS CHECKED")
+    box(c, 92, 488, 328, 112, "283 conformance assertions",
         ["what the guard decides", "the build fails on any"])
-    box(c, 430, 458, 300, 100, "A fake SSH device",
+    box(c, 436, 488, 328, 112, "A fake SSH device",
         ["records every byte received", "checks what actually arrives"])
-    box(c, 764, 458, 320, 100, "A tamper-evident audit log",
+    box(c, 780, 488, 340, 112, "A tamper-evident audit log",
         ["every command, hash-chained", "so a customer can read it back"])
 
     c.save("fig2_readonly.png")
@@ -333,47 +439,47 @@ def fig2_readonly() -> None:
 
 
 def fig3_pipeline() -> None:
-    c = Canvas(1180, 640, BG)
+    c = Canvas(1180, 676, BG)
     c.title(
         "From a device to a finding",
         "Everything reads one normalised model, so a check written once runs on "
         "thirteen platforms",
     )
 
-    box(c, 70, 110, 180, 96, "Collect", ["read-only commands", "and vendor API reads"])
-    box(c, 290, 110, 180, 96, "Store", ["sealed artefact", "redacted snapshot"])
-    box(c, 510, 110, 180, 96, "Parse", ["one parser", "per platform"])
-    c.arrow(250, 158, 288, 158)
-    c.arrow(470, 158, 508, 158)
-    c.arrow(690, 158, 742, 158)
+    box(c, 70, 114, 202, 106, "Collect", ["read-only commands", "and vendor API reads"])
+    box(c, 296, 114, 202, 106, "Store", ["sealed artefact", "redacted snapshot"])
+    box(c, 522, 114, 176, 106, "Parse", ["one parser", "per platform"])
+    c.arrow(272, 167, 294, 167)
+    c.arrow(498, 167, 520, 167)
+    c.arrow(698, 167, 724, 167)
 
-    c.rect(742, 96, 368, 124, fill=ACCENT_SOFT, outline=ACCENT, width=2.2)
-    c.text(926, 124, "Normalised Config Model", bld(15), anchor="mm")
+    c.rect(724, 100, 386, 134, fill=ACCENT_SOFT, outline=ACCENT, width=2.2)
+    c.text(917, 132, "Normalised Config Model", bld(TYPE["heading"] + 2), anchor="mm")
     c.lines(
-        926,
-        152,
+        917,
+        166,
         [
             "vendor-neutral: interfaces, routes, AAA, crypto,",
             "firewall rules, NAT, users, logging, versions",
         ],
-        reg(11),
+        reg(TYPE["detail"]),
         fill=SUBTLE,
     )
 
     # A bus rather than a fan: four splayed diagonals cross whatever caption sits under
     # them, and the point is that every engine reads the *same* thing.
-    centres = [197.5, 459.5, 721.5, 983.5]
-    c.d.line([926 * S, 220 * S, 926 * S, 256 * S], fill=SUBTLE, width=max(1, int(1.8 * S)))
+    centres = [203.0, 465.0, 727.0, 989.0]
+    c.d.line([917 * S, 234 * S, 917 * S, 276 * S], fill=SUBTLE, width=max(1, int(1.8 * S)))
     c.d.line(
-        [centres[0] * S, 256 * S, centres[-1] * S, 256 * S],
+        [centres[0] * S, 276 * S, centres[-1] * S, 276 * S],
         fill=SUBTLE,
         width=max(1, int(1.8 * S)),
     )
     for x in centres:
-        c.arrow(x, 256, x, 298)
+        c.arrow(x, 276, x, 318)
 
-    c.text(80, 240, "every engine reads the same model — none of them parses anything",
-           reg(10.8), fill=SUBTLE, anchor="lm")
+    c.text(80, 258, "every engine reads the same model — none of them parses anything",
+           reg(TYPE["note"]), fill=SUBTLE, anchor="lm")
 
     engines = [
         ("Check engine", ["104 checks, JMESPath", "pass / fail / not evaluated"], ACCENT),
@@ -382,17 +488,17 @@ def fig3_pipeline() -> None:
         ("Topology", ["layer-3 graph", "path analysis"], ACCENT),
     ]
     for index, (name, rows, accent) in enumerate(engines):
-        box(c, 80 + index * 262, 300, 235, 112, name, rows, accent=accent)
+        box(c, 82 + index * 262, 320, 242, 120, name, rows, accent=accent)
 
-    c.rect(70, 452, 1040, 150, fill=WHITE)
-    c.text(88, 474, "WHAT COMES OUT", sem(10.5), fill=SUBTLE)
-    box(c, 100, 492, 220, 96, "Findings", ["with a lifecycle,", "evidence and remediation"],
+    c.rect(70, 480, 1040, 164, fill=WHITE)
+    c.band(88, 504, "WHAT COMES OUT")
+    box(c, 92, 522, 246, 106, "Findings", ["with a lifecycle,", "evidence and remediation"],
         fill=WARN_SOFT, accent=WARN)
-    box(c, 350, 492, 220, 96, "Risk score", ["per device, with its", "components shown"])
-    box(c, 600, 492, 220, 96, "Compliance", ["CIS, NIST, PCI, ISO", "pivoted by control"])
-    box(c, 850, 492, 240, 96, "Reports", ["frozen at generation,", "dated artefacts"])
-    for x in (210, 460, 710, 970):
-        c.arrow(x, 418, x, 490)
+    box(c, 354, 522, 238, 106, "Risk score", ["per device, with its", "components shown"])
+    box(c, 608, 522, 238, 106, "Compliance", ["CIS, NIST, PCI, ISO", "pivoted by control"])
+    box(c, 862, 522, 242, 106, "Reports", ["frozen at generation,", "dated artefacts"])
+    for x in (215, 473, 727, 983):
+        c.arrow(x, 446, x, 520)
 
     c.save("fig3_pipeline.png")
 
@@ -401,17 +507,19 @@ def fig3_pipeline() -> None:
 
 
 def fig4_path() -> None:
-    c = Canvas(1180, 660, BG)
+    c = Canvas(1180, 718, BG)
     c.title(
         "A path answer has two axes",
         "Routing and policy fail independently, so a single verdict has to lie "
         "about one of them",
     )
 
-    c.text(90, 112, "THE QUESTION", sem(10.5), fill=SUBTLE)
-    c.rect(70, 126, 1040, 54, fill=WHITE)
-    c.text(590, 153, "can 10.10.10.50 reach 10.20.0.10 on tcp/443, and what decides?",
-           mono(13), anchor="mm")
+    c.band(90, 116, "THE QUESTION")
+    c.rect(70, 132, 1040, 60, fill=WHITE)
+    question = "can 10.10.10.50 reach 10.20.0.10 on tcp/443, and what decides?"
+    question_font = mono(TYPE["detail"] + 1.5)
+    fits("figure 4 question", question, question_font, 1040 - 2 * PAD)
+    c.text(590, 162, question, question_font, anchor="mm")
 
     hops = [
         ("access switch", "no rulebase", "no decision", PANEL, SUBTLE),
@@ -420,35 +528,42 @@ def fig4_path() -> None:
         ("DMZ firewall", "Inbound web permits", "destination reached", OK_SOFT, OK),
     ]
     for index, (name, line1, line2, fill, accent) in enumerate(hops):
-        x = 78 + index * 262
-        box(c, x, 214, 232, 112, name, [line1, line2], fill=fill, accent=accent)
+        x = 76 + index * 262
+        box(c, x, 226, 236, 120, name, [line1, line2], fill=fill, accent=accent)
         if index < 3:
-            c.arrow(x + 232, 270, x + 260, 270)
+            c.arrow(x + 236, 286, x + 260, 286)
 
-    c.rect(70, 362, 500, 150, fill=WHITE, outline=ACCENT, width=2)
-    c.text(320, 390, "ROUTING", sem(12), fill=ACCENT, anchor="mm")
-    c.text(320, 420, "routed", bld(22), fill=OK, anchor="mm")
-    c.lines(320, 452, ["traced end to end, every hop on", "a device in the inventory"],
-            reg(11), fill=SUBTLE)
+    # The verdict is the largest type in the figure on purpose: the whole point of the
+    # diagram is that these two words are separate answers, and they have to be the
+    # thing a reader's eye lands on.
+    c.rect(70, 386, 500, 162, fill=WHITE, outline=ACCENT, width=2)
+    c.text(320, 416, "ROUTING", sem(TYPE["band"]), fill=ACCENT, anchor="mm")
+    c.text(320, 450, "routed", bld(26), fill=OK, anchor="mm")
+    c.lines(320, 486, ["traced end to end, every hop on", "a device in the inventory"],
+            reg(TYPE["detail"]), fill=SUBTLE)
 
-    c.rect(610, 362, 500, 150, fill=WHITE, outline=ACCENT, width=2)
-    c.text(860, 390, "POLICY", sem(12), fill=ACCENT, anchor="mm")
-    c.text(860, 420, "partially-allowed", bld(22), fill=WARN, anchor="mm")
-    c.lines(860, 452, ["every firewall permitted it — and one", "of them may have rewritten the addresses"],
-            reg(11), fill=SUBTLE)
+    c.rect(610, 386, 500, 162, fill=WHITE, outline=ACCENT, width=2)
+    c.text(860, 416, "POLICY", sem(TYPE["band"]), fill=ACCENT, anchor="mm")
+    c.text(860, 450, "partially-allowed", bld(26), fill=WARN, anchor="mm")
+    c.lines(860, 486, ["every firewall permitted it — and one", "of them may have rewritten the addresses"],
+            reg(TYPE["detail"]), fill=SUBTLE)
 
-    c.rect(70, 540, 1040, 84, fill=WARN_SOFT, outline=WARN)
-    c.text(94, 566, "WHY NOT SIMPLY “ALLOWED”", sem(11), fill=WARN)
-    c.lines(
-        590,
-        594,
-        [
-            "the path continues past a device carrying NAT rules, so the firewalls after it were asked about the",
-            "addresses in the query rather than the ones the packet was carrying. Somebody opens a firewall on this answer.",
-        ],
-        reg(10.8),
-        fill=WARN,
-    )
+    c.rect(70, 576, 1040, 110, fill=WARN_SOFT, outline=WARN)
+    c.band(94, 604, "WHY NOT SIMPLY “ALLOWED”", fill=WARN)
+    # Re-wrapped for the larger type, and re-worded because the product changed under
+    # it: NAT *is* followed across hops now, and a translation the walk can follow no
+    # longer weakens the verdict at all. What still does is a translation it cannot
+    # read — a pool chosen per session, an interface whose address the rule does not
+    # state — which is exactly the case this estate is in.
+    warning = [
+        "the path continues past a device whose NAT could not be followed, so the firewalls after it",
+        "were asked about the addresses in the query rather than the ones the packet was carrying.",
+        "Somebody opens a firewall on this answer.",
+    ]
+    warning_font = reg(TYPE["note"])
+    for line in warning:
+        fits("figure 4 warning", line, warning_font, 1040 - 2 * PAD)
+    c.lines(590, 626, warning, warning_font, fill=WARN)
 
     c.save("fig4_path.png")
 
@@ -457,57 +572,53 @@ def fig4_path() -> None:
 
 
 def fig5_topology() -> None:
-    c = Canvas(1180, 600, BG)
+    c = Canvas(1180, 650, BG)
     c.title(
         "What actually runs",
         "Self-hosted, one compose stack, and outbound connections only to the "
         "devices you name",
     )
 
-    c.rect(60, 96, 700, 430, fill=WHITE)
-    c.text(80, 118, "YOUR INFRASTRUCTURE — ONE DOCKER COMPOSE STACK", sem(10.5), fill=SUBTLE)
+    # The left panel gives up 48px to widen the channel between the two panels. The
+    # outbound arrow's labels live in that channel, and at the larger type they had
+    # been running back over the worker box and across the panel border.
+    c.rect(60, 100, 658, 486, fill=WHITE)
+    c.band(80, 124, "YOUR INFRASTRUCTURE — ONE DOCKER COMPOSE STACK")
 
-    box(c, 92, 142, 190, 92, "proxy", ["Caddy", "TLS, :443"], fill=ACCENT_SOFT, accent=ACCENT)
-    box(c, 312, 142, 190, 92, "api", ["FastAPI", "uvicorn"])
-    box(c, 532, 142, 196, 92, "db", ["PostgreSQL 16", "one volume"])
-    c.arrow(282, 188, 310, 188)
-    c.arrow(502, 188, 530, 188)
+    box(c, 88, 148, 196, 100, "proxy", ["Caddy", "TLS, :443"], fill=ACCENT_SOFT, accent=ACCENT)
+    box(c, 306, 148, 196, 100, "api", ["FastAPI", "uvicorn"])
+    box(c, 524, 148, 186, 100, "db", ["PostgreSQL 16", "one volume"])
+    c.arrow(284, 198, 304, 198)
+    c.arrow(502, 198, 522, 198)
 
     # Worker last, so the outbound arrow leaves the process that actually makes the
     # connection. Nothing here calls another process; they meet in the database.
-    box(c, 92, 268, 190, 92, "static", ["the built SPA"])
-    box(c, 312, 268, 190, 92, "scheduler", ["fires due", "schedules"])
-    box(c, 532, 268, 196, 92, "worker × N", ["collections,", "assessments"])
-    c.text(410, 252, "every process meets in the database — none of them calls another",
-           reg(10.5), fill=SUBTLE, anchor="mm")
+    box(c, 88, 292, 196, 100, "static", ["the built SPA"])
+    box(c, 306, 292, 196, 100, "scheduler", ["fires due", "schedules"])
+    box(c, 524, 292, 186, 100, "worker × N", ["collections,", "assessments"])
+    c.text(399, 272, "every process meets in the database — none of them calls another",
+           reg(TYPE["note"]), fill=SUBTLE, anchor="mm")
 
-    c.rect(92, 394, 636, 108, fill=PANEL)
-    c.text(112, 416, "SIZING — THE SMALL TIER IS THE SAME PRODUCT", sem(10.5), fill=SUBTLE)
-    c.lines(
-        116,
-        440,
-        [
-            "≤   100 devices    2 vCPU,  4 GB    1 worker",
-            "≤   500 devices    4 vCPU,  8 GB    1 worker, 20 concurrent",
-            "≤ 2,000 devices    8 vCPU, 16 GB    3–4 workers",
-        ],
-        mono(10),
-        fill=SUBTLE,
-        anchor="lm",
-        lh=16,
-    )
-    c.lines(
-        470,
-        452,
-        ["collections are IO-bound —", "scale workers before cores"],
-        reg(9.8),
-        fill=SUBTLE,
-        anchor="lm",
-        lh=16,
-    )
+    # The note moved below the table rather than beside it. At the old sizes the
+    # longest row already ended exactly where the note began; anything larger would
+    # have run straight through it, and a column of monospace figures is the one thing
+    # here that cannot be allowed to reflow.
+    c.rect(88, 424, 622, 146, fill=PANEL)
+    c.band(110, 448, "SIZING — THE SMALL TIER IS THE SAME PRODUCT")
+    sizing_font = mono(TYPE["detail"] - 1)
+    sizing = [
+        "≤   100 devices    2 vCPU,  4 GB    1 worker",
+        "≤   500 devices    4 vCPU,  8 GB    1 worker, 20 concurrent",
+        "≤ 2,000 devices    8 vCPU, 16 GB    3–4 workers",
+    ]
+    for row in sizing:
+        fits("figure 5 sizing row", row, sizing_font, 622 - 2 * 22)
+    c.lines(110, 476, sizing, sizing_font, fill=SUBTLE, anchor="lm", lh=21)
+    c.text(110, 546, "collections are IO-bound — scale workers before cores",
+           reg(TYPE["note"]), fill=SUBTLE, anchor="lm")
 
-    c.rect(800, 96, 320, 430, fill=WHITE)
-    c.text(820, 118, "YOUR NETWORK", sem(10.5), fill=SUBTLE)
+    c.rect(822, 100, 298, 486, fill=WHITE)
+    c.band(842, 124, "YOUR NETWORK")
     targets = [
         ("Cisco", "IOS, IOS-XE, NX-OS, ASA"),
         ("Palo Alto", "PAN-OS, Panorama"),
@@ -515,17 +626,28 @@ def fig5_topology() -> None:
         ("Check Point", "Gaia, Management API"),
         ("Wireless and AAA", "WLC, ISE, FreeRADIUS"),
     ]
+    name_font, detail_font = sem(TYPE["heading"] - 1), reg(TYPE["detail"])
     for index, (name, detail) in enumerate(targets):
-        y = 142 + index * 74
-        c.rect(824, y, 272, 60, fill=PANEL)
-        c.text(848, y + 22, name, sem(11.5))
-        c.text(848, y + 42, detail, reg(10), fill=SUBTLE)
+        y = 150 + index * 84
+        c.rect(846, y, 250, 70, fill=PANEL)
+        fits(f"figure 5 target {name!r}", detail, detail_font, 250 - 2 * 20)
+        c.text(866, y + 26, name, name_font)
+        c.text(866, y + 50, detail, detail_font, fill=SUBTLE)
 
     # Stops at the panel edge: workers reach the whole estate, not the vendor that
     # happens to sit at this height.
-    c.arrow(728, 314, 796, 314, colour=OK, width=2.2)
-    c.text(762, 294, "tcp/22, tcp/443", mono(9.5), fill=OK, anchor="mm")
-    c.text(762, 336, "read only", mono(9.5), fill=OK, anchor="mm")
+    #
+    # The two labels sit in the channel between the panels, which is the one place on
+    # this figure where text has nothing to clip against — so the width is asserted
+    # rather than assumed. They overran both neighbours at the first larger size, and
+    # nothing in the figure showed it except the picture.
+    channel = 822 - 718
+    arrow_font = mono(TYPE["detail"] - 2)
+    for label in ("tcp/22 · 443", "read only"):
+        fits("figure 5 channel label", label, arrow_font, channel)
+    c.arrow(722, 342, 818, 342, colour=OK, width=2.2)
+    c.text(770, 318, "tcp/22 · 443", arrow_font, fill=OK, anchor="mm")
+    c.text(770, 366, "read only", arrow_font, fill=OK, anchor="mm")
 
     c.save("fig5_topology.png")
 
@@ -537,6 +659,20 @@ def main() -> None:
     fig3_pipeline()
     fig4_path()
     fig5_topology()
+
+    # Checked after the figures are written, not instead of writing them: seeing the
+    # broken output is most of how an overflow gets fixed. The non-zero exit is what
+    # stops it being committed.
+    if _OVERFLOWS:
+        print(f"\n{len(_OVERFLOWS)} text overflow(s) — the figures above are wrong:\n")
+        for problem in _OVERFLOWS:
+            print(f"  {problem}")
+        print(
+            "\nEither shorten the string, widen the box, or lower the size in TYPE. "
+            "Do not leave it: the text is outside its own border."
+        )
+        raise SystemExit(1)
+
     print(f"\nwritten to {OUT}")
 
 

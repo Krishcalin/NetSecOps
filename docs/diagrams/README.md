@@ -20,6 +20,28 @@ width GitHub renders them. The palette comes from the console's own light theme 
 change the constants at the top of the script to match, so the docs and the product keep
 looking like the same thing.
 
+## Type sizes, and why they are where they are
+
+Every size lives in the `TYPE` dict at the top of the script, in logical pixels, and the
+sizes are deliberately large relative to the canvas. GitHub renders a README image into
+a column about 880px wide, so a 1180px-wide figure is displayed at roughly three
+quarters size — an 11px label arrives on screen at about 8px, which is what made the
+first version hard to read. **Making the canvas bigger does not help**: the browser
+simply scales it down further. The only thing that changes how large the text *reads* is
+its size relative to the layout around it, so that is the knob, and the boxes were grown
+to suit rather than the other way round.
+
+Raising a size can push a caption out through the side or the bottom of its box. The
+script refuses to pretend otherwise: `box()` and `fits()` measure every string against
+the space it has, collect everything that does not fit, print each one with the number
+of pixels it is over by, and exit non-zero. The figures are still written first, because
+seeing the broken output is most of how an overflow gets fixed — the non-zero exit is
+what stops it being committed.
+
+Free-floating text is not covered by that check, and one label on `fig5` sits in the
+channel between the two panels with nothing to clip against. It is measured explicitly
+for that reason. If you add another label outside a box, measure it the same way.
+
 ## The figures
 
 | File | Shows | Why it is here |
