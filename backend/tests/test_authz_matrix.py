@@ -360,6 +360,41 @@ MATRIX: list[Case] = [
     ),
     Case("GET", "/api/v1/topology/missing-devices", _DEVICE_READERS),
     Case("GET", "/api/v1/topology/summary", _DEVICE_READERS),
+    # ── Segmentation intent (FR-TOPO-07) ────────────────────────────────────
+    # Reading the declared policy and the matrix sits with the other device reads: the
+    # matrix is a path answer per zone pair, assembled from the same stored
+    # configuration, and an Auditor asking "is production separated from cardholder
+    # data" is the central use for it.
+    #
+    # Writing it does not. A segmentation rule is a statement about what the
+    # organisation intends, and withdrawing one turns a violation into a clean matrix
+    # with nothing else in the estate moving — so it sits with the other policy
+    # authorship, away from the Network Engineer who acts on the findings.
+    Case("GET", "/api/v1/segmentation/zones", _DEVICE_READERS),
+    Case("GET", "/api/v1/segmentation/rules", _DEVICE_READERS),
+    Case("GET", "/api/v1/segmentation/matrix", _DEVICE_READERS),
+    Case(
+        "POST",
+        "/api/v1/segmentation/zones",
+        _POLICY_AUTHORS,
+        body={"name": "matrix-test-zone", "prefixes": ["10.199.0.0/24"]},
+    ),
+    Case(
+        "POST",
+        "/api/v1/segmentation/rules",
+        _POLICY_AUTHORS,
+        body={
+            "source_zone_id": "00000000-0000-0000-0000-000000000001",
+            "destination_zone_id": "00000000-0000-0000-0000-000000000002",
+            "expectation": "denied",
+            "justification": "Matrix test justification, long enough to pass validation.",
+        },
+    ),
+    Case(
+        "DELETE",
+        "/api/v1/segmentation/rules/{rule_id}",
+        _POLICY_AUTHORS,
+    ),
     # ── Manager child enumeration (FR-INV-04, FR-DISC-06) ───────────────────
     # Previewing reads and writes nothing — a POST only because a manager's device list
     # does not fit in a URL — so it sits with the other device reads.
@@ -510,6 +545,7 @@ def _resolve(path: str, target: User) -> str:
         .replace("{policy_id}", str(uuid.uuid4()))
         .replace("{exception_id}", str(uuid.uuid4()))
         .replace("{finding_id}", str(uuid.uuid4()))
+        .replace("{rule_id}", str(uuid.uuid4()))
         # Concrete rather than random: these two are looked up by name, and a random
         # string would 404 before authorization was consulted on some paths.
         .replace("{check_id}", "telnet-disabled")

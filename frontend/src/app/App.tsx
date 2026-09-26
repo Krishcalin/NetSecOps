@@ -30,6 +30,7 @@ import { ExceptionsPage } from './ExceptionsPage';
 import { CompliancePage } from './CompliancePage';
 import { ReportsPage } from './ReportsPage';
 import { TopologyPage } from './TopologyPage';
+import { SegmentationPage } from './SegmentationPage';
 import { JobsPage } from './JobsPage';
 import { UsersPage } from './UsersPage';
 import { SettingsPage } from './SettingsPage';
@@ -110,6 +111,8 @@ export function App() {
               {/* Estate-wide by nature: the question is which devices are between two
                   hosts, which cannot be asked of one device. */}
               <Route path="topology" element={<TopologyPage />} />
+              {/* The same engine, asked about every declared zone pair at once. */}
+              <Route path="segmentation" element={<SegmentationPage />} />
               {/* Estate-wide rather than per-device: the whole subject is what the
                   devices and the AAA servers disagree about. */}
               <Route path="aaa" element={<AaaPage />} />

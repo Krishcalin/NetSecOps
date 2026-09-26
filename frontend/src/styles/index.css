@@ -657,6 +657,80 @@ a {
   text-align: center;
 }
 
+/* ── the segmentation matrix ───────────────────────────────────────────────
+   A list, not a grid. A grid has a cell for every zone pair, so it has to put
+   something in the pairs nobody declared and the pairs nobody could check — and
+   whatever goes there is read as "fine". A declared rule that is absent from this
+   list is a claim nobody made, which is the truth. */
+.intent__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.intent {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.intent--violated {
+  border-left-color: var(--error);
+}
+.intent--upheld {
+  border-left-color: var(--ok);
+}
+/* Dashed and muted, never a softer green. This is the status a reader most wants to
+   skim, and an amber that reads as "mostly fine" is how a coverage gap becomes a
+   compliance claim. */
+.intent--unverified {
+  border-left-style: dashed;
+  border-left-color: var(--text-muted);
+}
+
+.intent__summary {
+  display: grid;
+  grid-template-columns: minmax(12rem, 2fr) 6rem 6rem auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.intent__summary:hover {
+  background: var(--surface-muted);
+}
+
+.intent__traffic,
+.intent__expectation {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.intent__detail {
+  padding: 0 12px 12px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 720px) {
+  /* Four columns do not fit a phone. The pair matters most, so it keeps the full
+     width and the rest stack under it rather than the row scrolling sideways. */
+  .intent__summary {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}
+
 /* ── the path diagram ───────────────────────────────────────────────────────
    Every colour comes from a token so both themes resolve, and every state is
    carried by an outline style and a glyph as well as by tone — the diagram has to

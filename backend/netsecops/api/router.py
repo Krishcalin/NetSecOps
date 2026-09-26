@@ -17,6 +17,7 @@ from netsecops.api.v1 import (
     managers,
     notifications,
     reports,
+    segmentation,
     settings,
     snapshots,
     topology,
@@ -84,6 +85,11 @@ api_v1_router.include_router(reports.router)
 # takes a body because a packet is four correlated fields, and reads far better in an
 # audit log as an object than as a query string.
 api_v1_router.include_router(topology.router)
+
+# Declared segmentation intent, and the matrix the path engine checks it against
+# (FR-TOPO-07). Registered after topology because it consumes the same graph;
+# `/segmentation/rules/{id}` is the only UUID path and it has no literal sibling.
+api_v1_router.include_router(segmentation.router)
 
 # Phase 7 — notification channels, subscriptions and the delivery queue (FR-INT-01).
 # `/notifications/channels/{id}/test` is a literal sub-resource of a UUID path, so there

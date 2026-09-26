@@ -76,6 +76,11 @@ from netsecops.db.models.reporting import (
     ReportStatus,
     ReportTemplate,
 )
+from netsecops.db.models.segmentation import (
+    SegmentationExpectation,
+    SegmentationRule,
+    SegmentationZone,
+)
 from netsecops.db.models.user import (
     ApiToken,
     LoginAttempt,
@@ -153,6 +158,9 @@ __all__ = [
     "ReportTemplate",
     "RiskScore",
     "Schedule",
+    "SegmentationExpectation",
+    "SegmentationRule",
+    "SegmentationZone",
     "Setting",
     "Site",
     "Snapshot",

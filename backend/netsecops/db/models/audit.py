@@ -96,6 +96,12 @@ class AuditAction(StrEnum):
     EXCEPTION_CREATED = "exception.created"
     EXCEPTION_EXPIRED = "exception.expired"
 
+    #: A change to the declared segmentation policy (FR-TOPO-07). Audited as its own
+    #: action rather than as a generic settings change, because it silently alters what
+    #: every later compliance answer *means*: withdrawing "production must not reach
+    #: cardholder data" turns a violation into a clean matrix with nothing else moving.
+    SEGMENTATION_POLICY_CHANGED = "segmentation.policy_changed"
+
     # Platform
     SETTINGS_CHANGED = "settings.changed"
     REPORT_GENERATED = "report.generated"

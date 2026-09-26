@@ -42,6 +42,10 @@ const NAV_ITEMS: NavItem[] = [
   // "which firewalls are even in the way". Same permission, for the same reason — both
   // are assembled entirely out of stored configuration.
   { label: 'Path Analysis', to: '/topology', permission: 'snapshot:read' },
+  // Directly below path analysis because it is that engine run over every declared
+  // zone pair at once. Behind `policy:read`, not `snapshot:read`: the page is only
+  // meaningful once somebody has written the policy down, and that is policy.
+  { label: 'Segmentation', to: '/segmentation', permission: 'policy:read' },
   // A conclusion about the estate rather than configuration, so it sits behind the
   // findings permission — unlike the rulebase viewer directly above it.
   { label: 'AAA Posture', to: '/aaa', permission: 'finding:read' },
