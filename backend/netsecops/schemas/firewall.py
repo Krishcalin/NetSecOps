@@ -125,6 +125,12 @@ class RulebaseSummary(BaseModel):
     analysis_ms: int = 0
     #: True when the pairwise analysis hit its cap. The counts above are still exact.
     truncated: bool = False
+    #: Rules the device holds that this snapshot never received, because the collection
+    #: response was paginated. Distinct from `truncated` above, and far more serious:
+    #: `truncated` means everything was read and not every pair compared, while this
+    #: means the rules themselves are missing and every count on this object is over a
+    #: subset. None where the source said nothing about totals.
+    rules_not_retrieved: int | None = None
     #: False when nobody said which zones face the internet, so no exposure conclusion
     #: was drawn. Distinct from "no exposure found" (FR-FW-04).
     exposure_analysed: bool = False

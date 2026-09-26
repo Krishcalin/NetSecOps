@@ -86,6 +86,54 @@ class TestTheRulebase:
         assert rules[0]["name"] == "Mgmt to DMZ SSH"
         assert rules[-1]["name"] == "Cleanup rule"
 
+    def test_a_complete_rulebase_reports_nothing_withheld(self, mgmt: dict[str, Any]) -> None:
+        """The fixture's `total` is 8 and eight rules parsed, so none were withheld."""
+        assert mgmt["firewall"]["rules_not_retrieved"] == 0
+
+    def test_a_truncated_rulebase_says_how_much_is_missing(self) -> None:
+        """The dangerous case, and the reason this field exists.
+
+        `show-access-rulebase` paginates and the request does not currently ask for a
+        `limit`, so a large rulebase comes back as the server's default page. Fifty rules
+        out of five hundred analyse cleanly — nothing shadowed, no any-any, a tidy
+        cleanup rule at the end — and the report describes a seventh of a firewall
+        without saying so.
+        """
+        bundle = {
+            "show-access-rulebase": {
+                "total": 500,
+                "to": 2,
+                "rulebase": [
+                    {"type": "access-rule", "name": "First", "rule-number": 1},
+                    {"type": "access-rule", "name": "Second", "rule-number": 2},
+                ],
+            }
+        }
+        ncm = (
+            get_parser("checkpoint_mgmt").parse(ParseContext(text=json.dumps(bundle))).to_storage()
+        )
+
+        assert len(ncm["firewall"]["security_rules"]) == 2
+        assert ncm["firewall"]["rules_not_retrieved"] == 498
+
+    def test_a_response_with_no_total_says_nothing_rather_than_zero(self) -> None:
+        """Absent is not zero.
+
+        "No rules were withheld" and "the server did not tell us" are different facts,
+        and only the first is a reason to trust the analysis. Defaulting to 0 would
+        assert completeness on no evidence.
+        """
+        bundle = {
+            "show-access-rulebase": {
+                "rulebase": [{"type": "access-rule", "name": "Only", "rule-number": 1}]
+            }
+        }
+        ncm = (
+            get_parser("checkpoint_mgmt").parse(ParseContext(text=json.dumps(bundle))).to_storage()
+        )
+
+        assert ncm["firewall"]["rules_not_retrieved"] is None
+
     def test_an_unnamed_rule_falls_back_to_its_number(self, mgmt: dict[str, Any]) -> None:
         """Check Point rules are often unnamed. An empty name would make every finding
         read "rule ()"; the number is what the console shows."""

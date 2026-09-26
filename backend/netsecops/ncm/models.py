@@ -813,6 +813,17 @@ class Firewall(NcmBase):
     #: governs a given hop. Empty on platforms with a single ordered policy.
     rulebase_bindings: dict[str, list[AclBinding]] = Field(default_factory=dict)
 
+    #: Rules the device holds that this snapshot does not, because the response was
+    #: paginated and only the first page was read. None means the source said nothing
+    #: about totals; 0 means it said there were none left.
+    #:
+    #: This exists because a partial rulebase is more dangerous than an empty one. An
+    #: empty rulebase is obviously wrong and somebody investigates. Fifty rules out of
+    #: five hundred analyse perfectly: no shadowing, no any-any, a tidy cleanup rule at
+    #: the end — a clean report about a seventh of a firewall. Every consumer of
+    #: `security_rules` must be able to say "as far as I could see".
+    rules_not_retrieved: int | None = None
+
 
 # ─────────────────────────── VPN and certificates ───────────────────────────
 

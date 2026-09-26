@@ -246,6 +246,33 @@ class TestReadingTheRulebase:
         body = (await client.get(f"/api/v1/devices/{seeded.id}/firewall/rulebase")).json()
         assert body["summary"]["limitations"]
 
+    async def test_a_partially_retrieved_rulebase_says_so_before_any_count(
+        self, client: AsyncClient, session: AsyncSession, device: Device, analyst_user, authenticate
+    ) -> None:
+        """The worst thing this service can do is analyse a fraction and sound certain.
+
+        Check Point's `show-access-rulebase` paginates. A request that does not ask for a
+        limit gets the server's default page, so a five-hundred-rule policy can arrive as
+        fifty rules that shadow nothing, contain no any-any and end in a tidy cleanup
+        rule — a clean report about a seventh of a firewall, with nothing in it wrong
+        except the scope.
+
+        Distinct from `summary.truncated`, which means every rule was read and not every
+        pair compared. This means the rules are not here.
+        """
+        payload = ncm([rule(1, "Only the first page", dst="web-01", service="tcp/443")])
+        payload["firewall"]["rules_not_retrieved"] = 498
+        await snapshot_with(session, device, payload)
+        authenticate(analyst_user)
+
+        body = (await client.get(f"/api/v1/devices/{device.id}/firewall/rulebase")).json()
+        summary = body["summary"]
+
+        assert summary["rules_not_retrieved"] == 498
+        assert any("not retrieved" in note for note in summary["limitations"]), summary[
+            "limitations"
+        ]
+
     async def test_hygiene_findings_are_returned_separately(
         self, client: AsyncClient, session: AsyncSession, device: Device, analyst_user, authenticate
     ) -> None:

@@ -364,6 +364,35 @@ class CheckPointMgmtParser(ConfigParser):
             firewall.security_rules.append(self._rule(entry, order, layer))
             self._record(result, f"firewall.security_rules.{order - 1}")
 
+        self._record_shortfall(response, result, parsed=len(firewall.security_rules))
+
+    @staticmethod
+    def _record_shortfall(response: dict[str, Any], result: ParseResult, *, parsed: int) -> None:
+        """Note how many rules the management server holds that we did not read.
+
+        `show-access-rulebase` paginates and reports `total`, the rule count on the
+        server. A request that does not ask for a `limit` gets the server's default page,
+        so a large rulebase arrives truncated with nothing in the body looking wrong.
+
+        Compared against the number of rules actually parsed rather than against the
+        response's `to` index, because `total` is the field this parser can see in a real
+        response and the count of what was parsed is a fact rather than a claim.
+
+        A partial rulebase is worse than a missing one. Fifty rules out of five hundred
+        analyse cleanly — no shadowing, no any-any, a tidy cleanup rule at the end — and
+        produce a confident report about a seventh of a firewall. Recording the shortfall
+        is what lets every consumer say "as far as I could see".
+        """
+        total = response.get("total")
+        if not isinstance(total, int):
+            # Nothing said. Left as None rather than 0: "no rules were withheld" and
+            # "nobody told us" are different facts, and only one is a reason to trust
+            # the analysis that follows.
+            return
+
+        result.ncm.firewall.rules_not_retrieved = max(0, total - parsed)
+        result.record("firewall.rules_not_retrieved")
+
     def _flatten(self, entries: list[Any]) -> list[dict[str, Any]]:
         """Flatten sections into the single ordered sequence the gateway evaluates.
 

@@ -154,6 +154,13 @@ class FirewallViewService:
         summary = RulebaseSummary(
             rules_total=len(self._raw_rules), rules_enabled=0, rules_analysed=0
         )
+
+        # Recorded on the summary here; the reader-facing caveat is appended further
+        # down, after `limitations` is assigned from the analysis. An append before that
+        # assignment is silently discarded — the same trap the usage note below warns
+        # about, and one this walked straight into first time.
+        missing = self.firewall.get("rules_not_retrieved")
+        summary.rules_not_retrieved = missing if isinstance(missing, int) else None
         payload = RulebaseRead(
             device_id=self.snapshot.device_id,
             snapshot_id=self.snapshot.id,
@@ -198,6 +205,19 @@ class FirewallViewService:
         summary.external_zones = list(self._external)
         summary.external_zones_inferred = self._zones_inferred and bool(self._external)
         summary.limitations = list(analysis.limitations)
+        if summary.rules_not_retrieved:
+            # First in the list, because it qualifies every other line in it and every
+            # count on this object. A rulebase that arrived paginated analyses perfectly
+            # on the part that arrived: no shadowing, no any-any, a tidy cleanup rule at
+            # the end — a clean report about a fraction of a firewall, with nothing
+            # wrong in it except the scope.
+            summary.limitations.insert(
+                0,
+                f"{summary.rules_not_retrieved:,} further rule(s) exist on the device "
+                "and were not retrieved — the collection response was paginated. Every "
+                f"count and finding here describes the {len(self._raw_rules):,} rule(s) "
+                "that were, and a rule nobody read cannot be reported as absent.",
+            )
         if not policy.usage.evidence_complete:
             # A limitation rather than a finding: it is not a defect in the rulebase, it
             # is the reader's warning that the unused-rule list is shorter than the
