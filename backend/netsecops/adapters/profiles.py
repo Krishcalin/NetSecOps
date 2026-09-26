@@ -63,6 +63,14 @@ class CollectionCommand:
     #: reports `from`, `to` and `total`. Left None everywhere else: a page parameter
     #: an API does not understand is a request that fails, not one it ignores.
     page_size: int | None = None
+    #: This operation must be issued once per named thing, discovered at run time.
+    #:
+    #: ``(body_field, discovery_operation, reply_list_key)``. `show-access-rulebase`
+    #: needs `name` set to an access layer, listed by `show-access-layers` under
+    #: `access-layers`; `show-nat-rulebase` needs `package`, from `show-packages` under
+    #: `packages`. Every one of Check Point's published examples passes these, and
+    #: neither was sent — the requests went out naming no policy at all.
+    scoped_by: tuple[str, str, str] | None = None
 
     def as_request(self) -> tuple[str, str]:
         """Split an HTTP entry into (method, path)."""
@@ -80,7 +88,9 @@ class CollectionCommand:
         _method, path = self.as_request()
         return path.strip("/").split("/")[-1].lower()
 
-    def as_body(self, *, offset: int | None = None) -> dict[str, Any]:
+    def as_body(
+        self, *, offset: int | None = None, scope: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """The JSON body an RPC entry sends.
 
         The command is derived from the path rather than declared separately: on the
@@ -93,12 +103,19 @@ class CollectionCommand:
         entirely for an unpaged command, so the body of every other operation is
         byte-for-byte what it was — `offset: 0` is not the same request as no offset to
         an API that does not document the parameter.
+
+        ``scope`` carries what the operation cannot be issued without and which is not
+        known until run time: the access layer for `show-access-rulebase`, the package
+        for `show-nat-rulebase`. Both are discovered from the management server rather
+        than declared here, because the names are the customer's.
         """
         _method, path = self.as_request()
         body: dict[str, Any] = {"command": path.rsplit("/", 1)[-1]}
         if self.page_size is not None:
             body["limit"] = self.page_size
             body["offset"] = offset or 0
+        if scope:
+            body.update(scope)
         return body
 
 
@@ -473,11 +490,13 @@ CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
             # interaction, and fewer round trips against a management server under
             # load is the better trade.
             page_size=500,
+            scoped_by=("name", "show-access-layers", "access-layers"),
         ),
         CollectionCommand(
             "POST /web_api/show-nat-rulebase",
             "NAT rules, for the exposed-service analysis",
             page_size=500,
+            scoped_by=("package", "show-packages", "packages"),
         ),
         CollectionCommand(
             "POST /web_api/show-gateways-and-servers",

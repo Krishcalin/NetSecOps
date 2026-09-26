@@ -368,17 +368,18 @@ Each phase below says what it delivers and, where relevant, what it still owes. 
   parser guessing which it was handed.
 
   > **The Check Point management path is not proven against a real server, and there is
-  > specific reason to think it does not yet work.** Two defects were found in one day
-  > by reading rather than by running. The collector handed the parser a single
-  > response where it expected every response keyed by command, so a management server
-  > parsed to *zero* rules with no error raised — fixed, with a test on the seam. And
-  > the rulebase request still sends neither the access layer (`name`) nor the package,
-  > which every one of Check Point's own published examples includes; that request is
-  > likely rejected outright, which at least fails loudly because the command is
-  > `required`. Discovering layers and packages first is the next task here. Everything
-  > in this section describing Check Point rulebase analysis should be read as "against
-  > a rulebase we were given", not "against a rulebase we have retrieved from a live
-  > management server".
+  > specific reason to think it did not work.** Two defects were found in one day by
+  > reading rather than by running, and both are now fixed. The collector handed the
+  > parser a single response where it expected every response keyed by command, so a
+  > management server parsed to *zero* rules with no error raised. And the rulebase
+  > request sent neither the access layer (`name`) nor the package, which every one of
+  > Check Point's own published examples includes; both are now discovered from the
+  > server and the query is issued once per layer.
+  >
+  > It remains unproven against real equipment. The requests match Check Point's
+  > published examples, which is the most documentation can establish — everything
+  > here describing Check Point rulebase analysis should still be read as "against a
+  > rulebase we were given" until somebody runs it at a live management server.
 - **Rulebase normalisation** — PAN-OS security rules, FortiOS policies and Check Point
   access layers become one ordered rule model, with objects and groups resolved so that
   analysis compares addresses rather than names.

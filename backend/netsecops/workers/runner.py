@@ -49,6 +49,7 @@ from netsecops.db.models.inventory import Credential, CredentialType, Device
 from netsecops.db.models.jobs import ErrorClass, Job, JobDevice, JobStatus, JobType
 from netsecops.db.session import session_scope
 from netsecops.ncm.models import NCM_VERSION
+from netsecops.parsers.checkpoint.mgmt import SCOPE_KEY
 from netsecops.services.assessment import AssessmentService
 from netsecops.services.audit import AuditService
 from netsecops.services.credentials import CredentialService, ResolvedCredential
@@ -1039,6 +1040,8 @@ async def _issue(
         return _Issued(result.output, result.duration_ms, result.succeeded)
 
     method, path = entry.as_request()
+    if entry.scoped_by is not None and method == "POST":
+        return await _issue_per_scope(device_session, entry, method, path)
     if entry.page_size is not None and method == "POST":
         return await _issue_paged(device_session, entry, method, path)
 
@@ -1047,6 +1050,142 @@ async def _issue(
     # sending one, and `as_body` derives it from the path so the two cannot drift.
     response = await device_session.request(method, path, body=body if method == "POST" else None)
     return _Issued(response.body, response.duration_ms, response.succeeded)
+
+
+async def _discover_names(
+    device_session: DeviceSession, method: str, operation: str, list_key: str
+) -> tuple[list[str], int]:
+    """The names a scoped operation has to be issued for, and what the lookup cost.
+
+    `show-access-layers` and `show-packages` page with the same contract as the
+    rulebase queries, so a management server with more layers than one page holds does
+    not silently lose the rest.
+    """
+    elapsed = 0
+    base = path_of(operation)
+
+    async def one_page(offset: int) -> dict[str, Any]:
+        nonlocal elapsed
+        response = await device_session.request(
+            method,
+            base,
+            body={"command": operation, "limit": 500, "offset": offset},
+        )
+        elapsed += response.duration_ms
+        if not response.succeeded:
+            raise PagingError(f"{operation} was refused at offset {offset}")
+        decoded = _as_payload(response.body)
+        if not isinstance(decoded, dict):
+            raise PagingError(f"{operation} did not return a JSON object")
+        return decoded
+
+    merged = await fetch_all_pages(one_page, page_size=500, operation=operation)
+    names = [
+        str(item["name"])
+        for item in merged.get(list_key) or []
+        if isinstance(item, dict) and item.get("name")
+    ]
+    return names, elapsed
+
+
+def path_of(operation: str) -> str:
+    """The Management API path for an operation name."""
+    return f"/web_api/{operation}"
+
+
+async def _issue_per_scope(
+    device_session: DeviceSession, entry: CollectionCommand, method: str, path: str
+) -> _Issued:
+    """Issue a scoped operation once for every name the server reports.
+
+    `show-access-rulebase` takes the access layer as `name` and `show-nat-rulebase`
+    takes the `package`. Both were sent without either, naming no policy at all —
+    every one of Check Point's published examples passes them, so the requests were
+    very likely rejected outright and the pagination around them read nothing.
+
+    **Each layer's rules are tagged with the layer they came from.**
+    `SecurityRule.rulebase` exists for exactly this: rules in different enforcement
+    contexts never see the same packet, and the analyser only compares rules sharing a
+    value. Merging the layers without the tag would report shadowing between two
+    policies that never meet.
+    """
+    assert entry.scoped_by is not None  # noqa: S101 - guarded by the caller
+    body_field, discovery_operation, list_key = entry.scoped_by
+    elapsed = 0
+
+    try:
+        names, elapsed = await _discover_names(
+            device_session, method, discovery_operation, list_key
+        )
+    except PagingError as exc:
+        log.info("collect.scope_discovery_failed", command=entry.command, error=str(exc))
+        return _Issued("", elapsed, False)
+
+    if not names:
+        # Nothing to ask for. Recorded as a failure rather than an empty success: a
+        # management server with no access layers is not a firewall with no rules, it
+        # is a lookup that did not work, and the two must not read the same.
+        log.info("collect.no_scopes_found", command=entry.command, via=discovery_operation)
+        return _Issued("", elapsed, False)
+
+    combined: dict[str, Any] = {}
+    for name in names:
+
+        async def one_page(offset: int, _name: str = name) -> dict[str, Any]:
+            nonlocal elapsed
+            response = await device_session.request(
+                method, path, body=entry.as_body(offset=offset, scope={body_field: _name})
+            )
+            elapsed += response.duration_ms
+            if not response.succeeded:
+                raise PagingError(f"{_name}: page at offset {offset} was refused")
+            decoded = _as_payload(response.body)
+            if not isinstance(decoded, dict):
+                raise PagingError(f"{_name}: page at offset {offset} was not a JSON object")
+            return decoded
+
+        try:
+            page = await fetch_all_pages(
+                one_page, page_size=entry.page_size or 500, operation=entry.key_in_bundle()
+            )
+        except PagingError as exc:
+            log.info("collect.paging_failed", command=entry.command, scope=name, error=str(exc))
+            return _Issued("", elapsed, False)
+
+        _merge_scope(combined, page, scope_name=name)
+
+    return _Issued(json.dumps(combined, sort_keys=True), elapsed, True)
+
+
+def _merge_scope(combined: dict[str, Any], page: dict[str, Any], *, scope_name: str) -> None:
+    """Fold one layer's or package's response into the combined one.
+
+    `total` is summed rather than taken from the last response, so the parser's
+    shortfall check compares what it parsed against the whole estate of rules rather
+    than against the final layer's count.
+    """
+    rules = page.get("rulebase") or []
+    for rule in rules:
+        if isinstance(rule, dict):
+            # Read by the parser into `SecurityRule.rulebase`.
+            rule.setdefault(SCOPE_KEY, scope_name)
+
+    if not combined:
+        combined.update(
+            {k: v for k, v in page.items() if k not in {"rulebase", "objects-dictionary"}}
+        )
+        combined["rulebase"] = list(rules)
+        combined["objects-dictionary"] = list(page.get("objects-dictionary") or [])
+        combined["total"] = _as_int_or_zero(page.get("total"))
+        return
+
+    combined["rulebase"].extend(rules)
+    combined["objects-dictionary"].extend(page.get("objects-dictionary") or [])
+    combined["total"] = combined.get("total", 0) + _as_int_or_zero(page.get("total"))
+
+
+def _as_int_or_zero(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
 async def _issue_paged(

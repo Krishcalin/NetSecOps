@@ -42,7 +42,7 @@ responses. They are collected once, de-duplicated by UID.
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Final
 
 from netsecops.core.logging import get_logger
 from netsecops.ncm.models import (
@@ -60,6 +60,17 @@ log = get_logger(__name__)
 #: Actions that let traffic through. Everything else — `Drop`, `Reject`, `Inner Layer`
 #: — is either a denial or not a verdict at all, and must not be treated as a permit.
 _ACCEPTING_ACTIONS = frozenset({"accept", "allow", "permit"})
+
+#: Key the collector adds to each rule naming the access layer it was fetched from.
+#:
+#: Defined here, in the reader, and imported by the collector rather than spelled twice.
+#: The two halves of a contract written out separately is how the collector came to hand
+#: this parser a shape it could not read at all — a management server that parsed to
+#: zero rules. A constant cannot drift; two string literals can.
+#:
+#: Underscore-prefixed because it is ours and not Check Point's, so it cannot collide
+#: with a field the API adds later.
+SCOPE_KEY: Final[str] = "_netsecops_scope"
 
 #: Check Point's stand-in for "any". `CpmiAnyObject` is the type; `Any` is the name.
 _ANY_NAMES = frozenset({"any", "any object"})
@@ -351,15 +362,22 @@ class CheckPointMgmtParser(ConfigParser):
             return
 
         firewall = result.ncm.firewall
-        layer = str(response.get("name") or "") or None
-        if layer and layer not in firewall.zones:
-            # Check Point has no zones in the Fortinet or PAN-OS sense. The layer is the
-            # nearest equivalent — a policy domain whose rules only ever compete with
-            # each other — so it is carried as one, which is what keeps rules in
-            # different layers from being compared.
-            firewall.zones.append(layer)
+        response_layer = str(response.get("name") or "") or None
 
         for entry in self._flatten(_as_list(response.get("rulebase"))):
+            # The collector issues `show-access-rulebase` once per access layer and
+            # tags each rule with the layer it asked for, because a combined response
+            # carries only the first layer's `name` — every rule would otherwise be
+            # filed under one layer and the analyser would compare policies that never
+            # see the same packet.
+            layer = str(entry.get(SCOPE_KEY) or "") or response_layer
+            if layer and layer not in firewall.zones:
+                # Check Point has no zones in the Fortinet or PAN-OS sense. The layer is
+                # the nearest equivalent — a policy domain whose rules only ever compete
+                # with each other — so it is carried as one, which is what keeps rules in
+                # different layers from being compared.
+                firewall.zones.append(layer)
+
             order = len(firewall.security_rules) + 1
             firewall.security_rules.append(self._rule(entry, order, layer))
             self._record(result, f"firewall.security_rules.{order - 1}")

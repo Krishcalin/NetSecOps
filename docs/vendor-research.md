@@ -98,10 +98,17 @@ exists to receive it.
 > the profile, so a rejection aborts the collection with an error. That is the one
 > piece of luck here.
 >
-> Fixing it means discovering the names first — `show-access-layers` and
-> `show-packages`, which page with the same contract — then issuing one request per
-> layer. **This is the next Check Point task and it outranks everything else in this
-> section.** Only a real management server can settle it.
+> **Actioned.** `CollectionCommand.scoped_by` names what an operation cannot be issued
+> without and what discovers it. `show-access-layers` and `show-packages` are paged
+> with the same contract, and the rulebase query is then issued once per layer and per
+> package. Each layer's rules carry the layer they came from, because a combined
+> response holds only the first layer's `name` and the analyser compares rules sharing
+> an enforcement context — merging without the tag would report shadowing between
+> policies that never see the same packet.
+>
+> Still unproven against a real management server. The request now matches Check
+> Point's published examples, which is the most that can be established from
+> documentation.
 
 **Paging actioned** — `CollectionCommand.page_size` and `adapters/paging.py` now walk
 `show-access-rulebase` and `show-nat-rulebase` to the end, merging the pages into the

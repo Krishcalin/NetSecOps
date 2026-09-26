@@ -34,10 +34,22 @@ log = get_logger(__name__)
 #: any real policy and well past the 5,000 the README targets.
 MAX_PAGES: Final[int] = 200
 
-#: The keys whose lists are concatenated across pages. Everything else is taken from
-#: the first page, because it describes the rulebase rather than the page: `uid`,
-#: `name` and `total` are the same in every response.
-_MERGED: Final[tuple[str, ...]] = ("rulebase", "objects-dictionary")
+#: The keys whose lists are concatenated across pages, by operation. Everything else is
+#: taken from the first page, because it describes the result rather than the page:
+#: `uid`, `name` and `total` are the same in every response.
+#:
+#: Named per reply type rather than unioned into one set, so that an operation whose
+#: list key is missing from this table is a visible omission rather than a response
+#: that silently pages into nothing.
+PAGED_COLLECTIONS: Final[dict[str, tuple[str, ...]]] = {
+    "show-access-rulebase": ("rulebase", "objects-dictionary"),
+    "show-nat-rulebase": ("rulebase", "objects-dictionary"),
+    "show-access-layers": ("access-layers",),
+    "show-packages": ("packages",),
+}
+
+#: Used when the operation is not in the table above.
+_DEFAULT_MERGED: Final[tuple[str, ...]] = ("rulebase", "objects-dictionary")
 
 
 class PagingError(RuntimeError):
@@ -58,6 +70,7 @@ async def fetch_all_pages(
 
     ``request`` is called with an offset and returns one decoded response body.
     """
+    collections = PAGED_COLLECTIONS.get(operation, _DEFAULT_MERGED)
     merged: dict[str, Any] = {}
     offset = 0
     pages = 0
@@ -67,12 +80,12 @@ async def fetch_all_pages(
         pages += 1
 
         if not merged:
-            # The first page carries the identity of the rulebase itself.
-            merged = {key: value for key, value in page.items() if key not in _MERGED}
-            for key in _MERGED:
+            # The first page carries the identity of the result itself.
+            merged = {key: value for key, value in page.items() if key not in collections}
+            for key in collections:
                 merged[key] = list(page.get(key) or [])
         else:
-            for key in _MERGED:
+            for key in collections:
                 extend = page.get(key)
                 if isinstance(extend, list):
                     existing = merged.setdefault(key, [])
@@ -109,10 +122,10 @@ async def fetch_all_pages(
         "collect.rulebase_paged",
         operation=operation,
         pages=pages,
-        rules=len(merged.get("rulebase") or []),
+        items=sum(len(merged.get(key) or []) for key in collections),
         total=merged.get("total"),
     )
     return merged
 
 
-__all__ = ["MAX_PAGES", "PagingError", "fetch_all_pages"]
+__all__ = ["MAX_PAGES", "PAGED_COLLECTIONS", "PagingError", "fetch_all_pages"]
