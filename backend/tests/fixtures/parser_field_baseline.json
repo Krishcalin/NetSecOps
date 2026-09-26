@@ -382,6 +382,7 @@
     "snmp.v1v2c_communities.is_default",
     "snmp.v1v2c_communities.name_masked",
     "snmp.v1v2c_communities.rw",
+    "snmp.v1v2c_communities.view",
     "snmp.v1v2c_enabled",
     "snmp.v3_users",
     "snmp.v3_users.auth",

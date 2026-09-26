@@ -1,0 +1,48 @@
+id: cisco-snmp-community-view
+title: SNMP communities are restricted to a MIB view
+description: >-
+  Every v1/v2c community is bound to a `view`, so a poll returns the objects the
+  operator needs rather than the whole MIB tree.
+rationale: >-
+  A community with no view can read everything the agent exposes, and on IOS that
+  includes the running configuration through `ccCopy` and the ARP, route and CDP
+  tables. The result is that a read-only community is a full topology and
+  configuration disclosure to anyone who learns the string — which, on v2c, is anyone
+  who can capture one packet, because the string crosses the network in clear.
+
+  A view turns that into the handful of objects a monitoring system actually polls.
+  It does not replace an access list or v3 — it limits what a successful query
+  returns, where the ACL limits who may ask and v3 protects the asking — and the three
+  fail in different ways, which is why all three are worth having.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+  # Only where v1/v2c communities exist at all. A device using v3 alone has nothing
+  # here to restrict, and `snmp-v1v2c-disabled` is the check that has an opinion about
+  # communities existing in the first place.
+  requires_features: [snmp.v1v2c_communities]
+
+logic:
+  type: ncm
+  expression: "snmp.v1v2c_communities[?!view].name_masked"
+  assert:
+    empty: true
+
+remediation: >-
+  Define a view and bind each community to it —
+  `snmp-server view VIEW-SYSTEM-ONLY system included`, then
+  `snmp-server community <string> view VIEW-SYSTEM-ONLY RO <acl>`. Include only the
+  subtrees the monitoring system polls; start from what it actually queries rather
+  than from the whole `system` tree if that can be established. Better still, move to
+  SNMPv3, where the view is attached to the group and the credentials are not sent in
+  clear.
+
+references:
+  nist_800_53: ["AC-3", "AC-6", "SC-8"]
+  iso_27001: ["A.8.2", "A.8.3"]
+  cwe: ["CWE-200"]
+  cea: ["Access Control"]
+
+tags: [snmp, management-plane, disclosure, cisco, hardening-guide]

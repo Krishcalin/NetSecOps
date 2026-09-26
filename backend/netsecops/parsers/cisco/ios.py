@@ -602,19 +602,56 @@ class CiscoIosParser(CiscoStyleParser):
 
     # ─────────────────────────────── SNMP ───────────────────────────────
 
+    @staticmethod
+    def _community_clauses(rest: list[str]) -> tuple[str | None, str | None, str | None]:
+        """Split what follows an `snmp-server community` string into (view, access, acl).
+
+        IOS spells it `community <string> [view <name>] [RO|RW] [ipv6 <acl>] [<acl>]`,
+        and the clauses are optional and ordered — which a positional regex cannot read.
+        The previous one expected RO/RW immediately after the string and took the next
+        token as the ACL, so `community X view V RW` parsed as access-list `view` with
+        **rw False**: a read-write community reported read-only, and an ACL recorded on
+        a community that has none.
+
+        Both failures pointed the safe way. `snmp-no-write-community` passed on a
+        writable community, and `cisco-snmp-community-acl` passed on an unrestricted
+        one, for any device that also configured a view — which is to say, for the
+        devices that had done some of the hardening.
+        """
+        view: str | None = None
+        access: str | None = None
+        acl: str | None = None
+
+        index = 0
+        while index < len(rest):
+            token = rest[index]
+            lowered = token.lower()
+            if lowered == "view" and index + 1 < len(rest):
+                view = rest[index + 1]
+                index += 2
+            elif lowered in {"ro", "rw"}:
+                access = lowered
+                index += 1
+            elif lowered == "ipv6" and index + 1 < len(rest):
+                # A v6 access list still restricts who may query.
+                acl = rest[index + 1]
+                index += 2
+            else:
+                acl = token
+                index += 1
+
+        return view, access, acl
+
     def _parse_snmp(self, parse: CiscoConfParse, result: ParseResult) -> None:
         snmp = result.ncm.snmp
         communities = parse.find_objects(r"^snmp-server\s+community\s")
 
         for obj in communities:
-            match = re.match(
-                r"^snmp-server\s+community\s+(\S+)(?:\s+(RO|RW))?(?:\s+(\S+))?",
-                obj.text,
-                re.IGNORECASE,
-            )
-            if not match:
+            tokens = obj.text.split()
+            if len(tokens) < 3:
                 continue
-            raw, access, acl = match.groups()
+            raw = tokens[2]
+            view, access, acl = self._community_clauses(tokens[3:])
 
             snmp.v1v2c_communities.append(
                 SnmpCommunity(
@@ -622,8 +659,10 @@ class CiscoIosParser(CiscoStyleParser):
                     # and the NCM is not an encrypted store (C-2).
                     name_masked=mask_secret(raw),
                     is_default=is_default_community(raw),
-                    rw=(access or "").upper() == "RW",
+                    # Absent means RO, which is the IOS default.
+                    rw=access == "rw",
                     acl=acl,
+                    view=view,
                 )
             )
             result.record(
@@ -718,7 +757,16 @@ class CiscoIosParser(CiscoStyleParser):
             security.dhcp_snooping_trust = "ip dhcp snooping trust" in children or None
             security.arp_inspection_trust = "ip arp inspection trust" in children or None
             security.storm_control = "storm-control" in children or None
-            security.ip_source_guard = "ip verify source" in children or None
+            # False on a switchport, not None. The others in this block that stay None
+            # when absent — snooping trust, ARP inspection trust — are settings whose
+            # absence is the *normal* state on an access port, so "not configured" is
+            # not a fact worth asserting. Source guard is the opposite: its absence on
+            # an access port is the finding, and while this was True-or-never-False no
+            # check could express that. The field was parsed, recorded in the baseline,
+            # and unusable.
+            security.ip_source_guard = "ip verify source" in children or (
+                False if is_switchport else None
+            )
             security.dot1x = (
                 "dot1x" in children or "authentication port-control" in children
             ) or None
