@@ -12,6 +12,13 @@
   --surface: #ffffff;
   --surface-muted: #f0f2f5;
   --border: #d7dbe0;
+  /* For the edge of a *control* rather than the edge of a panel. WCAG 1.4.11 wants 3:1
+     for boundaries that carry meaning, and `--border` is 1.39:1 on `--surface` — which
+     is right for a card outline and wrong for the only thing separating a text input
+     from the card behind it. Computed: #8a93a0 on #ffffff is 3.11:1.
+     Two call sites already referenced this token speculatively as
+     `var(--border-strong, var(--border))` before it existed. */
+  --border-strong: #8a93a0;
   --text: #14181d;
   --text-muted: #5b6572;
   --accent: #1d4ed8;
@@ -45,6 +52,8 @@
     --surface: #171b21;
     --surface-muted: #1e242c;
     --border: #2c343e;
+    /* #6b7683 on the dark surface #171b21 is 3.74:1. */
+    --border-strong: #6b7683;
     --text: #e7eaee;
     --text-muted: #97a1ae;
     --accent: #6d9bff;
@@ -86,6 +95,53 @@ a {
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* Present for assistive technology, absent from the page.
+ *
+ * Not `display: none` and not `visibility: hidden` — both remove the text from the
+ * accessibility tree too, which is the opposite of the point. This is the clip-rect
+ * idiom: the text is rendered, so it is announced, and occupies a 1px box nobody sees.
+ *
+ * Used where a visible layout carries meaning positionally that a screen reader cannot
+ * infer — a rulebase cell under a column header it cannot be associated with, a pill
+ * whose only visible content is a number. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Hidden until focused, then a real, visible control. WCAG 2.4.1 Bypass Blocks. */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -100px;
+  z-index: 100;
+  padding: 10px 16px;
+  background: var(--surface);
+  color: var(--text);
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: 8px;
+}
+
+/* The skip link's target. Focusing a container would otherwise draw a ring around the
+   entire page, which reads as a rendering fault rather than as an arrival. */
+.content:focus {
+  outline: none;
 }
 
 /* ─────────────────────────────── brand ───────────────────────────────── */
@@ -536,10 +592,22 @@ a {
   color: var(--warn);
 }
 
-.pill--medium,
+/* Medium and low were a single rule and rendered pixel-identical, so on the rulebase —
+   where the pill's visible text is a bare count — three medium issues and three low
+   issues were indistinguishable by any means at all. They now differ in weight and in a
+   left rule as well as in tone, and the severity word is in the pill for assistive
+   technology. */
+.pill--medium {
+  background: var(--surface-muted);
+  color: var(--text);
+  border-left: 3px solid var(--warn);
+  font-weight: 600;
+}
+
 .pill--low {
   background: var(--surface-muted);
   color: var(--text-muted);
+  border-left: 3px solid var(--border-strong);
 }
 
 .muted {
@@ -1163,16 +1231,16 @@ code {
 }
 
 .rule--critical {
-  border-left-color: #b91c1c;
+  border-left-color: var(--error);
 }
 .rule--high {
-  border-left-color: #c2410c;
+  border-left-color: var(--warn);
 }
 .rule--medium {
-  border-left-color: #a16207;
+  border-left-color: var(--text-muted);
 }
 .rule--low {
-  border-left-color: #0369a1;
+  border-left-color: var(--border-strong);
 }
 .rule--info {
   border-left-color: var(--border);
@@ -1216,11 +1284,11 @@ code {
 }
 
 .rule__action--allow {
-  color: #15803d;
+  color: var(--ok);
 }
 
 .rule__action--deny {
-  color: #b91c1c;
+  color: var(--error);
 }
 
 .rule__cell {
@@ -1238,7 +1306,7 @@ code {
 /* "unknown" must not look like "not logged": they are different facts with different
    actions attached, and the parser genuinely could not tell. */
 .rule__log--false {
-  color: #b45309;
+  color: var(--warn);
   font-weight: 600;
 }
 

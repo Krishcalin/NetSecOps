@@ -7,7 +7,7 @@
  * all.
  */
 
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink } from 'react-router-dom';
 
@@ -83,11 +83,23 @@ function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () =
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
 
   const detail = useQuery({
     queryKey: ['finding', findingId],
     queryFn: () => api.get<FindingDetail>(`/findings/${findingId}`),
   });
+
+  // The panel renders *below* the table and below the button that opened it, so
+  // without this the keyboard caret stays on "Details", nothing is announced, and a
+  // screen-reader user has no idea content appeared.
+  //
+  // Keyed on the load completing, not on mount: while the query is in flight this
+  // component returns a bare "Loading…" paragraph, so the section the ref points at
+  // does not exist yet and a mount-time focus call silently does nothing.
+  useEffect(() => {
+    if (detail.isSuccess) panelRef.current?.focus();
+  }, [findingId, detail.isSuccess]);
 
   const setStatus = useMutation({
     mutationFn: (status: FindingStatus) => api.patch<Finding>(`/findings/${findingId}`, { status }),
@@ -108,7 +120,14 @@ function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () =
   );
 
   return (
-    <section className="card finding">
+    // `tabIndex={-1}` makes this a focus target without putting it in the tab order,
+    // and the label gives the arrival something to announce.
+    <section
+      className="card finding"
+      ref={panelRef}
+      tabIndex={-1}
+      aria-label={`Finding detail: ${finding.title}`}
+    >
       <div className="card__header">
         <h2 className="card__title">
           <span className={severityClass(finding.severity)}>{finding.severity}</span>{' '}
@@ -288,6 +307,14 @@ export function FindingsPage() {
                   <td>
                     <button
                       className="button button--ghost button--small"
+                      id={`details-${finding.id}`}
+                      // Named for its row. Twenty-five buttons all called "Details" are
+                      // indistinguishable in a screen reader's element list (WCAG 2.4.4).
+                      aria-label={
+                        selected === finding.id
+                          ? `Hide detail for ${finding.title}`
+                          : `Details for ${finding.title}`
+                      }
                       onClick={() => setSelected(selected === finding.id ? null : finding.id)}
                     >
                       {selected === finding.id ? 'Hide' : 'Details'}
@@ -300,7 +327,19 @@ export function FindingsPage() {
         </div>
       )}
 
-      {selected && <FindingPanel findingId={selected} onClose={() => setSelected(null)} />}
+      {selected && (
+        <FindingPanel
+          findingId={selected}
+          onClose={() => {
+            // Close unmounts the button that was focused, which drops focus to
+            // <body> and restarts the keyboard user at the top of the document.
+            // Hand it back to the row they came from.
+            const trigger = document.getElementById(`details-${selected}`);
+            setSelected(null);
+            trigger?.focus();
+          }}
+        />
+      )}
 
       <div className="pager">
         <button

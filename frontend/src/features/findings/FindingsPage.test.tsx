@@ -137,7 +137,7 @@ describe('FindingsPage', () => {
     renderPage();
     await screen.findByText('Telnet is disabled');
 
-    await user.click(screen.getByRole('button', { name: 'Details' }));
+    await user.click(screen.getByRole('button', { name: 'Details for Telnet is disabled' }));
 
     const panel = await screen.findByText('Evidence');
     const card = panel.closest('.card') as HTMLElement;
@@ -152,7 +152,7 @@ describe('FindingsPage', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('Telnet is disabled');
-    await user.click(screen.getByRole('button', { name: 'Details' }));
+    await user.click(screen.getByRole('button', { name: 'Details for Telnet is disabled' }));
 
     expect(await screen.findByText(/carries credentials in clear text/)).toBeInTheDocument();
     expect(screen.getByText(/transport input ssh/)).toBeInTheDocument();
@@ -162,7 +162,7 @@ describe('FindingsPage', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('Telnet is disabled');
-    await user.click(screen.getByRole('button', { name: 'Details' }));
+    await user.click(screen.getByRole('button', { name: 'Details for Telnet is disabled' }));
 
     expect(await screen.findByText('CIS')).toBeInTheDocument();
     expect(screen.getByText('NIST 800-53')).toBeInTheDocument();
@@ -172,7 +172,7 @@ describe('FindingsPage', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('Telnet is disabled');
-    await user.click(screen.getByRole('button', { name: 'Details' }));
+    await user.click(screen.getByRole('button', { name: 'Details for Telnet is disabled' }));
     await screen.findByText('Evidence');
 
     // Resolved means "the check passed on a later assessment". Offering it as a button
@@ -202,7 +202,7 @@ describe('FindingsPage', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('Telnet is disabled');
-    await user.click(screen.getByRole('button', { name: 'Details' }));
+    await user.click(screen.getByRole('button', { name: 'Details for Telnet is disabled' }));
 
     expect(await screen.findByText(/reasons over the parsed configuration/i)).toBeInTheDocument();
   });
@@ -236,11 +236,60 @@ describe('FindingsPage', () => {
     const user = userEvent.setup();
     renderPage();
     await screen.findByText('Telnet is disabled');
-    await user.click(screen.getByRole('button', { name: 'Details' }));
+    await user.click(screen.getByRole('button', { name: 'Details for Telnet is disabled' }));
     await screen.findByText('Evidence');
 
     await waitFor(() => {
       expect(screen.queryByRole('button', { name: /mark risk accepted/i })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('reviewing a finding with a keyboard and a screen reader', () => {
+    // The detail panel renders *below* the table and below the button that opens it, and
+    // its Close button unmounts itself. Without focus management, opening announces
+    // nothing and closing drops focus to <body>, restarting the reader at the top.
+
+    it('names each Details button for its own row', async () => {
+      // Twenty-five buttons all called "Details" are indistinguishable in a screen
+      // reader's element list (WCAG 2.4.4).
+      renderPage();
+
+      expect(
+        await screen.findByRole('button', { name: 'Details for Telnet is disabled' }),
+      ).toBeVisible();
+    });
+
+    it('moves focus into the panel when it opens', async () => {
+      // This caught a real defect: the first version of the effect ran on mount, when
+      // the panel is still a "Loading…" paragraph and the ref points at nothing, so it
+      // silently did nothing while looking correct in the source.
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Details for Telnet is disabled' }),
+      );
+
+      const panel = await screen.findByRole('region', { name: /Finding detail/ });
+      await waitFor(() => expect(panel).toHaveFocus());
+    });
+
+    it('returns focus to the row that opened it when it closes', async () => {
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Details for Telnet is disabled' }),
+      );
+      await screen.findByRole('region', { name: /Finding detail/ });
+
+      await user.click(screen.getByRole('button', { name: 'Close' }));
+
+      await waitFor(() =>
+        expect(
+          screen.getByRole('button', { name: 'Details for Telnet is disabled' }),
+        ).toHaveFocus(),
+      );
     });
   });
 });

@@ -64,30 +64,55 @@ function RuleRow({
 
   return (
     <li className={classes} id={`rule-${rule.order}`} data-testid={`rule-${rule.order}`}>
-      <button
-        type="button"
-        className="rule__summary"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        aria-label={`Rule ${rule.order}, ${rule.name}`}
-      >
-        <span className="rule__order">{rule.order}</span>
+      {/* No `aria-label` here, deliberately. It used to read
+          `Rule ${order}, ${name}` — and an aria-label *replaces* the element's whole
+          subtree in the accessibility tree, so a screen reader announced the number and
+          the name and then stopped. Action, source, destination, service and logging —
+          everything a rulebase is read for — were silently unreachable.
+
+          The visible column header cannot supply those names either: the cells sit
+          inside this button, so they cannot legally be table cells of a row above. Each
+          cell therefore carries its own label, hidden visually and present for assistive
+          technology, and the accessible name composes in reading order. */}
+      <button type="button" className="rule__summary" onClick={onToggle} aria-expanded={expanded}>
+        <span className="rule__order">
+          <span className="visually-hidden">Rule </span>
+          {rule.order}
+        </span>
         <span className="rule__name">
           {rule.name}
           {!rule.enabled && <span className="rule__flag">disabled</span>}
         </span>
         <span className={`rule__action rule__action--${rule.permits ? 'allow' : 'deny'}`}>
+          <span className="visually-hidden">action </span>
           {rule.action}
         </span>
-        <span className="rule__cell mono">{rule.source}</span>
-        <span className="rule__cell mono">{rule.destination}</span>
-        <span className="rule__cell mono">{rule.services}</span>
+        <span className="rule__cell mono">
+          <span className="visually-hidden">source </span>
+          {rule.source}
+        </span>
+        <span className="rule__cell mono">
+          <span className="visually-hidden">destination </span>
+          {rule.destination}
+        </span>
+        <span className="rule__cell mono">
+          <span className="visually-hidden">service </span>
+          {rule.services}
+        </span>
         <span className={`rule__log rule__log--${rule.logs === null ? 'unknown' : rule.logs}`}>
+          <span className="visually-hidden">logging </span>
           {loggingLabel(rule.logs)}
         </span>
         <span className="rule__issue-count">
           {rule.issues.length > 0 && (
-            <span className={`pill pill--${severity}`}>{rule.issues.length}</span>
+            // The pill's visible text is a bare count; the severity was carried by its
+            // colour alone, which is a WCAG 1.4.1 failure and also indistinguishable in
+            // print. Worse, `medium` and `low` were styled identically, so the colour
+            // did not even carry it reliably for a sighted reader.
+            <span className={`pill pill--${severity}`}>
+              {rule.issues.length}
+              <span className="visually-hidden"> {severity} issues</span>
+            </span>
           )}
         </span>
       </button>
@@ -203,6 +228,8 @@ export function RulebaseViewer({ rulebase, focusOrder = null, onFocusOrder }: Pr
           Showing <strong>{shown.length}</strong> of {rulebase.total} rules
           {hiddenCount > 0 && <span className="muted"> ({hiddenCount} hidden by filters)</span>}
         </span>
+        {/* These already name their severity in text, so they need no hidden label —
+            unlike the per-rule pill, whose visible content is only a number. */}
         {Object.entries(severityCounts).map(([severity, count]) => (
           <span key={severity} className={`pill pill--${severity}`}>
             {count} {severity}
@@ -214,6 +241,11 @@ export function RulebaseViewer({ rulebase, focusOrder = null, onFocusOrder }: Pr
         <p className="empty">No rule matches these filters.</p>
       ) : (
         <ul className="rulebase__list" ref={listRef}>
+          {/* Hidden from assistive technology on purpose, and now correctly so: every
+              cell below carries its own label, making this row pure visual affordance.
+              Exposing it would read as a stray list item of seven disconnected words,
+              because these are not table headers and cannot be — the cells they would
+              describe live inside each row's button. */}
           <li className="rule rule--head" aria-hidden="true">
             <span className="rule__summary">
               <span className="rule__order">#</span>

@@ -81,6 +81,12 @@ export function AppLayout() {
 
   return (
     <div className="layout">
+      {/* Twenty-one navigation items sit before the content on every route, so without
+          this a keyboard user tabs through all of them again after each navigation.
+          WCAG 2.4.1, Level A. Visually hidden until focused, then it appears. */}
+      <a className="skip-link" href="#main">
+        Skip to main content
+      </a>
       <aside className="sidebar">
         <div className="sidebar__brand">
           {/* Decorative: the product name is the very next element, and a non-empty
@@ -148,7 +154,10 @@ export function AppLayout() {
         </div>
       </aside>
 
-      <main className="content">
+      {/* `tabIndex={-1}` so the skip link can actually move focus here. Without it the
+          browser scrolls to the target and leaves focus behind in the sidebar, which
+          looks like the link worked and leaves the next Tab back at item two. */}
+      <main className="content" id="main" tabIndex={-1}>
         {user?.must_change_password && (
           <div className="alert alert--warning" role="alert">
             Your password must be changed. Visit <NavLink to="/profile">your profile</NavLink> to

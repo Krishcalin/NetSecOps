@@ -109,7 +109,7 @@ describe('RulebaseViewer', () => {
     ]);
 
     render(<RulebaseViewer rulebase={rulebase} />);
-    await userEvent.click(screen.getByRole('button', { name: /Rule 2, Partner RDP/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Rule 2\s+Partner RDP/ }));
 
     const row = screen.getByTestId('rule-2');
     expect(within(row).getByText('Shadowed')).toBeInTheDocument();
@@ -124,7 +124,7 @@ describe('RulebaseViewer', () => {
     ]);
 
     render(<RulebaseViewer rulebase={rulebase} onFocusOrder={onFocus} />);
-    await userEvent.click(screen.getByRole('button', { name: /Rule 2, Partner RDP/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Rule 2\s+Partner RDP/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Go to #1' }));
 
     expect(onFocus).toHaveBeenCalledWith(1);
@@ -160,7 +160,7 @@ describe('RulebaseViewer', () => {
 
   it('shows what a rule says as well as what it resolves to', async () => {
     render(<RulebaseViewer rulebase={makeRulebase([makeRule(1, 'Web')])} />);
-    await userEvent.click(screen.getByRole('button', { name: /Rule 1, Web/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Rule 1\s+Web/ }));
 
     // The object name and the resolved address are both present: the two differing is
     // often the entire problem, and showing only one hides it.
@@ -171,7 +171,7 @@ describe('RulebaseViewer', () => {
   it('warns when a rule was excluded from the analysis for unresolved objects', async () => {
     const rule = makeRule(1, 'Partner', { unresolved: ['partner-group'] });
     render(<RulebaseViewer rulebase={makeRulebase([rule])} />);
-    await userEvent.click(screen.getByRole('button', { name: /Rule 1, Partner/ }));
+    await userEvent.click(screen.getByRole('button', { name: /Rule 1\s+Partner/ }));
 
     expect(screen.getByText(/excluded from the overlap analysis/)).toBeInTheDocument();
   });
@@ -206,5 +206,45 @@ describe('RulebaseViewer', () => {
     render(<RulebaseViewer rulebase={rulebase} />);
 
     expect(screen.getByText(/11 hidden by filters/)).toBeInTheDocument();
+  });
+});
+
+describe('what a screen reader is told about a rule', () => {
+  // `aria-label` on the rule button used to read `Rule ${order}, ${name}` — and an
+  // aria-label *replaces* the element's whole subtree in the accessibility tree, so
+  // everything a rulebase is read for was unreachable: action, source, destination,
+  // service, logging. The label is gone and each cell carries its own hidden label.
+
+  it('includes the action, addresses, service and logging in the name', async () => {
+    const rule = makeRule(1, 'Web', { action: 'allow', source: 'any', destination: '10.20.0.10' });
+    render(<RulebaseViewer rulebase={makeRulebase([rule])} />);
+
+    const button = screen.getByRole('button', { name: /Rule 1\s+Web/ });
+    const name = button.getAttribute('aria-label') ?? button.textContent ?? '';
+
+    expect(name).toMatch(/action\s+allow/);
+    expect(name).toMatch(/source\s+any/);
+    expect(name).toMatch(/destination\s+10\.20\.0\.10/);
+    expect(name).toMatch(/service\s+tcp\/443/);
+    expect(name).toMatch(/logging/);
+  });
+
+  it('says how severe the issues are, not only how many', async () => {
+    // The pill's visible text is a bare count; severity was carried by colour alone,
+    // and `medium` and `low` were styled identically so it was not reliably carried
+    // even for a sighted reader.
+    const rule = makeRule(1, 'Web', { issues: [shadowIssue(2, 'Other')] });
+    render(<RulebaseViewer rulebase={makeRulebase([rule])} />);
+
+    const button = screen.getByRole('button', { name: /Rule 1\s+Web/ });
+    expect(button.textContent).toMatch(/high issues/);
+  });
+
+  it('keeps the decorative header row out of the accessibility tree', async () => {
+    // Correct now that every cell is self-labelling: exposed, it would read as a stray
+    // list item of seven disconnected words.
+    const { container } = render(<RulebaseViewer rulebase={makeRulebase([makeRule(1, 'Web')])} />);
+
+    expect(container.querySelector('.rule--head')).toHaveAttribute('aria-hidden', 'true');
   });
 });
