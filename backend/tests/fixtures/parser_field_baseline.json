@@ -350,6 +350,8 @@
     "management.session.async_lines.transport_input",
     "management.session.console_timeout_s",
     "management.session.exec_timeout_s",
+    "management.session.vty_lines",
+    "management.session.vty_transport_output",
     "ntp.authenticated",
     "ntp.servers",
     "ntp.servers.authenticated",

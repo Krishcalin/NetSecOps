@@ -184,6 +184,23 @@ class SessionLimits(NcmBase):
     #: them carrying `exec-timeout 0 0` and reaching no field. An unsecured AUX port is
     #: a CIS Cisco IOS benchmark item and could not be assessed while this was absent.
     async_lines: list[AsyncLine] = Field(default_factory=list)
+    #: How many `line vty` blocks the configuration declares. None when it declares
+    #: none, which on a real IOS device means the configuration is partial rather than
+    #: that the device has no remote access — every switch shows `line vty 0 4` even
+    #: at defaults. Checks on vty settings guard on this so a truncated capture reports
+    #: Not Evaluated instead of a confident finding about lines nobody saw.
+    vty_lines: int | None = None
+    #: Outbound transports the vty lines permit — `transport output`, which governs
+    #: connections *from* the device rather than to it, and is the pivot path Cisco's
+    #: Management Plane Protection guidance is about.
+    #:
+    #: An empty list means every vty block explicitly says `none`. None means at least
+    #: one block does not state it at all, and those are opposite facts that must not
+    #: collapse: IOS's default here is version-dependent and Cisco documents no value
+    #: for it, so an unstated line cannot be resolved to a protocol set. Recording the
+    #: union across blocks rather than the first, because a device is only as
+    #: restricted as its most permissive line.
+    vty_transport_output: list[str] | None = None
 
 
 class PasswordPolicy(NcmBase):

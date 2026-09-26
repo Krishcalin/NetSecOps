@@ -1,0 +1,67 @@
+id: cisco-vty-transport-output
+title: vty lines restrict outbound connections
+description: >-
+  Every `line vty` block sets `transport output` to `none`, or to `ssh` where the device
+  genuinely needs to reach other equipment.
+rationale: >-
+  `transport input` governs how administrators reach the device. `transport output`
+  governs where the device can reach *from* a vty session, and it is the one that
+  matters after somebody is already on the box. An unrestricted line turns any
+  authenticated session into a pivot: telnet or rlogin outward to the next device,
+  from a management address that firewalls and access lists are far more likely to
+  trust than the attacker's own.
+
+  It matters most on exactly the devices that are hardest to reach directly. A
+  management-network switch an attacker cannot route to becomes reachable in one hop
+  from the router they did compromise, and the connection arrives from a legitimate
+  source with legitimate credentials.
+
+  Cisco's hardening guide asks for this explicitly: `transport output none` where
+  outbound connections are not needed, `transport output ssh` where they are.
+severity: medium
+
+applicability:
+  vendors: [cisco]
+  platforms: [cisco_ios, cisco_iosxe]
+  # A configuration with no `line vty` block at all is a partial capture, not a device
+  # without remote access — every real IOS device shows `line vty 0 4` even at
+  # defaults. Guarded here rather than with `logic.requires`, because `requires` shares
+  # the `missing` policy below and this check needs the two absences answered
+  # differently: a line that does not state `transport output` is a finding, a
+  # configuration with no lines in it is not something to have an opinion about.
+  requires_features: [management.session.vty_lines]
+
+logic:
+  type: ncm
+  # Anything permitted outbound that is not SSH. An empty list — every line saying
+  # `none` — selects nothing and passes.
+  expression: "management.session.vty_transport_output[?@ != 'ssh']"
+  assert:
+    empty: true
+  # Null here does not mean "no vty lines" and does not mean "none permitted": it means
+  # at least one line does not state `transport output` at all, so the device's
+  # outbound posture is unknown. That is a finding rather than a gap in what we read —
+  # IOS's default is version-dependent and Cisco documents no value for it, so the
+  # control *is* the explicit configuration.
+  #
+  # It has to be caught here rather than by the assertion, because the engine treats a
+  # null result as "found none" for `empty` on purpose, so that `[]` and null can mean
+  # different things elsewhere. For this field they do mean different things, and the
+  # one that matters is the one `empty` would quietly pass.
+  requires: [management.session.vty_transport_output]
+  missing: fail
+
+remediation: >-
+  Set `transport output none` under every `line vty` block, including the ones left at
+  defaults — a device with `line vty 0 4` and `line vty 5 15` needs it on both, and the
+  second is the one usually forgotten. Where the device genuinely originates sessions,
+  use `transport output ssh` rather than leaving it open. Apply the same to `line con 0`
+  and any `line aux`.
+
+references:
+  nist_800_53: ["AC-4", "SC-7", "AC-17"]
+  iso_27001: ["A.8.20", "A.8.22"]
+  cwe: ["CWE-1327"]
+  cea: ["Network Segmentation"]
+
+tags: [management-plane, lateral-movement, cisco, hardening-guide]

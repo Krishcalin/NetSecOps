@@ -278,11 +278,21 @@ class CiscoIosParser(CiscoStyleParser):
         """
         management = result.ncm.management
         vty_timeouts: list[tuple[int, int]] = []
+        #: One entry per vty block: the outbound transports it states, or None if it
+        #: says nothing. Collected per block rather than flattened as we go, because
+        #: "every line restricts output" cannot be answered from a running union.
+        vty_output: list[list[str] | None] = []
+        vty_output_line: int | None = None
 
         for line_obj in parse.find_objects(r"^line\s+vty"):
             start, end = self.family_range(line_obj)
+            stated: list[str] | None = None
 
             for child in line_obj.children:
+                if re.match(r"\s*transport\s+output\s", child.text):
+                    values = child.text.split()[2:]
+                    stated = [] if values == ["none"] else values
+                    vty_output_line = self.line_number(child)
                 if match := re.match(r"\s*exec-timeout\s+(\d+)\s*(\d*)", child.text):
                     seconds = timeout_to_seconds(match.group(1), match.group(2) or 0)
                     if seconds is not None:
@@ -301,7 +311,23 @@ class CiscoIosParser(CiscoStyleParser):
                     management.management_acls["vty"] = match.group(1)
                     result.record("management.management_acls.vty", line=self.line_number(child))
 
+            vty_output.append(stated)
             result.consume(start, end)
+
+        if vty_output:
+            management.session.vty_lines = len(vty_output)
+            result.record("management.session.vty_lines")
+
+            # Only characterised when *every* block states it. One silent line leaves
+            # the device's outbound posture unknown rather than permissive-or-absent,
+            # and IOS documents no default to resolve it to.
+            if all(stated is not None for stated in vty_output):
+                permitted: set[str] = set()
+                for stated in vty_output:
+                    permitted.update(stated or [])
+                management.session.vty_transport_output = sorted(permitted)
+                if vty_output_line is not None:
+                    result.record("management.session.vty_transport_output", line=vty_output_line)
 
         if vty_timeouts:
             # An exec-timeout of 0 means "never time out", which is the weakest
