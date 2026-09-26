@@ -60,6 +60,14 @@ come back **truncated at the server default** and the 5,000-rule target in our o
 is unreachable. `show-hits: true` is free and unused, and `SecurityRule.hit_count` already
 exists to receive it.
 
+**Paging actioned** — `CollectionCommand.page_size` and `adapters/paging.py` now walk
+`show-access-rulebase` and `show-nat-rulebase` to the end, merging the pages into the
+response shape the parser already reads. The cursor advances by the server's own `to`
+rather than by our page size, because Check Point may return fewer objects than the
+`limit` asked for and adding the limit would then skip whatever did not arrive. A server
+that stops advancing raises rather than reporting a short rulebase. `layer`, `package`
+and `show-hits` remain unused.
+
 Two traps if that is built: hit counting is a **global toggle**, so an estate with it
 disabled must report "hit counting is off" rather than "this rule is unused"; and
 `show-threat-rulebase` does not support `show-hits` at all.

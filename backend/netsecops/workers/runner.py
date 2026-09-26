@@ -27,6 +27,7 @@ from netsecops.adapters.http_transport import (
     logout_exchange,
     pre_issued_token,
 )
+from netsecops.adapters.paging import PagingError, fetch_all_pages
 from netsecops.adapters.policies import get_policy
 from netsecops.adapters.profiles import CollectionCommand, get_profile, has_profile
 from netsecops.adapters.profiles import Transport as Transport_
@@ -1038,11 +1039,52 @@ async def _issue(
         return _Issued(result.output, result.duration_ms, result.succeeded)
 
     method, path = entry.as_request()
+    if entry.page_size is not None and method == "POST":
+        return await _issue_paged(device_session, entry, method, path)
+
     body = entry.as_body() if device_session.guard.policy.http else None
     # Only an RPC platform needs a body; a GET-collected one would be refused for
     # sending one, and `as_body` derives it from the path so the two cannot drift.
     response = await device_session.request(method, path, body=body if method == "POST" else None)
     return _Issued(response.body, response.duration_ms, response.succeeded)
+
+
+async def _issue_paged(
+    device_session: DeviceSession, entry: CollectionCommand, method: str, path: str
+) -> _Issued:
+    """Read a paged operation to the end and return the merged response.
+
+    Duration is summed across the pages, so the artefact records what the collection
+    actually cost rather than the last leg of it. A page that fails, or a server that
+    stops advancing, ends the walk with `succeeded` False — the alternative is a
+    rulebase that is short for a reason nobody recorded, which is the state this whole
+    change exists to remove.
+    """
+    elapsed = 0
+    failed: str | None = None
+
+    async def one_page(offset: int) -> dict[str, Any]:
+        nonlocal elapsed, failed
+        response = await device_session.request(method, path, body=entry.as_body(offset=offset))
+        elapsed += response.duration_ms
+        if not response.succeeded:
+            failed = f"page at offset {offset} was refused"
+            raise PagingError(failed)
+        decoded = _as_payload(response.body)
+        if not isinstance(decoded, dict):
+            failed = f"page at offset {offset} was not a JSON object"
+            raise PagingError(failed)
+        return decoded
+
+    try:
+        merged = await fetch_all_pages(
+            one_page, page_size=entry.page_size or 500, operation=entry.key_in_bundle()
+        )
+    except PagingError as exc:
+        log.info("collect.paging_failed", command=entry.command, error=str(exc))
+        return _Issued("", elapsed, False)
+
+    return _Issued(json.dumps(merged, sort_keys=True), elapsed, True)
 
 
 def _pin_fingerprint(device: Device, transport: Transport, *, over_api: bool) -> None:

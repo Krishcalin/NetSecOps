@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Final
+from typing import Any, Final
 
 from netsecops.core.errors import ValidationProblem
 
@@ -57,6 +57,12 @@ class CollectionCommand:
     #: `/api/v1/policy/network-access/authorization` and reads
     #: `policy/network-access/authorization`, which is three segments, not one.
     bundle_key: str | None = None
+    #: Fetch this operation a page at a time, this many objects per request.
+    #:
+    #: Only the Check Point Management API, which pages with `offset`/`limit` and
+    #: reports `from`, `to` and `total`. Left None everywhere else: a page parameter
+    #: an API does not understand is a request that fails, not one it ignores.
+    page_size: int | None = None
 
     def as_request(self) -> tuple[str, str]:
         """Split an HTTP entry into (method, path)."""
@@ -74,16 +80,26 @@ class CollectionCommand:
         _method, path = self.as_request()
         return path.strip("/").split("/")[-1].lower()
 
-    def as_body(self) -> dict[str, str]:
+    def as_body(self, *, offset: int | None = None) -> dict[str, Any]:
         """The JSON body an RPC entry sends.
 
-        Derived from the path rather than declared separately: on the Check Point
-        Management API the operation *is* the last path segment, so deriving it means the
-        conformance test checks the same string that is actually sent. A hand-written
-        second copy could drift from the path and would then be proving nothing.
+        The command is derived from the path rather than declared separately: on the
+        Check Point Management API the operation *is* the last path segment, so deriving
+        it means the conformance test checks the same string that is actually sent. A
+        hand-written second copy could drift from the path and would then be proving
+        nothing.
+
+        ``offset`` is passed only while paging. Both page parameters are omitted
+        entirely for an unpaged command, so the body of every other operation is
+        byte-for-byte what it was — `offset: 0` is not the same request as no offset to
+        an API that does not document the parameter.
         """
         _method, path = self.as_request()
-        return {"command": path.rsplit("/", 1)[-1]}
+        body: dict[str, Any] = {"command": path.rsplit("/", 1)[-1]}
+        if self.page_size is not None:
+            body["limit"] = self.page_size
+            body["offset"] = offset or 0
+        return body
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,10 +465,17 @@ CHECKPOINT_MGMT_PROFILE: Final = CollectionProfile(
             "The security policy itself — on Check Point it lives here, not on the gateway",
             required=True,
             yields_config=True,
+            # 500 is the server's maximum. Check Point's own guidance is that the
+            # largest page is not the fastest — the response is big and the server
+            # works harder per chunk — but the cost here is per collection, not per
+            # interaction, and fewer round trips against a management server under
+            # load is the better trade.
+            page_size=500,
         ),
         CollectionCommand(
             "POST /web_api/show-nat-rulebase",
             "NAT rules, for the exposed-service analysis",
+            page_size=500,
         ),
         CollectionCommand(
             "POST /web_api/show-gateways-and-servers",
