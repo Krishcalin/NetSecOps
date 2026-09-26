@@ -311,11 +311,32 @@ inspection cannot see payload. A policy carrying an AV profile, an IPS sensor *a
 inspecting nothing inside HTTPS. We already hold the policy-to-profile map; this is a check
 against data we have.
 
+> **Actioned.** `RuleIssue.INSPECTION_NOT_DECRYPTED`, medium — the same severity as
+> `NO_PROFILES`, because the exposure is identical and only its visibility differs. Our
+> own FortiOS fixture had carried exactly this shape since it was written and scored
+> clean. Only the predefined `certificate-inspection` is matched: `deep-inspection`
+> decrypts, and a custom profile's body is not parsed, so judging one by name would be a
+> guess that tells somebody their inspection is broken when it works.
+
 **SSL-VPN posture is unassessed, and it gates our CVE accuracy.** Every mass-exploited
 FortiGate CVE — 2018-13379, 2022-42475, 2023-27997, 2024-21762 — requires SSL-VPN enabled,
 and Fortinet's advisories say so explicitly. We match on version alone and do not parse
 `config vpn ssl settings`, so we over-report. Parsing it both raises confidence on genuine
 exposure and removes false positives.
+
+> **Actioned, in part.** `features.ssl_vpn` is parsed and wired to `FeatureCondition`, so
+> enabled gives Confirmed, disabled gives Not Affected and unknown stays Likely. Absent
+> is deliberately not disabled.
+>
+> **Only `status` is read.** The port, source interfaces and minimum TLS version could
+> not have their exact spellings confirmed — docs.fortinet.com renders its CLI reference
+> in JavaScript and serves a table of contents to any fetch — and a misspelled key here
+> reads as "not configured" for ever rather than failing.
+>
+> **The remaining half is curation, not parsing.** An advisory carries a condition only
+> if somebody puts one on it, and the feed importer does not. The mechanism is proven
+> and no imported advisory uses it, so the four CVEs above are still matched on version
+> alone in practice.
 
 **UTM profile bodies are not parsed** — IPS sensors in monitor mode, profiles defined and
 referenced by no policy, unmodified shipped defaults are all invisible.
