@@ -7,7 +7,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SettingsPage } from './SettingsPage';
@@ -48,11 +48,20 @@ function renderPage() {
 }
 
 let subscriptions: Record<string, unknown>[] = [];
+let roleMap: Record<string, unknown> = {
+  mappings: [],
+  mappable_roles: ['auditor', 'network_engineer', 'security_analyst'],
+};
 
 describe('SettingsPage', () => {
   beforeEach(() => {
     subscriptions = [];
+    roleMap = {
+      mappings: [],
+      mappable_roles: ['auditor', 'network_engineer', 'security_analyst'],
+    };
     vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
+      if (path.startsWith('/auth/sso/role-map')) return roleMap as never;
       if (path.startsWith('/notifications/subscriptions')) return subscriptions as never;
       if (path.startsWith('/notifications/channels')) return [CHANNEL] as never;
       if (path.startsWith('/notifications/deliveries')) return [DEAD_DELIVERY] as never;
@@ -240,6 +249,81 @@ describe('SettingsPage', () => {
       await waitFor(() => expect(patch).toHaveBeenCalled());
       expect(patch.mock.calls[0]?.[0]).toContain(CHANNEL.id);
       expect(patch.mock.calls[0]?.[1]).toEqual({ enabled: false });
+    });
+  });
+
+  describe('the single sign-on role map (FR-AUTH-04)', () => {
+    it('says plainly that an empty mapping changes nobody', async () => {
+      // The state every deployment starts in. An empty table with no explanation reads
+      // as "not loaded yet" or "broken", and the honest answer — signing in leaves
+      // roles exactly as an administrator set them — is the one somebody needs.
+      renderPage();
+
+      expect(await screen.findByText(/No groups are mapped/i)).toBeInTheDocument();
+    });
+
+    it('offers only the roles the server says may be granted', async () => {
+      // Super Admin is refused by the API. Finding that out from a dropdown that never
+      // offered it beats finding it out from a save that comes back rejected.
+      renderPage();
+
+      await screen.findByText(/No groups are mapped/i);
+      fireEvent.click(await screen.findByRole('button', { name: 'Add mapping' }));
+
+      const select = await screen.findByLabelText('Role 1');
+      const offered = within(select).getAllByRole('option').map((o) => o.textContent);
+      expect(offered).toEqual(['Auditor', 'Network Engineer', 'Security Analyst']);
+      expect(offered).not.toContain('Super Admin');
+    });
+
+    it('sends the whole mapping, not a single row', async () => {
+      // It is read as a set at every sign-in; a partial update would leave a window in
+      // which somebody signs in against half of it.
+      roleMap = {
+        mappings: [{ group: 'net-admins', role: 'network_engineer' }],
+        mappable_roles: ['auditor', 'network_engineer', 'security_analyst'],
+      };
+      const put = vi.spyOn(api, 'put').mockResolvedValue(roleMap as never);
+      renderPage();
+
+      // Wait for the stored mapping to arrive: until it does, "Add mapping" is
+      // disabled, because the roles it may offer come from the same response.
+      await screen.findByDisplayValue('net-admins');
+      fireEvent.click(await screen.findByRole('button', { name: 'Add mapping' }));
+      const group = await screen.findByLabelText('Group 2');
+      fireEvent.change(group, { target: { value: 'audit-ro' } });
+      fireEvent.click(await screen.findByRole('button', { name: 'Save mapping' }));
+
+      await waitFor(() => expect(put).toHaveBeenCalled());
+      expect(put.mock.calls[0]?.[1]).toEqual({
+        mappings: [
+          { group: 'net-admins', role: 'network_engineer' },
+          { group: 'audit-ro', role: 'auditor' },
+        ],
+      });
+    });
+
+    it('will not save until something has been edited', async () => {
+      // Otherwise the obvious way to confirm the page loaded is to press Save, which
+      // rewrites the authorization policy and writes an audit entry saying so.
+      renderPage();
+
+      await screen.findByText(/No groups are mapped/i);
+      expect(await screen.findByRole('button', { name: 'Save mapping' })).toBeDisabled();
+    });
+
+    it('says that a change takes effect at the next sign-in, not now', async () => {
+      // The mapping is applied during authentication. Somebody who reads "Saved" and
+      // expects a colleague's permissions to have changed already will be wrong.
+      const put = vi.spyOn(api, 'put').mockResolvedValue(roleMap as never);
+      renderPage();
+
+      await screen.findByText(/No groups are mapped/i);
+      fireEvent.click(await screen.findByRole('button', { name: 'Add mapping' }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Save mapping' }));
+
+      await waitFor(() => expect(put).toHaveBeenCalled());
+      expect(await screen.findByText(/next sign-in/i)).toBeInTheDocument();
     });
   });
 });

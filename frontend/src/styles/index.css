@@ -282,6 +282,32 @@ a {
   font-size: 12px;
 }
 
+/* A rule with the word sitting in it, separating the password form from single
+   sign-on. Two `<span>`-less halves drawn with a border, so the word keeps its
+   background and the line does not run through it. */
+.auth-card__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.auth-card__divider::before,
+.auth-card__divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.button--block {
+  display: block;
+  width: 100%;
+}
+
 /* ───────────────────────────── app layout ────────────────────────────── */
 
 .layout {

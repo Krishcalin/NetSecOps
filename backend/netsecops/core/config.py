@@ -98,6 +98,54 @@ class Settings(BaseSettings):
     # RFC 6238 clock drift tolerance, in periods either side of "now".
     mfa_totp_valid_window: int = Field(default=1, ge=0, le=2)
 
+    # ── OIDC single sign-on (FR-AUTH-04) ────────────────────────────────────
+    #: The connection to the identity provider is deployment configuration, so it lives
+    #: here beside the database URL rather than in the `settings` table. What an
+    #: administrator edits day to day — which IdP group carries which role — does live
+    #: in the database, because that is a policy decision and it changes with the
+    #: organisation rather than with the deployment.
+    oidc_enabled: bool = False
+    #: The issuer, from which `.well-known/openid-configuration` is derived. Must be
+    #: HTTPS: every endpoint in the discovery document is taken on this URL's authority,
+    #: so http:// here would let anything on the path redirect sign-in wherever it liked.
+    oidc_issuer: str | None = None
+    oidc_client_id: str | None = None
+    oidc_client_secret: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices("oidc_client_secret", "OIDC_CLIENT_SECRET"),
+    )
+    #: Where the IdP sends the browser back. Registered with the IdP, and sent again on
+    #: the token exchange, so it has to match exactly — including the scheme and any
+    #: trailing path.
+    oidc_redirect_url: str | None = None
+    #: `openid` is mandatory and is added if missing. `profile` and `email` are what the
+    #: account match needs; a group claim usually needs one more, and which one depends
+    #: on the IdP (`groups`, `roles`, or something bespoke).
+    oidc_scopes: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["openid", "profile", "email"]
+    )
+    #: The ID-token claim carrying the user's groups. Entra ID calls it `groups`, Okta
+    #: usually `groups`, Keycloak whatever the mapper was named.
+    oidc_group_claim: str = "groups"
+    #: How long a discovery document and its JWKS are held before being re-fetched.
+    #: Signing keys rotate, and a cache that never expires turns a routine rotation into
+    #: an outage that looks like the IdP is down.
+    oidc_metadata_ttl_seconds: int = Field(default=3600, ge=60, le=86400)
+    #: How long a browser has to come back from the IdP with its authorization code.
+    #: The state row is deleted on first use regardless.
+    oidc_login_timeout_seconds: int = Field(default=600, ge=60, le=1800)
+    #: What the sign-in button says. "Sign in with Entra ID" tells somebody which
+    #: credentials to reach for; "Single sign-on" makes them guess.
+    oidc_button_label: str = Field(default="Single sign-on", min_length=1, max_length=60)
+    #: Where the console lives, when it is not served from this origin.
+    #:
+    #: Empty is the deployed case: Caddy serves the console and the API together, so the
+    #: callback can redirect to a plain path. It exists for development, where the API
+    #: is on :8000 and Vite on :5173 — and for that split to work at all the cookies
+    #: have to be reachable from both, which is a `cookie_domain` question rather than
+    #: this one.
+    oidc_console_base_url: str = ""
+
     # ── Credential vault master key (FR-CRED-02) ────────────────────────────
     master_key_provider: MasterKeyProvider = MasterKeyProvider.ENV
     master_key: SecretStr | None = Field(
@@ -229,10 +277,17 @@ class Settings(BaseSettings):
     )
 
     @field_validator(
-        "nvd_api_key", "cisco_psirt_client_id", "cisco_psirt_client_secret", mode="before"
+        "nvd_api_key",
+        "cisco_psirt_client_id",
+        "cisco_psirt_client_secret",
+        "oidc_client_secret",
+        "oidc_issuer",
+        "oidc_client_id",
+        "oidc_redirect_url",
+        mode="before",
     )
     @classmethod
-    def _blank_optional_secret_is_unset(cls, value: object) -> object:
+    def _blank_optional_setting_is_unset(cls, value: object) -> object:
         """Treat an empty environment variable as absent.
 
         `docker compose` renders `${CISCO_PSIRT_CLIENT_ID:-}` as an empty string, not as
@@ -240,6 +295,11 @@ class Settings(BaseSettings):
         `SecretStr('')` — and `cisco_psirt_configured` would answer True for credentials
         that cannot authenticate. The symptom would be an opaque 401 from Cisco rather
         than the clean fallback to offline mode that FR-VUL-08 requires.
+
+        The OIDC fields are here for the same reason and one more: an empty issuer that
+        stayed an empty string would be reported as "must be an https:// URL" rather
+        than "is not set", which sends whoever is setting it up looking for a typo in a
+        value they never supplied.
         """
         if isinstance(value, str) and not value.strip():
             return None
@@ -280,6 +340,62 @@ class Settings(BaseSettings):
 
         return [origin.strip() for origin in text.split(",") if origin.strip()]
 
+    @field_validator("oidc_scopes", mode="before")
+    @classmethod
+    def _split_scopes(cls, v: object) -> object:
+        """Scopes as a JSON array, a comma-separated list, or the space-separated form
+        the OAuth specification itself uses — all three get typed into env files."""
+        if not isinstance(v, str):
+            return v
+
+        text = v.strip()
+        if text.startswith("["):
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"oidc_scopes looks like JSON but does not parse: {exc}") from exc
+
+        separator = "," if "," in text else " "
+        return [scope.strip() for scope in text.split(separator) if scope.strip()]
+
+    @model_validator(mode="after")
+    def _guard_oidc(self) -> Self:
+        """Refuse single sign-on that is switched on and cannot work (FR-AUTH-04).
+
+        Every field here is needed before the first redirect, so a missing one produces
+        a failure at the moment somebody tries to sign in — on the login screen, in
+        front of whoever the rollout was for. Raising at startup instead puts it in
+        front of whoever set it up, while they still have the terminal open.
+        """
+        if not self.oidc_enabled:
+            return self
+
+        missing = [
+            name
+            for name in ("oidc_issuer", "oidc_client_id", "oidc_client_secret", "oidc_redirect_url")
+            if getattr(self, name) is None
+        ]
+        if missing:
+            raise ValueError(
+                f"oidc_enabled is true but {', '.join(sorted(missing))} "
+                f"{'is' if len(missing) == 1 else 'are'} not set."
+            )
+
+        assert self.oidc_issuer is not None  # noqa: S101 - just established
+        if not self.oidc_issuer.startswith("https://"):
+            # Everything else — the authorization endpoint, the token endpoint, the
+            # signing keys — is discovered from this URL and trusted because it came
+            # from it. Over http:// anything on the path chooses where sign-in goes and
+            # which keys verify the answer.
+            raise ValueError("oidc_issuer must be an https:// URL.")
+
+        if "openid" not in self.oidc_scopes:
+            # Without it the provider runs a plain OAuth flow and returns no ID token,
+            # which is the only part of the response that says who signed in.
+            self.oidc_scopes = ["openid", *self.oidc_scopes]
+
+        return self
+
     @model_validator(mode="after")
     def _guard_production(self) -> Self:
         """Fail closed on unsafe production configuration."""
@@ -291,6 +407,16 @@ class Settings(BaseSettings):
             if "*" in self.cors_origins:
                 raise ValueError("wildcard CORS origin is not permitted in production")
         return self
+
+    @property
+    def sso_console_login_path(self) -> str:
+        """Where the SSO callback sends a browser that could not be signed in."""
+        return f"{self.oidc_console_base_url.rstrip('/')}/login"
+
+    @property
+    def sso_console_home_path(self) -> str:
+        """Where it sends one that could, absent a remembered destination."""
+        return f"{self.oidc_console_base_url.rstrip('/')}/" if self.oidc_console_base_url else "/"
 
     @property
     def is_production(self) -> bool:

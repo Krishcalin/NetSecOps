@@ -45,6 +45,48 @@ class MFAChallengeResponse(BaseModel):
     expires_at: datetime
 
 
+class SSOStatusResponse(BaseModel):
+    """What the sign-in screen may know before anybody has signed in (FR-AUTH-04)."""
+
+    enabled: bool
+    #: What to write on the button. Absent when SSO is off, so the console cannot show
+    #: a button labelled for a provider it will not be able to reach.
+    button_label: str | None = None
+
+
+class SSOStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: Where in the console to land afterwards — the page somebody was trying to reach
+    #: when they were sent to sign in. Validated as a relative path before it is stored;
+    #: an absolute URL is discarded rather than followed.
+    redirect_to: str | None = Field(default=None, max_length=512)
+
+
+class SSOStartResponse(BaseModel):
+    authorization_url: str
+
+
+class SSORoleMapping(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    group: str = Field(min_length=1, max_length=255)
+    role: Role
+
+
+class SSORoleMapRead(BaseModel):
+    mappings: list[SSORoleMapping]
+    #: The roles a mapping may grant. Sent so the console can offer exactly these rather
+    #: than every role, and find out about a refusal from a dropdown instead of a 422.
+    mappable_roles: list[Role]
+
+
+class SSORoleMapWrite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    mappings: list[SSORoleMapping] = Field(max_length=200)
+
+
 class MFAEnrolmentResponse(BaseModel):
     secret: str = Field(description="Base32 TOTP secret — shown once, at enrolment")
     provisioning_uri: str = Field(description="otpauth:// URI for authenticator apps")

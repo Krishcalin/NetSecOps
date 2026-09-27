@@ -611,8 +611,16 @@ async def _run_retention(session: AsyncSession, job: Job, jobs: JobService) -> J
     to ignore a failing nightly job.
     """
     from netsecops.services.retention import RetentionService
+    from netsecops.services.sso import SSOService
 
     outcome = await RetentionService(session, org_id=job.org_id).purge_artifacts()
+
+    # Abandoned single sign-ons, swept on the same pass (FR-AUTH-04). A browser closed
+    # at the identity provider's login screen leaves a row nothing will ever consume,
+    # and `/auth/sso/start` is necessarily unauthenticated — so without a sweep the
+    # table only grows, and anyone who can reach the login page can grow it. Runs even
+    # where SSO is switched off, because rows outlive the setting.
+    sign_ins_swept = await SSOService(session).purge_expired_states()
 
     completed = await jobs.complete(job)
     completed.stats = {
@@ -622,6 +630,7 @@ async def _run_retention(session: AsyncSession, job: Job, jobs: JobService) -> J
         "collections_purged": outcome.collections_purged,
         "artifacts_removed": outcome.artifacts_removed,
         "more_remaining": outcome.more_remaining,
+        "sign_ins_swept": sign_ins_swept,
     }
     await session.flush()
 
@@ -630,6 +639,7 @@ async def _run_retention(session: AsyncSession, job: Job, jobs: JobService) -> J
         job_id=str(job.id),
         status=completed.status,
         summary=outcome.describe(),
+        sign_ins_swept=sign_ins_swept,
     )
     return completed
 

@@ -119,6 +119,58 @@ builds the images, starts the stack, runs migrations, and prints the URL.
 
 ---
 
+## Single sign-on (FR-AUTH-04)
+
+Optional, off by default, and OIDC only — Authorization Code with PKCE. Turning it on
+needs five environment variables; the app refuses to start if `OIDC_ENABLED` is true and
+any of them is missing, which puts the mistake in front of whoever is setting it up
+rather than in front of the first person to try signing in.
+
+```bash
+NETSECOPS_OIDC_ENABLED=true
+NETSECOPS_OIDC_ISSUER=https://login.microsoftonline.com/<tenant>/v2.0
+NETSECOPS_OIDC_CLIENT_ID=<application id>
+OIDC_CLIENT_SECRET=<client secret>
+NETSECOPS_OIDC_REDIRECT_URL=https://netsecops.example.com/api/v1/auth/sso/callback
+NETSECOPS_OIDC_SCOPES=openid,profile,email,groups
+NETSECOPS_OIDC_GROUP_CLAIM=groups
+NETSECOPS_OIDC_BUTTON_LABEL=Sign in with Entra ID
+```
+
+Register the redirect URL with the provider **exactly** as written here, scheme and path
+included: it is sent again on the token exchange and compared, so a trailing slash is a
+failed sign-in. The issuer must be `https://` — everything the flow talks to is
+discovered from it and trusted because it came from there.
+
+### What it does and does not do
+
+**It does not create accounts.** An administrator creates the account first; the first
+single sign-on binds the provider's subject to it, matched on e-mail address. An
+assertion for a subject with no matching account is refused and written to the audit log
+with reason `no_account`. This is the first thing to check when a rollout appears to
+have failed for one person: look for `sso.login_failure` in the audit log.
+
+**It does not replace MFA.** A user with an authenticator enrolled in NetSecOps is still
+asked for a code after the provider vouches for them. If you want the provider to be the
+only place MFA happens, disable it per user here (`netsecops-cli reset-mfa <user>` clears
+an enrolment).
+
+**Roles are edited in the console, not here.** Settings → *Single sign-on roles* maps an
+identity-provider group to a NetSecOps role. It is applied at every sign-in: joining a
+group grants the role, leaving it takes the role away. Roles that appear in no mapping
+are left alone, so an account set up before SSO keeps what it was given. Super Admin
+cannot be mapped — it is the role that can rewrite the mapping.
+
+### If sign-in stops working after a while
+
+Signing keys rotate. NetSecOps re-fetches them when it sees a key it does not recognise,
+and caches both the discovery document and the key set for
+`NETSECOPS_OIDC_METADATA_TTL_SECONDS` (one hour by default). A persistent signature
+failure after a rotation means the new key is not being published at the `jwks_uri` in
+the discovery document; check that first, before suspecting the client secret.
+
+---
+
 ## Discovery and the ICMP capability
 
 Discovery sends four of the five probes FR-DISC-02 permits: an ICMP echo, a TCP connect

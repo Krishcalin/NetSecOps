@@ -73,6 +73,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const resumeMfa = useCallback((mfaToken: string) => {
+    setState((s) => ({ ...s, mfaToken }));
+  }, []);
+
   const cancelMfa = useCallback(() => {
     setState((s) => ({ ...s, mfaToken: null }));
   }, []);
@@ -83,8 +87,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo<AuthContextValue>(
-    () => ({ ...state, login, verifyMfa, logout, refreshUser, cancelMfa, can }),
-    [state, login, verifyMfa, logout, refreshUser, cancelMfa, can],
+    () => ({ ...state, login, verifyMfa, resumeMfa, logout, refreshUser, cancelMfa, can }),
+    [state, login, verifyMfa, resumeMfa, logout, refreshUser, cancelMfa, can],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

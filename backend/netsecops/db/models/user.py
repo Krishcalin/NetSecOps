@@ -217,6 +217,47 @@ class ApiToken(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
         return self.expires_at is None or self.expires_at > datetime.now(UTC)
 
 
+class OIDCLoginState(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
+    """One sign-in in flight, from the redirect out to the callback back (FR-AUTH-04).
+
+    Server-side rather than in a cookie, and that is forced rather than preferred: the
+    auth cookies are ``SameSite=Strict`` (SEC-02), and the callback arrives as a
+    top-level navigation *from the identity provider's origin*, so a Strict cookie is
+    not sent with it. Carrying the state in a cookie would mean relaxing that attribute
+    on this deployment's cookies to satisfy one flow. A row keyed on `state` costs one
+    query and leaves the cookie policy alone.
+
+    The row is deleted the first time it is used. A `state` that is not found is either
+    a replay or a callback that arrived twice, and both are refused — which is also
+    what makes this the CSRF defence the OAuth specification asks `state` to be.
+    """
+
+    __tablename__ = "oidc_login_states"
+    __table_args__ = (Index("ix_oidc_login_states_expires_at", "expires_at"),)
+
+    #: The opaque value round-tripped through the provider. Unique, because two logins
+    #: sharing one would let either consume the other's row.
+    state: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    #: Envelope-encrypted PKCE code verifier. Sealed rather than stored plainly because
+    #: this table holds, briefly, everything but the authorization code needed to
+    #: complete somebody else's sign-in — and `mfa_secrets` already sets the standard
+    #: for a short secret living in a column.
+    encrypted_verifier: Mapped[bytes] = mapped_column(nullable=False)
+    #: Replay defence for the ID token, checked against the `nonce` claim.
+    nonce: Mapped[str] = mapped_column(String(64), nullable=False)
+    #: Where in the console to land afterwards. Validated as a relative path before it
+    #: is stored — an absolute URL here would make the callback an open redirect.
+    redirect_to: Mapped[str | None] = mapped_column(String(512))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ip_address: Mapped[str | None] = mapped_column(INET)
+
+    @property
+    def is_expired(self) -> bool:
+        from datetime import UTC
+
+        return self.expires_at <= datetime.now(UTC)
+
+
 class PasswordHistory(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     """Previous password hashes, to enforce the no-reuse window (FR-AUTH-01)."""
 

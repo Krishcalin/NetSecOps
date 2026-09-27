@@ -1,21 +1,84 @@
-/** Sign-in screen: password step, then the TOTP step when MFA is enabled. */
+/** Sign-in screen: password step, then the TOTP step when MFA is enabled.
+ *
+ * Single sign-on joins this screen at two points rather than replacing it. The button
+ * is offered only when the server says SSO is configured, because a button that leads
+ * to a 401 is worse than no button. And the return leg lands *here*, not on a page of
+ * its own: the identity provider redirects a browser, so whatever happened arrives as
+ * a query parameter — either a reason it failed, or a pending MFA token, since the
+ * second factor is still this system's to ask for.
+ */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
-import { ApiError } from '../../api/client';
+import { ApiError, api } from '../../api/client';
 import { useAuth } from './useAuth';
+import type { SSOStatus } from './types';
+
+/** Why a sign-in came back unfinished. The callback sends a short code rather than the
+ *  provider's own message, which quotes back whatever it was handed. */
+const SSO_ERRORS: Record<string, string> = {
+  provider_denied: 'Your identity provider did not complete the sign-in.',
+  incomplete: 'The sign-in came back incomplete. Please try again.',
+  denied:
+    'No NetSecOps account matches that sign-in, or the account cannot be used. Contact an administrator.',
+  locked: 'This account is temporarily locked after repeated failed sign-in attempts.',
+  provider_unreachable: 'NetSecOps could not reach the identity provider. Try again shortly.',
+};
 
 export function LoginPage() {
-  const { login, verifyMfa, mfaToken, cancelMfa } = useAuth();
+  const { login, verifyMfa, resumeMfa, mfaToken, cancelMfa } = useAuth();
   const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [sso, setSso] = useState<SSOStatus | null>(null);
+
+  useEffect(() => {
+    // A deployment without SSO must not be told about it, so a failure here is silence
+    // rather than an error on the sign-in screen.
+    api
+      .get<SSOStatus>('/auth/sso/status')
+      .then(setSso)
+      .catch(() => setSso({ enabled: false, button_label: null }));
+  }, []);
+
+  useEffect(() => {
+    const failure = params.get('sso_error');
+    const pending = params.get('mfa_token');
+    if (!failure && !pending) return;
+
+    if (failure) {
+      setError(SSO_ERRORS[failure] ?? 'The single sign-on attempt did not complete.');
+    }
+    if (pending) {
+      resumeMfa(pending);
+    }
+    // Cleared from the address bar once read: the pending token is a credential, and
+    // leaving it in the URL puts it in history, in a bookmark, and in the referrer of
+    // anything this page loads.
+    setParams({}, { replace: true });
+  }, [params, resumeMfa, setParams]);
+
+  async function startSso() {
+    setError(null);
+    setBusy(true);
+    try {
+      const { authorization_url } = await api.post<{ authorization_url: string }>(
+        '/auth/sso/start',
+        {},
+      );
+      window.location.assign(authorization_url);
+    } catch (err) {
+      setError(describe(err));
+      setBusy(false);
+    }
+  }
 
   async function handlePasswordStep(event: FormEvent) {
     event.preventDefault();
@@ -136,6 +199,22 @@ export function LoginPage() {
             >
               {busy ? 'Signing in…' : 'Sign in'}
             </button>
+
+            {sso?.enabled && (
+              <>
+                <p className="auth-card__divider">
+                  <span>or</span>
+                </p>
+                <button
+                  className="button button--ghost button--block"
+                  type="button"
+                  onClick={() => void startSso()}
+                  disabled={busy}
+                >
+                  {sso.button_label ?? 'Single sign-on'}
+                </button>
+              </>
+            )}
           </form>
         )}
 

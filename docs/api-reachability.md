@@ -1,16 +1,26 @@
 # API reachability
 
-**151 operations are published. The console requests 140 of them. 11 it never requests.**
+**156 operations are published. The console requests 144 of them. 12 it never requests.**
 
-Re-measured 2026-09-27. The published count has risen by ten since the last measure —
-estate-wide rulebase search, rule permissiveness, segmentation intent, the network map,
-`DELETE /segmentation/zones/{id}`, which existed nowhere until the console needed a way
-to undo a zone somebody created by mistake, and `GET /findings/summary`, which replaced
-the five `limit=1` counts the dashboard was making to draw one bar.
+Re-measured 2026-09-27, after single sign-on. The published count has risen by fifteen
+since the last measure — estate-wide rulebase search, rule permissiveness, segmentation
+intent, the network map, `DELETE /segmentation/zones/{id}`, which existed nowhere until
+the console needed a way to undo a zone somebody created by mistake, `GET
+/findings/summary`, which replaced the five `limit=1` counts the dashboard was making to
+draw one bar, and the five `/auth/sso/*` operations.
 
-The unreferenced count is eleven, down from the sixteen triaged below. Two clusters
-closed since that triage, both the same shape — capability with no surface, which on a
-console-only deployment is indistinguishable from capability that does not exist.
+**One entry on the unreferenced list is there correctly, and it is a new kind.**
+`GET /auth/sso/callback` is where the identity provider returns the browser. Nothing in
+the console fetches it and nothing should: it is reached by a top-level navigation, and
+the console's part is the address it lands on afterwards. The count measures paths
+referenced in console *code*, which is the right proxy for "can an operator get at this"
+everywhere except a redirect target. Read the number as eleven unreachable operations
+and one reached by the browser's address bar.
+
+The rest of the unreferenced count is eleven, down from the sixteen triaged below. Two
+clusters closed since that triage, both the same shape — capability with no surface,
+which on a console-only deployment is indistinguishable from capability that does not
+exist.
 
 Segmentation's five zone and rule operations: the page evaluated a policy that could
 only be written through the API, so it read as permanently empty. Closed; the page now
@@ -24,7 +34,14 @@ channel, lists subscriptions, and warns outright when an enabled channel has non
 **Every area of the API now has a page.** The original finding — thirty-two operations in
 areas the console could not reach at all — is closed. What remains is nine operations on
 pages that exist but do not call them, plus `GET /metrics` and `GET /readyz`, which are
-correctly machine-only.
+correctly machine-only, and the SSO callback above.
+
+Single sign-on was written with this document open. Its five operations all have a
+surface from the first commit: the sign-in screen asks `/auth/sso/status` whether to
+offer a button and `/auth/sso/start` for where to send the browser, and Settings reads
+and writes `/auth/sso/role-map`. The group-to-role mapping in particular would have been
+the classic case — a policy that decides everybody's permissions, editable only by
+whoever can set an environment variable.
 
 Measured 2026-09-21 against the OpenAPI schema `create_app()` produces and every `.ts`
 and `.tsx` file under `frontend/src`, comparing path shapes with parameters collapsed.

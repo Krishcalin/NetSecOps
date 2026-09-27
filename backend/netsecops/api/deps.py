@@ -22,6 +22,7 @@ from netsecops.db.models import User
 from netsecops.db.session import get_session
 from netsecops.services.audit import AuditService
 from netsecops.services.auth import AuthService
+from netsecops.services.sso import SSOService
 from netsecops.services.users import UserService
 
 ACCESS_COOKIE = "netsecops_access"
@@ -61,6 +62,10 @@ def auth_service(session: SessionDep, vault: VaultDep) -> AuthService:
     return AuthService(session, vault=vault)
 
 
+def sso_service(session: SessionDep, vault: VaultDep, settings: SettingsDep) -> SSOService:
+    return SSOService(session, settings=settings, vault=vault)
+
+
 def user_service(session: SessionDep) -> UserService:
     return UserService(session)
 
@@ -70,6 +75,7 @@ def audit_service(session: SessionDep) -> AuditService:
 
 
 AuthServiceDep = Annotated[AuthService, Depends(auth_service)]
+SSOServiceDep = Annotated[SSOService, Depends(sso_service)]
 UserServiceDep = Annotated[UserService, Depends(user_service)]
 AuditServiceDep = Annotated[AuditService, Depends(audit_service)]
 

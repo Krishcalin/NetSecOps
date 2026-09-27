@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import secrets
 from typing import Annotated
+from urllib.parse import quote
 
 from fastapi import APIRouter, Cookie, Depends, Response, status
+from fastapi.responses import RedirectResponse
 
 from netsecops.api.deps import (
     ACCESS_COOKIE,
@@ -16,11 +18,16 @@ from netsecops.api.deps import (
     CurrentUserDep,
     PrincipalDep,
     SettingsDep,
+    SSOServiceDep,
     UserServiceDep,
+    require,
     verify_csrf,
 )
 from netsecops.core.config import Settings
-from netsecops.core.rbac import ROLE_DESCRIPTIONS, ROLE_PERMISSIONS, Role
+from netsecops.core.errors import AccountLockedError, AuthenticationError
+from netsecops.core.logging import get_logger
+from netsecops.core.oidc import OIDCError
+from netsecops.core.rbac import ROLE_DESCRIPTIONS, ROLE_PERMISSIONS, Permission, Role
 from netsecops.schemas.auth import (
     CurrentUserResponse,
     LoginRequest,
@@ -30,9 +37,18 @@ from netsecops.schemas.auth import (
     MFAVerifyRequest,
     PasswordChangeRequest,
     RoleInfo,
+    SSORoleMapping,
+    SSORoleMapRead,
+    SSORoleMapWrite,
+    SSOStartRequest,
+    SSOStartResponse,
+    SSOStatusResponse,
     TokenResponse,
 )
 from netsecops.services.auth import MFAChallenge, TokenPair
+from netsecops.services.sso import MAPPABLE_ROLES
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -144,6 +160,151 @@ async def verify_mfa(
         access_token=pair.access_token,
         expires_at=pair.access_expires_at,
         refresh_expires_at=pair.refresh_expires_at,
+    )
+
+
+# ─────────────────────────── single sign-on (FR-AUTH-04) ───────────────────────────
+
+
+@router.get(
+    "/sso/status",
+    response_model=SSOStatusResponse,
+    summary="Whether single sign-on is available (FR-AUTH-04)",
+)
+async def sso_status(settings: SettingsDep) -> SSOStatusResponse:
+    """Unauthenticated on purpose: the sign-in screen has to know whether to offer the
+    button before anybody has signed in. It reveals that SSO is configured and what to
+    call it, and nothing about the provider beyond a name somebody chose to display."""
+    return SSOStatusResponse(
+        enabled=settings.oidc_enabled,
+        button_label=settings.oidc_button_label if settings.oidc_enabled else None,
+    )
+
+
+@router.post(
+    "/sso/start",
+    response_model=SSOStartResponse,
+    responses={401: {"description": "Single sign-on is not enabled"}},
+    summary="Begin an OIDC sign-in and get the provider URL (FR-AUTH-04)",
+)
+async def sso_start(
+    sso: SSOServiceDep, ip: ClientIPDep, payload: SSOStartRequest | None = None
+) -> SSOStartResponse:
+    """Returns the URL rather than redirecting to it.
+
+    The console is a single-page application: it needs to set the browser's location
+    itself, and a 302 from `fetch` would be followed by the fetch rather than by the
+    page. It also keeps this endpoint's failures — an unreachable provider, a bad
+    issuer — visible as JSON problems instead of a redirect into nowhere.
+    """
+    begun = await sso.begin(redirect_to=payload.redirect_to if payload else None, ip_address=ip)
+    return SSOStartResponse(authorization_url=begun.authorization_url)
+
+
+@router.get(
+    "/sso/callback",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_303_SEE_OTHER,
+    responses={303: {"description": "Signed in, or sent back to the login screen"}},
+    summary="Where the identity provider returns the browser (FR-AUTH-04)",
+)
+async def sso_callback(
+    response: Response,
+    sso: SSOServiceDep,
+    settings: SettingsDep,
+    ip: ClientIPDep,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    error_description: str | None = None,
+) -> RedirectResponse:
+    """A browser lands here, so every outcome is a redirect rather than a problem document.
+
+    The user is at the end of a round trip through another website and has no way to
+    read a JSON body; a failure has to put them back on the login screen with something
+    to act on. The reason travels as a short code in the query string — never the
+    provider's own message, which quotes back whatever it was sent.
+    """
+
+    def back(reason: str) -> RedirectResponse:
+        return RedirectResponse(
+            f"{settings.sso_console_login_path}?sso_error={reason}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+
+    if error:
+        # The provider refused — consent declined, or the client is not entitled to the
+        # application. Logged with its description; the browser gets the code alone.
+        log.warning("sso.provider_error", error=error, description=error_description)
+        return back("provider_denied")
+
+    if not code or not state:
+        return back("incomplete")
+
+    try:
+        result, redirect_to = await sso.complete(code=code, state=state, ip_address=ip)
+    except AccountLockedError:
+        return back("locked")
+    except AuthenticationError:
+        return back("denied")
+    except OIDCError:
+        return back("provider_unreachable")
+
+    if isinstance(result, MFAChallenge):
+        # The provider vouched for them; the second factor has not been given yet. The
+        # pending token goes in the URL because there is no other channel on a
+        # redirect — it is single-use, expires in minutes, and grants nothing on its
+        # own without a TOTP code.
+        redirect = RedirectResponse(
+            f"{settings.sso_console_login_path}?mfa_token={quote(result.mfa_token)}",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
+        return redirect
+
+    redirect = RedirectResponse(
+        redirect_to or settings.sso_console_home_path, status_code=status.HTTP_303_SEE_OTHER
+    )
+    _set_auth_cookies(redirect, result, settings)
+    return redirect
+
+
+@router.get(
+    "/sso/role-map",
+    response_model=SSORoleMapRead,
+    dependencies=[Depends(require(Permission.ROLE_READ))],
+    summary="Which identity-provider groups grant which roles (FR-AUTH-04)",
+)
+async def get_sso_role_map(sso: SSOServiceDep) -> SSORoleMapRead:
+    mappings = await sso.get_role_map()
+    return SSORoleMapRead(
+        mappings=[SSORoleMapping(group=m.group, role=m.role) for m in mappings],
+        mappable_roles=sorted(MAPPABLE_ROLES, key=lambda role: role.value),
+    )
+
+
+@router.put(
+    "/sso/role-map",
+    response_model=SSORoleMapRead,
+    dependencies=[Depends(require(Permission.ROLE_WRITE)), Depends(verify_csrf)],
+    summary="Replace the group-to-role mapping (FR-AUTH-04)",
+)
+async def put_sso_role_map(
+    payload: SSORoleMapWrite, sso: SSOServiceDep, principal: PrincipalDep
+) -> SSORoleMapRead:
+    """The whole mapping at once, not one row at a time.
+
+    It is read as a set on every sign-in, and a partial update would leave a window in
+    which somebody signs in against half of it. Replacing it is also what makes the
+    audit record legible: one entry holding what the mapping became.
+    """
+    mappings = await sso.set_role_map(
+        [m.model_dump(mode="json") for m in payload.mappings],
+        actor_id=principal.id,
+        actor_username=principal.username,
+    )
+    return SSORoleMapRead(
+        mappings=[SSORoleMapping(group=m.group, role=m.role) for m in mappings],
+        mappable_roles=sorted(MAPPABLE_ROLES, key=lambda role: role.value),
     )
 
 

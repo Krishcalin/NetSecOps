@@ -30,12 +30,15 @@ import {
   SECRET_HINTS,
   STATUS_TONE,
 } from '../features/settings/types';
+import type { Role, SSORoleMap, SSORoleMapping } from '../features/auth/types';
+import { ROLE_LABELS } from '../features/auth/types';
 import { PageHeader } from '../components/PageHeader';
 
 const CHANNELS = '/notifications/channels';
 const DELIVERIES = '/notifications/deliveries';
 const SUBSCRIPTIONS = '/notifications/subscriptions';
 const SETTINGS = '/settings';
+const ROLE_MAP = '/auth/sso/role-map';
 
 function describe(error: unknown): string {
   return error instanceof ApiError
@@ -251,6 +254,166 @@ function SubscriptionsPanel({
           Subscribe
         </button>
       </form>
+    </section>
+  );
+}
+
+function SSORoleMapPanel({ onError }: { onError: (message: string | null) => void }) {
+  const queryClient = useQueryClient();
+  const [draft, setDraft] = useState<SSORoleMapping[] | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const map = useQuery({
+    queryKey: [ROLE_MAP],
+    queryFn: () => api.get<SSORoleMap>(ROLE_MAP),
+  });
+
+  const rows = draft ?? map.data?.mappings ?? [];
+  const roles = map.data?.mappable_roles ?? [];
+  const defaultRole: Role | undefined = roles[0];
+
+  const save = useMutation({
+    mutationFn: () => api.put<SSORoleMap>(ROLE_MAP, { mappings: rows }),
+    onSuccess: () => {
+      setDraft(null);
+      setSaved(true);
+      onError(null);
+      void queryClient.invalidateQueries({ queryKey: [ROLE_MAP] });
+    },
+    onError: (err) => {
+      setSaved(false);
+      onError(describe(err));
+    },
+  });
+
+  function edit(next: SSORoleMapping[]) {
+    setDraft(next);
+    setSaved(false);
+  }
+
+  if (map.isError) {
+    // Reading this is reading the authorization policy, so it is Super Admin only.
+    // Saying nothing would look like a mapping that is empty.
+    return null;
+  }
+
+  return (
+    <section className="card">
+      <h2>Single sign-on roles</h2>
+      <p className="card__hint">
+        Which identity-provider group carries which NetSecOps role. Applied at every sign-in:
+        joining a group grants the role, leaving it takes the role away. Roles that appear in no
+        mapping are left alone, so a grant made by hand here is not undone by somebody signing in.
+      </p>
+      <p className="card__hint">
+        Signing in never <em>creates</em> an account — an unknown user is refused — and Super Admin
+        cannot be mapped, because it is the role that can rewrite this page.
+      </p>
+
+      {saved && (
+        <div className="alert alert--ok" role="status">
+          Saved. It takes effect at each user&rsquo;s next sign-in.
+        </div>
+      )}
+
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Identity-provider group</th>
+            <th>NetSecOps role</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index}>
+              <td>
+                <input
+                  className="field__input field__input--small"
+                  value={row.group}
+                  aria-label={`Group ${index + 1}`}
+                  placeholder="net-admins"
+                  onChange={(event) =>
+                    edit(
+                      rows.map((r, i) => (i === index ? { ...r, group: event.target.value } : r)),
+                    )
+                  }
+                />
+              </td>
+              <td>
+                <select
+                  className="field__input field__input--small"
+                  value={row.role}
+                  aria-label={`Role ${index + 1}`}
+                  onChange={(event) =>
+                    edit(
+                      rows.map((r, i) =>
+                        i === index ? { ...r, role: event.target.value as Role } : r,
+                      ),
+                    )
+                  }
+                >
+                  {roles.map((role) => (
+                    <option key={role} value={role}>
+                      {ROLE_LABELS[role]}
+                    </option>
+                  ))}
+                </select>
+              </td>
+              <td>
+                <button
+                  className="button button--ghost"
+                  type="button"
+                  onClick={() => edit(rows.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={3}>
+                No groups are mapped, so signing in changes nobody&rsquo;s roles — each account
+                keeps whatever an administrator granted it.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <div className="toolbar">
+        <button
+          className="button button--ghost"
+          type="button"
+          // Disabled until the server has said which roles may be mapped, rather than
+          // defaulting to one the save would then refuse.
+          disabled={defaultRole === undefined}
+          onClick={() => defaultRole && edit([...rows, { group: '', role: defaultRole }])}
+        >
+          Add mapping
+        </button>
+        <button
+          className="button button--primary"
+          type="button"
+          disabled={draft === null || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {save.isPending ? 'Saving…' : 'Save mapping'}
+        </button>
+        {draft !== null && (
+          <button
+            className="button button--ghost"
+            type="button"
+            onClick={() => {
+              setDraft(null);
+              onError(null);
+            }}
+          >
+            Discard changes
+          </button>
+        )}
+      </div>
     </section>
   );
 }
@@ -485,6 +648,8 @@ export function SettingsPage() {
       </section>
 
       <SubscriptionsPanel channels={channels.data ?? []} onError={setError} />
+
+      <SSORoleMapPanel onError={setError} />
 
       <section className="card">
         <h2>Recent deliveries</h2>

@@ -46,6 +46,21 @@ class AuditAction(StrEnum):
     PASSWORD_CHANGED = "password.changed"  # noqa: S105
     PASSWORD_RESET = "password.reset"  # noqa: S105
 
+    # Single sign-on (FR-AUTH-04). Separate from the password events because the
+    # question an auditor asks of SSO is a different one: not "was the password right"
+    # but "which identity provider said so, for which subject, and what did that grant".
+    SSO_LOGIN_SUCCESS = "sso.login_success"
+    SSO_LOGIN_FAILURE = "sso.login_failure"
+    #: An identity-provider subject was bound to an existing account, which happens once
+    #: per user and is the moment that account becomes reachable by whoever controls
+    #: that subject at the provider.
+    SSO_SUBJECT_LINKED = "sso.subject_linked"
+    #: Roles changed because the provider's group claim changed. Recorded even when the
+    #: result is the same set, so the trail shows the mapping was applied rather than
+    #: leaving "no event" to mean both "unchanged" and "never ran".
+    SSO_ROLES_APPLIED = "sso.roles_applied"
+    SSO_ROLE_MAP_CHANGED = "sso.role_map_changed"
+
     # User & role administration
     USER_CREATED = "user.created"
     USER_UPDATED = "user.updated"

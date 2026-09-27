@@ -26,6 +26,16 @@ PUBLIC_PATHS = {
     ("POST", "/api/v1/auth/login"),
     ("POST", "/api/v1/auth/mfa/verify"),
     ("POST", "/api/v1/auth/refresh"),
+    # Single sign-on (FR-AUTH-04). All three are reached by somebody who is, by
+    # definition, not signed in yet: the sign-in screen asks whether to offer the
+    # button, the button starts the flow, and the identity provider returns the
+    # browser to the callback. They are public in the sense of needing no session —
+    # `status` discloses only that SSO is configured and what to call it, `start`
+    # mints a state row and a URL that grant nothing, and `callback` refuses
+    # everything that is not a state it issued.
+    ("GET", "/api/v1/auth/sso/status"),
+    ("POST", "/api/v1/auth/sso/start"),
+    ("GET", "/api/v1/auth/sso/callback"),
     ("GET", "/healthz"),
     ("GET", "/readyz"),
     ("GET", "/metrics"),
@@ -123,6 +133,12 @@ _INTEGRATION_ADMINS = frozenset({Role.SUPER_ADMIN})
 _SETTINGS_ADMINS = frozenset({Role.SUPER_ADMIN})
 
 MATRIX: list[Case] = [
+    # ── Single sign-on policy (FR-AUTH-04) ──────────────────────────────────
+    # The mapping decides which directory group carries which role, so reading it
+    # is reading the authorization policy and writing it is rewriting it. Both sit
+    # behind the role permissions rather than settings:write, which more people hold.
+    Case("GET", "/api/v1/auth/sso/role-map", _ADMIN_ONLY),
+    Case("PUT", "/api/v1/auth/sso/role-map", _ADMIN_ONLY, body={"mappings": []}),
     # ── User administration ─────────────────────────────────────────────────
     Case("GET", "/api/v1/users", _USER_READERS),
     Case(

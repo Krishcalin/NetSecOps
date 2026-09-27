@@ -188,6 +188,52 @@ class AuthService:
 
         return await self._complete_login(user, ip_address=ip_address, user_agent=user_agent)
 
+    async def complete_federated_login(
+        self,
+        user: User,
+        *,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        details: dict[str, object] | None = None,
+    ) -> LoginResult:
+        """Issue a session for a user an identity provider has vouched for (FR-AUTH-04).
+
+        The seam between single sign-on and everything a session is: cookies, refresh
+        rotation, the lockout counter, the audit record. `services/sso.py` decides
+        *whether* to call this; none of what follows is duplicated over there, because a
+        second implementation of "log somebody in" is how the two drift apart.
+
+        **MFA still applies.** An enrolled user is challenged for their TOTP exactly as
+        after a correct password. The provider may have performed its own second factor
+        or may be checking a single directory password, and the assertion does not
+        reliably say which — so the factor this system knows about is the one it asks
+        for. The account checks that come before a password is even verified — locked,
+        inactive, service account — are made by the caller, which has to make them
+        before the account is known to exist.
+        """
+        # Recorded here rather than after the MFA branch, because the two events mean
+        # different things: this one says the identity provider's assertion was accepted
+        # for this account, and LOGIN_SUCCESS says a session was issued. When MFA is
+        # outstanding the first happens and the second does not, and that gap is
+        # precisely what an auditor is looking for.
+        await self.audit.record(
+            AuditAction.SSO_LOGIN_SUCCESS,
+            actor_id=user.id,
+            actor_username=user.username,
+            details={**(details or {}), "mfa_required": user.mfa_enabled},
+            ip_address=ip_address,
+            user_agent=user_agent,
+        )
+
+        if user.mfa_enabled:
+            await self._record_attempt(
+                user.username, user.id, True, "sso_ok_mfa_pending", ip_address, user_agent
+            )
+            token, _, expires_at = create_mfa_pending_token(str(user.id), settings=self.settings)
+            return MFAChallenge(mfa_token=token, expires_at=expires_at)
+
+        return await self._complete_login(user, ip_address=ip_address, user_agent=user_agent)
+
     async def complete_mfa(
         self,
         mfa_token: str,

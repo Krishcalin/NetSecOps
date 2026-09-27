@@ -47,6 +47,27 @@ export interface MFAEnrolment {
   recovery_codes: string[];
 }
 
+/** What the sign-in screen may know before anybody has signed in (FR-AUTH-04). */
+export interface SSOStatus {
+  enabled: boolean;
+  /** What to write on the button. Null when SSO is off, so the console cannot offer
+   *  one labelled for a provider it will not be able to reach. */
+  button_label: string | null;
+}
+
+export interface SSORoleMapping {
+  group: string;
+  role: Role;
+}
+
+export interface SSORoleMap {
+  mappings: SSORoleMapping[];
+  /** The roles a mapping may grant. Sent by the server so the console offers exactly
+   *  these — Super Admin is absent, and finding that out from a dropdown is better
+   *  than finding it out from a rejected save. */
+  mappable_roles: Role[];
+}
+
 export const ROLE_LABELS: Record<Role, string> = {
   super_admin: 'Super Admin',
   security_analyst: 'Security Analyst',

@@ -257,6 +257,20 @@ Each phase below says what it delivers and, where relevant, what it still owes. 
   rotated refresh token revokes the whole session family and raises an audit event.
 - **MFA** — RFC 6238 TOTP with single-use recovery codes; codes cannot be replayed
   inside their validity window.
+- **Single sign-on** (FR-AUTH-04) — OIDC Authorization Code with PKCE, and three
+  positions worth stating because each had a more convenient alternative. *The provider
+  says who is signing in, not who may*: an assertion for a subject with no account is
+  refused and audited, never provisioned, because a directory group is a statement about
+  employment and not an authorisation grant. *Roles follow an administrator's mapping*,
+  which the console edits — group membership drives the roles the mapping names, so
+  leaving a group takes the role away, while a role granted by hand and named in no
+  mapping survives every login; Super Admin cannot be mapped at all, being the role that
+  can rewrite the mapping. *It replaces the password, not the second factor*: an enrolled
+  user is still asked for their TOTP, because the provider may have performed its own MFA
+  or may be checking one directory password, and the assertion does not reliably say
+  which. The sign-in state lives in a table rather than a cookie — the callback is a
+  cross-site navigation and a `SameSite=Strict` cookie is not sent with it, so the
+  alternative was weakening the cookie policy for every session to serve one flow.
 - **RBAC** — the five roles from SRS §2.3 over a single permission vocabulary, with
   object-level Device Group scoping for the group-restricted roles. Endpoints declare
   a *permission*, never a role list.
