@@ -1299,6 +1299,19 @@ code {
   color: var(--text-faint);
 }
 
+/* The finding's own title inside the dialog. The Close button floats right above it,
+   so this keeps clear of it rather than running under. */
+.finding__title {
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.finding__title .card__title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
 .finding__description {
   margin: 0 0 12px;
 }
@@ -3015,6 +3028,77 @@ code {
   margin: 0;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* ─────────────────────────────── modal dialog ────────────────────────────── */
+
+/* The backdrop. Dark enough that the page behind reads as inactive rather than as
+   something still worth clicking, and it scrolls rather than the page — a long
+   finding has to be readable on a short window without moving what is underneath. */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 5vh 16px;
+  overflow-y: auto;
+  background: rgb(16 24 40 / 55%);
+}
+
+.modal__panel {
+  position: relative;
+  width: min(72rem, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  padding: 20px 22px 22px;
+}
+
+.modal__panel:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Top right, which is where every dialog on every platform puts it — and sticky, so
+   on a long finding it is still reachable without scrolling back up. */
+.modal__close {
+  position: sticky;
+  top: 0;
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: -4px -4px 0 12px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.modal__close:hover {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
+@media (max-width: 640px) {
+  .modal {
+    padding: 0;
+  }
+
+  /* Full-bleed on a phone: a 16px margin round a dialog that already fills the screen
+     is a frame with nothing outside it. */
+  .modal__panel {
+    min-height: 100%;
+    border: 0;
+    border-radius: 0;
+  }
 }
 
 /* ──────────────────────── compliance: one card per framework ─────────────── */

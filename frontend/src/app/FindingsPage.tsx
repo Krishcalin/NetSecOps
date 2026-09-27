@@ -7,7 +7,7 @@
  * all.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NavLink } from 'react-router-dom';
 
@@ -24,6 +24,7 @@ import { SETTABLE_STATUSES, STATUS_LABELS } from '../features/findings/types';
 import type { Paginated } from '../features/inventory/types';
 import { useUrlFilters } from './useUrlFilters';
 import { PageHeader } from '../components/PageHeader';
+import { Modal } from '../components/Modal';
 import { StackBar, SummaryCell } from '../components/Graphics';
 
 const PAGE_SIZE = 25;
@@ -91,27 +92,20 @@ function EvidenceBlock({ finding }: { finding: FindingDetail }) {
   );
 }
 
-function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () => void }) {
+function FindingPanel({ findingId }: { findingId: string }) {
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
-  const panelRef = useRef<HTMLElement>(null);
 
   const detail = useQuery({
     queryKey: ['finding', findingId],
     queryFn: () => api.get<FindingDetail>(`/findings/${findingId}`),
   });
 
-  // The panel renders *below* the table and below the button that opened it, so
-  // without this the keyboard caret stays on "Details", nothing is announced, and a
-  // screen-reader user has no idea content appeared.
-  //
-  // Keyed on the load completing, not on mount: while the query is in flight this
-  // component returns a bare "Loading…" paragraph, so the section the ref points at
-  // does not exist yet and a mount-time focus call silently does nothing.
-  useEffect(() => {
-    if (detail.isSuccess) panelRef.current?.focus();
-  }, [findingId, detail.isSuccess]);
+  // No focus effect here any more. The dialog takes focus on mount, which is both
+  // earlier and more reliable than waiting for this query — the panel used to render
+  // a bare "Loading…" paragraph first, so a mount-time focus call had nothing to aim
+  // at and the effect had to be keyed on the load completing instead.
 
   const setStatus = useMutation({
     mutationFn: (status: FindingStatus) => api.patch<Finding>(`/findings/${findingId}`, { status }),
@@ -132,22 +126,14 @@ function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () =
   );
 
   return (
-    // `tabIndex={-1}` makes this a focus target without putting it in the tab order,
-    // and the label gives the arrival something to announce.
-    <section
-      className="card finding"
-      ref={panelRef}
-      tabIndex={-1}
-      aria-label={`Finding detail: ${finding.title}`}
-    >
-      <div className="card__header">
+    // No focus handling and no Close button of its own: the dialog around this owns
+    // both, so they cannot end up implemented twice and disagreeing.
+    <div className="finding">
+      <div className="finding__title">
         <h2 className="card__title">
           <span className={severityClass(finding.severity)}>{finding.severity}</span>{' '}
           {finding.title}
         </h2>
-        <button className="button button--ghost button--small" onClick={onClose}>
-          Close
-        </button>
       </div>
 
       <p className="finding__description">{finding.description}</p>
@@ -224,7 +210,7 @@ function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () =
           </p>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -379,14 +365,14 @@ export function FindingsPage() {
                       id={`details-${finding.id}`}
                       // Named for its row. Twenty-five buttons all called "Details" are
                       // indistinguishable in a screen reader's element list (WCAG 2.4.4).
-                      aria-label={
-                        selected === finding.id
-                          ? `Hide detail for ${finding.title}`
-                          : `Details for ${finding.title}`
-                      }
-                      onClick={() => setSelected(selected === finding.id ? null : finding.id)}
+                      aria-label={`Details for ${finding.title}`}
+                      aria-haspopup="dialog"
+                      // No "Hide" state: the detail is a dialog over the page now, so
+                      // the button behind it cannot be reached to toggle it off, and
+                      // labelling it as though it could would be a lie.
+                      onClick={() => setSelected(finding.id)}
                     >
-                      {selected === finding.id ? 'Hide' : 'Details'}
+                      Details
                     </button>
                   </td>
                 </tr>
@@ -397,17 +383,15 @@ export function FindingsPage() {
       )}
 
       {selected && (
-        <FindingPanel
-          findingId={selected}
-          onClose={() => {
-            // Close unmounts the button that was focused, which drops focus to
-            // <body> and restarts the keyboard user at the top of the document.
-            // Hand it back to the row they came from.
-            const trigger = document.getElementById(`details-${selected}`);
-            setSelected(null);
-            trigger?.focus();
-          }}
-        />
+        // The title comes from the row rather than from the detail query, so the
+        // dialog has its name from the moment it opens — waiting for the fetch would
+        // announce an unnamed dialog and then rename it under the reader.
+        <Modal
+          label={`Finding detail: ${findings.data?.data.find((row) => row.id === selected)?.title ?? ''}`}
+          onClose={() => setSelected(null)}
+        >
+          <FindingPanel findingId={selected} />
+        </Modal>
       )}
 
       <div className="pager">

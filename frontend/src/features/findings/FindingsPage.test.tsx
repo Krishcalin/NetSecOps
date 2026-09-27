@@ -139,8 +139,8 @@ describe('FindingsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Details for Telnet is disabled' }));
 
-    const panel = await screen.findByText('Evidence');
-    const card = panel.closest('.card') as HTMLElement;
+    await screen.findByText('Evidence');
+    const card = await screen.findByRole('dialog', { name: /Finding detail/ });
 
     // The line number and the operator's own text, which is what makes a finding
     // verifiable rather than merely assertive.
@@ -270,7 +270,7 @@ describe('FindingsPage', () => {
         await screen.findByRole('button', { name: 'Details for Telnet is disabled' }),
       );
 
-      const panel = await screen.findByRole('region', { name: /Finding detail/ });
+      const panel = await screen.findByRole('dialog', { name: /Finding detail/ });
       await waitFor(() => expect(panel).toHaveFocus());
     });
 
@@ -281,7 +281,7 @@ describe('FindingsPage', () => {
       await user.click(
         await screen.findByRole('button', { name: 'Details for Telnet is disabled' }),
       );
-      await screen.findByRole('region', { name: /Finding detail/ });
+      await screen.findByRole('dialog', { name: /Finding detail/ });
 
       await user.click(screen.getByRole('button', { name: 'Close' }));
 
@@ -303,7 +303,7 @@ describe('FindingsPage', () => {
       await user.click(
         await screen.findByRole('button', { name: 'Details for Telnet is disabled' }),
       );
-      const panel = await screen.findByRole('region', { name: /Finding detail/ });
+      const panel = await screen.findByRole('dialog', { name: /Finding detail/ });
 
       const explain = panel.querySelector('.finding__explain');
       expect(explain).not.toBeNull();
