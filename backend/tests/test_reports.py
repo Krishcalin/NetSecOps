@@ -1236,3 +1236,153 @@ class TestRetention:
 
         assert report.expires_at is None
         assert ReportRead.model_validate(report).retention_expired is False
+
+
+class TestSegmentationReport:
+    """The frozen matrix (FR-TOPO-07, FR-RPT-02).
+
+    `services/segmentation.py` refuses to store a verdict and points at the report
+    archive instead — and had nowhere to point. These tests are about the one way a
+    frozen matrix could be worse than none: reading as evidence of isolation that was
+    never checked. It is the page somebody prints and signs.
+    """
+
+    @pytest.fixture
+    async def policy(self, session: AsyncSession, routed_estate):
+        """Two zones and two intents over the estate above.
+
+        `10.10.0.0/24` reaches `10.20.0.0/24` on 443 and is denied on 23 by `dmz-fw`,
+        so one intent is upheld and the other is violated by the same rulebase — which
+        is what makes the totals worth asserting rather than trivially all one value.
+        """
+        from netsecops.db.models.segmentation import SegmentationExpectation
+        from netsecops.services.segmentation import SegmentationService
+
+        service = SegmentationService(session)
+        lan = await service.create_zone(name="Campus", prefixes=["10.10.0.0/24"])
+        dmz = await service.create_zone(name="DMZ", prefixes=["10.20.0.0/24"])
+        await service.create_rule(
+            source_zone_id=lan.id,
+            destination_zone_id=dmz.id,
+            expectation=SegmentationExpectation.DENIED,
+            port=23,
+            justification="Telnet never crosses into the DMZ, under any circumstances.",
+        )
+        await service.create_rule(
+            source_zone_id=lan.id,
+            destination_zone_id=dmz.id,
+            expectation=SegmentationExpectation.DENIED,
+            port=443,
+            justification="Declared denied although the estate permits it, on purpose.",
+        )
+        await session.commit()
+        return {"lan": lan, "dmz": dmz}
+
+    async def test_it_records_every_declared_pair_with_its_verdict(
+        self, session: AsyncSession, principal: Principal, policy
+    ) -> None:
+        report = await ReportingService(session).generate(
+            ReportTemplate.SEGMENTATION, actor=principal
+        )
+
+        assert report.status == ReportStatus.READY.value
+        cells = report.content["cells"]
+        assert {(c["port"], c["status"]) for c in cells} == {(23, "upheld"), (443, "violated")}
+        # The reason travels with the row. A cell nobody can explain is one nobody
+        # dares change, and this document outlives the person who declared it.
+        assert all(c["justification"] for c in cells)
+
+    async def test_unverified_is_counted_apart_and_left_out_of_decided(
+        self, session: AsyncSession, principal: Principal, policy
+    ) -> None:
+        """The assertion this template exists to protect.
+
+        A pair nobody could trace is not evidence of isolation. Folding it into the
+        upheld side — or into a denominator somebody divides by — turns a coverage gap
+        into a compliance claim on a signed document.
+        """
+        from netsecops.db.models.segmentation import SegmentationExpectation
+        from netsecops.services.segmentation import SegmentationService
+
+        service = SegmentationService(session)
+        nowhere = await service.create_zone(name="Unrouted", prefixes=["192.168.99.0/24"])
+        await service.create_rule(
+            source_zone_id=policy["lan"].id,
+            destination_zone_id=nowhere.id,
+            expectation=SegmentationExpectation.ALLOWED,
+            port=443,
+            justification="Nothing in the estate routes here, so this cannot be traced.",
+        )
+        await session.commit()
+
+        totals = (
+            await ReportingService(session).generate(ReportTemplate.SEGMENTATION, actor=principal)
+        ).content["totals"]
+
+        assert totals["unverified"] >= 1
+        assert totals["declared"] == totals["upheld"] + totals["violated"] + totals["unverified"]
+        assert totals["decided"] == totals["upheld"] + totals["violated"]
+        assert totals["decided"] < totals["declared"], "unverified leaked into the denominator"
+
+    async def test_it_publishes_no_headline_percentage(
+        self, session: AsyncSession, principal: Principal, policy
+    ) -> None:
+        """Nine upheld out of ten is not ninety per cent segmented — the tenth may be
+        the pair that matters, and the reader is meant to look at it."""
+        content = (
+            await ReportingService(session).generate(ReportTemplate.SEGMENTATION, actor=principal)
+        ).content
+
+        flat = json.dumps(content)
+        assert "percent" not in flat and "score" not in flat
+
+    async def test_an_empty_policy_says_so_rather_than_reporting_compliance(
+        self, session: AsyncSession, principal: Principal, routed_estate
+    ) -> None:
+        """Zero violations out of zero rules is the most misleading document this
+        product could produce: indistinguishable from a segmented estate."""
+        content = (
+            await ReportingService(session).generate(ReportTemplate.SEGMENTATION, actor=principal)
+        ).content
+
+        assert content["cells"] == []
+        assert content["totals"]["declared"] == 0
+        assert any("not a clean one" in note for note in content["caveats"]["notes"])
+
+    async def test_it_cites_the_snapshots_it_was_computed_from(
+        self, session: AsyncSession, principal: Principal, policy
+    ) -> None:
+        """A verdict that cannot be traced back to its evidence cannot settle a later
+        argument about whether the estate had already changed."""
+        evidence = (
+            await ReportingService(session).generate(ReportTemplate.SEGMENTATION, actor=principal)
+        ).content["evidence"]
+
+        assert len(evidence["snapshot_ids"]) == 3
+        assert evidence["devices_in_graph"] == 3
+
+    async def test_it_states_that_the_graph_was_the_whole_estate(
+        self, session: AsyncSession, principal: Principal, policy
+    ) -> None:
+        """A real disclosure property, and the same one `path_analysis` carries: the
+        evaluation is not narrowed to the reader's scope, because a truncated graph
+        produces a wrong verdict rather than a redacted one."""
+        caveats = (
+            await ReportingService(session).generate(ReportTemplate.SEGMENTATION, actor=principal)
+        ).content["caveats"]
+
+        assert caveats["graph_is_whole_estate"] is True
+        assert "not evidence of isolation" in caveats["unverified_are_not_passes"]
+
+    async def test_the_csv_carries_the_pair_and_the_verdict_together(
+        self, session: AsyncSession, principal: Principal, policy
+    ) -> None:
+        """The projection is what a spreadsheet gets, and the pair plus its verdict is
+        the row. A grid missing `status` would be a list of declarations."""
+        from netsecops.services.report_render import TABLE_PROJECTIONS
+
+        key, columns = TABLE_PROJECTIONS[ReportTemplate.SEGMENTATION.value]
+
+        assert key == "cells"
+        for needed in ("source_zone", "destination_zone", "expectation", "status", "walked"):
+            assert needed in columns

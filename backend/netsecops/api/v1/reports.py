@@ -9,7 +9,7 @@ Generating is a write and sits behind `report:generate`; reading and downloading
 behind `report:read`, which every read role holds. An auditor who cannot pull the
 evidence independently has to take it from the team being audited.
 
-All nine catalogued templates assemble. Four formats: JSON, CSV, XLSX and PDF
+All eleven catalogued templates assemble. Four formats: JSON, CSV, XLSX and PDF
 (FR-RPT-03).
 
 **Retention is reported, never enforced.** `expires_at` marks a report as past its
@@ -51,7 +51,7 @@ from netsecops.services.reporting import TEMPLATE_CATALOGUE, ReportingService
 log = get_logger(__name__)
 router = APIRouter(tags=["reports"])
 
-#: Templates `_assemble` can build. All nine now do, but the gate stays: adding a
+#: Templates `_assemble` can build. All eleven now do, but the gate stays: adding a
 #: template to the catalogue without assembling it must refuse loudly rather than
 #: return an empty document, because an empty compliance report reads as a clean one.
 IMPLEMENTED: frozenset[str] = frozenset(t.value for t in ReportTemplate)

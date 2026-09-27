@@ -52,6 +52,7 @@ from netsecops.db.models.inventory import Device, DeviceGroup
 from netsecops.db.models.policy import CheckResult, FindingException, RiskScore
 from netsecops.db.models.reporting import Report, ReportStatus, ReportTemplate
 from netsecops.schemas.reporting import PathSpec
+from netsecops.services.segmentation import SegmentationService
 from netsecops.services.topology import TopologyService, latest_snapshot_ids
 
 log = get_logger(__name__)
@@ -136,6 +137,15 @@ TEMPLATE_CATALOGUE: dict[ReportTemplate, dict[str, str]] = {
         "description": (
             "Whether one host can reach another on a port, hop by hop, with the rule "
             "that decides at each firewall. The evidence a change ticket asks for."
+        ),
+    },
+    ReportTemplate.SEGMENTATION: {
+        "title": "Segmentation matrix",
+        "audience": "Auditor",
+        "description": (
+            "Every declared zone pair, checked by tracing a packet across the estate, "
+            "dated and frozen. Pairs that could not be traced are counted apart and "
+            "never as passes."
         ),
     },
 }
@@ -293,6 +303,8 @@ class ReportingService:
                 return await self._drift(scope, scope_device_id)
             case ReportTemplate.PATH_ANALYSIS:
                 return await self._path_analysis(path)
+            case ReportTemplate.SEGMENTATION:
+                return await self._segmentation()
 
         # Unreachable while every member of the enum is handled above; kept so that
         # adding a template without assembling it fails loudly rather than silently
@@ -615,6 +627,85 @@ class ReportingService:
                 "devices_without_route_data": len(graph.unknown_route_tables),
             },
             "hops": hops,
+        }
+
+    async def _segmentation(self) -> dict[str, Any]:
+        """The declared matrix, evaluated and frozen (FR-TOPO-07).
+
+        `services/segmentation.py` refuses to store a verdict, and says why: an estate
+        changes, so a saved "compliant" is a claim about one that no longer exists.
+        What it points at instead is the report archive, which says when the answer was
+        taken — and until now that archive had no template to put one in. The product
+        made the promise and offered nowhere to keep it.
+
+        Three things this is careful about, all of them inherited from the page.
+
+        **Unverified is counted apart and is never a pass.** A cell whose path could
+        not be traced goes in its own total, and `decided` — the denominator anybody
+        will be tempted to compute a percentage from — excludes it. A compliance figure
+        that folded unverifiable pairs into the upheld side would assert isolation that
+        was never checked, printed and signed.
+
+        **There is no headline percentage.** Nine upheld out of ten is not ninety per
+        cent segmented; the tenth may be the pair that matters, and the reader is meant
+        to look at it. Totals, yes. A score, no.
+
+        **The graph is the whole estate, not the reader's slice** — the same disclosure
+        property `_path_analysis` carries and states, for the same reason: a graph
+        truncated to the devices someone may see would stop at the first hop outside
+        their scope and report the pair unreachable, which is a *wrong* answer rather
+        than a redacted one.
+        """
+        topology = TopologyService(self.session, org_id=self.org_id)
+        graph = await topology.graph()
+        matrix = await SegmentationService(self.session, org_id=self.org_id).evaluate(graph)
+
+        cells = [
+            {
+                "source_zone": cell.source_zone,
+                "destination_zone": cell.destination_zone,
+                "expectation": cell.expectation,
+                "protocol": cell.protocol,
+                "port": cell.port,
+                "status": cell.status.value,
+                "detail": cell.detail,
+                "justification": cell.justification,
+                # What was actually walked. Without it "upheld" is a claim with no
+                # stated scope, and a zone is a list of prefixes rather than one.
+                "walked": list(cell.walked),
+                "limitations": list(cell.limitations),
+            }
+            for cell in matrix.cells
+        ]
+
+        return {
+            "totals": {
+                "declared": len(cells),
+                "upheld": matrix.upheld,
+                "violated": matrix.violated,
+                # Its own line, and deliberately not summed into either verdict.
+                "unverified": matrix.unverified,
+                # Offered so that nobody has to subtract it themselves and get it
+                # wrong. A percentage over this denominator would still be a
+                # percentage of what was checkable, not of the policy.
+                "decided": matrix.upheld + matrix.violated,
+            },
+            "caveats": {
+                "unverified_are_not_passes": (
+                    "A pair whose path could not be traced is reported as unverified and "
+                    "counted apart from both verdicts. It is not evidence of isolation."
+                ),
+                "graph_is_whole_estate": True,
+                "notes": list(matrix.limitations),
+            },
+            "evidence": {
+                "snapshot_ids": sorted(
+                    str(sid) for sid in latest_snapshot_ids(list(graph.nodes.values()))
+                ),
+                "devices_in_graph": len(graph.nodes),
+                "devices_without_route_data": len(graph.unknown_route_tables),
+            },
+            "cells": cells,
         }
 
     async def _exceptions_register(self, scope: Scope) -> dict[str, Any]:

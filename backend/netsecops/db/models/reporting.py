@@ -48,7 +48,7 @@ from netsecops.db.base import Base, OrgMixin, TimestampMixin, UUIDPrimaryKeyMixi
 
 
 class ReportTemplate(StrEnum):
-    """The nine templates FR-RPT-02 names, plus `path_analysis`.
+    """The nine templates FR-RPT-02 names, plus `path_analysis` and `segmentation`.
 
     Kept as an enum rather than free text so a template that was never built cannot be
     requested and silently produce an empty report — `NotFoundError` is the honest
@@ -73,6 +73,12 @@ class ReportTemplate(StrEnum):
     #: one records a *question* as well as findings, so its `parameters` carry the path
     #: that was asked about and the content is meaningless without them.
     PATH_ANALYSIS = "path_analysis"
+    #: The segmentation matrix, frozen and dated. `services/segmentation.py` refuses to
+    #: store a verdict — an estate changes and a saved "compliant" becomes a claim about
+    #: one that no longer exists — and says the report archive is where a frozen answer
+    #: belongs. This is that archive entry; until it existed the product made the
+    #: promise and offered nowhere to keep it.
+    SEGMENTATION = "segmentation"
 
 
 class ReportStatus(StrEnum):

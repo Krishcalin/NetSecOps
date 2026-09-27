@@ -140,6 +140,24 @@ TABLE_PROJECTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
             "egress_interface",
         ),
     ),
+    # `status` sits next to `expectation` rather than at the end, because the pair is
+    # the whole row: "denied, and upheld" and "denied, and violated" differ in one
+    # column and a reader scanning a printed grid should not have to track across it.
+    # `justification` is last and long — it is what a later reader argues with.
+    ReportTemplate.SEGMENTATION.value: (
+        "cells",
+        (
+            "source_zone",
+            "destination_zone",
+            "expectation",
+            "status",
+            "protocol",
+            "port",
+            "detail",
+            "walked",
+            "justification",
+        ),
+    ),
 }
 
 #: The trend report has no single table — it is two sets of totals and the deltas
