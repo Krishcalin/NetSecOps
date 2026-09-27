@@ -141,6 +141,16 @@ class Settings(BaseSettings):
     #: stale-feed-that-looks-current failure the whole subsystem exists to prevent.
     feeds_offline_mode: bool = False
 
+    #: Hold the layer-3 graph between requests, keyed on a fingerprint of the devices
+    #: and snapshots it was built from (`topology/cache.py`).
+    #:
+    #: On by default because the graph costs roughly 580ms at 650 devices and every
+    #: screen that touches topology built its own — one dashboard load built two. The
+    #: switch exists anyway: this is a product careful about stale answers, and an
+    #: operator who would rather pay the rebuild than trust a fingerprint should be
+    #: able to say so without patching the source.
+    topology_graph_cache: bool = True
+
     #: How often a scheduled feed sync runs, as cron. FR-VUL-07's "default daily".
     #:
     #: 04:17 rather than midnight: every scheduler in the world fires on the hour, and

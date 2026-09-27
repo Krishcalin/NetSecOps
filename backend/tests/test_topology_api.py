@@ -82,6 +82,10 @@ async def add_device(
     mgmt_ip: str,
     ncm_body: dict[str, Any] | None,
     status: str = DeviceStatus.ACTIVE.value,
+    #: Almost always 1. The cache tests need a second organisation to prove one is
+    #: never served the other's graph, and that needs the device and its snapshot to
+    #: agree about which org they belong to.
+    org_id: int = 1,
 ):
     device = await InventoryService(session).create_device(
         mgmt_ip=mgmt_ip,
@@ -91,12 +95,13 @@ async def add_device(
         platform="cisco_asa",
         device_class=DeviceClass.FIREWALL,
         status=status,
+        org_id=org_id,
     )
     if ncm_body is not None:
         digest = uuid.uuid4().hex
         session.add(
             Snapshot(
-                org_id=1,
+                org_id=org_id,
                 device_id=device.id,
                 ncm=ncm_body,
                 ncm_version=ncm_body.get("ncm_version", "1.1"),

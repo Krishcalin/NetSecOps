@@ -1,10 +1,19 @@
 """Assembling the graph from stored snapshots (FR-TOPO-02).
 
-The graph is built from each device's most recent snapshot and held for one request. It
-is deliberately *not* cached across requests: a snapshot is the evidence a collection
-produced, a new collection replaces it, and a topology answer that silently reflects
-yesterday's estate is the kind of wrong that looks right. Building it is a read of rows
-already in memory-sized JSON and costs far less than the collection it summarises.
+The graph is built from each device's most recent snapshot.
+
+**It is held between requests, and only while nothing it was built from has moved.**
+This module used to refuse to cache it at all, on the grounds that "a topology answer
+that silently reflects yesterday's estate is the kind of wrong that looks right" —
+which is correct, and is the requirement the cache was built to satisfy rather than
+an argument it overrides. Every entry is keyed on a fingerprint of the devices and
+snapshots behind it (`topology/cache.py`), so a hit is a graph identical to the one a
+rebuild would produce and any change that could alter it forces the rebuild.
+
+What made the old rule too expensive to keep: the graph costs roughly 580ms to build
+at 650 devices, and every screen that touches topology built its own. A single
+dashboard load built two of them, in parallel, to show one number each. Set
+`NETSECOPS_TOPOLOGY_GRAPH_CACHE=false` to go back to a rebuild per request.
 
 **Only active devices, and only their latest snapshots.** An archived device is not part
 of the estate, and including it would route paths through hardware that has been
@@ -25,11 +34,13 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netsecops.core.config import get_settings
 from netsecops.core.logging import get_logger
 from netsecops.db.models.collection import Finding, FindingStatus, Snapshot
 from netsecops.db.models.inventory import Device, DeviceStatus, Site
 from netsecops.ncm.models import Route
 from netsecops.parsers.routes import interface_network
+from netsecops.topology.cache import GRAPH_CACHE, CachedGraph, Fingerprint
 from netsecops.topology.estate_map import (
     DeviceMeta,
     EstateMap,
@@ -41,6 +52,16 @@ from netsecops.topology.missing import MissingDevice, missing_devices
 from netsecops.topology.path import PathResult, walk
 
 log = get_logger(__name__)
+
+
+def settings_cache_enabled() -> bool:
+    """Read the switch per call rather than at import.
+
+    `get_settings` is cached, so this is a dictionary lookup — and reading it at
+    import time would bake the value in before a test or a container's environment
+    had a chance to set it.
+    """
+    return get_settings().topology_graph_cache
 
 
 @dataclass(slots=True)
@@ -76,9 +97,82 @@ class TopologyService:
         self._site_ids: dict[uuid.UUID, uuid.UUID | None] = {}
 
     async def graph(self) -> TopologyGraph:
-        if self._graph is None:
-            self._graph = build_graph(await self._nodes())
+        """The estate's graph, built once per change rather than once per request.
+
+        Held across requests behind a fingerprint of the rows it was built from — see
+        `topology/cache.py` for why that answers the staleness objection this module
+        opens with rather than ignoring it. The service-level `self._graph` stays as
+        well: within one request the fingerprint would be checked several times
+        otherwise, and that is a query each.
+        """
+        if self._graph is not None:
+            return self._graph
+
+        fingerprint = await self._fingerprint()
+        if settings_cache_enabled():
+            cached = GRAPH_CACHE.get(fingerprint)
+            if cached is not None:
+                self._graph, self._meta, self._site_ids = (
+                    cached.graph,
+                    cached.meta,
+                    cached.site_ids,
+                )
+                return self._graph
+
+        self._graph = build_graph(await self._nodes())
+        if settings_cache_enabled():
+            GRAPH_CACHE.put(
+                CachedGraph(
+                    fingerprint=fingerprint,
+                    graph=self._graph,
+                    meta=dict(self._meta),
+                    site_ids=dict(self._site_ids),
+                )
+            )
         return self._graph
+
+    async def _fingerprint(self) -> Fingerprint:
+        """What the graph depends on, in one query of four scalar aggregates.
+
+        Archived devices are excluded from the count for the same reason `_nodes`
+        excludes them — they are not part of the estate — but `updated_at` is taken
+        over *all* rows, because archiving one is precisely a change the graph must
+        notice and it would otherwise only shrink a count that something else might
+        have grown back.
+        """
+        row = (
+            await self.session.execute(
+                select(
+                    select(func.count())
+                    .select_from(Device)
+                    .where(
+                        Device.org_id == self.org_id,
+                        Device.status != DeviceStatus.ARCHIVED.value,
+                    )
+                    .scalar_subquery(),
+                    select(func.max(Device.updated_at))
+                    .where(Device.org_id == self.org_id)
+                    .scalar_subquery(),
+                    select(func.count())
+                    .select_from(Snapshot)
+                    .where(Snapshot.org_id == self.org_id)
+                    .scalar_subquery(),
+                    select(func.max(Snapshot.created_at))
+                    .where(Snapshot.org_id == self.org_id)
+                    .scalar_subquery(),
+                )
+            )
+        ).one()
+
+        return Fingerprint(
+            org_id=self.org_id,
+            devices=int(row[0] or 0),
+            # Rendered rather than kept as a datetime so two fingerprints compare by
+            # value without depending on tzinfo objects being identical.
+            devices_changed_at=row[1].isoformat() if row[1] else None,
+            snapshots=int(row[2] or 0),
+            snapshots_changed_at=row[3].isoformat() if row[3] else None,
+        )
 
     async def _nodes(self) -> list[DeviceNode]:
         devices = (
