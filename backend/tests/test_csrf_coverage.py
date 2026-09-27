@@ -40,6 +40,28 @@ EXEMPT: set[tuple[str, str]] = {
     # Presents the path-scoped refresh cookie, which a cross-site form post cannot
     # reach — the cookie is SameSite=strict and scoped to this path.
     ("POST", "/api/v1/auth/refresh"),
+    # Begins a single sign-on (FR-AUTH-04), and so runs before a session exists for the
+    # same reason `/auth/login` does — it *is* the sign-in. It qualifies on the stated
+    # grounds, but it is the first entry here that has a side effect, so the argument
+    # is written out rather than assumed:
+    #
+    # What a cross-site POST achieves is one row in `oidc_login_states`. It cannot read
+    # the response — the authorization URL comes back as JSON on a different origin —
+    # and it cannot use the row, because completing a sign-in needs the `state` value
+    # that only the response carries. There is no login-CSRF win either: the endpoint
+    # returns a URL, it does not navigate anybody, and an attacker able to navigate the
+    # victim could send them to the identity provider directly.
+    #
+    # The CSRF control for this flow is `state` itself, which is what OAuth asks it to
+    # be: the row is created server-side, carries the nonce the ID token is checked
+    # against, and is deleted on first use, so a callback the victim's browser did not
+    # start matches nothing. That is also why `GET /auth/sso/callback` changes state
+    # without appearing here — it is a GET, and `state` is its defence.
+    #
+    # The one residual is storage: an unauthenticated endpoint that writes a row can be
+    # made to write many. Bounded by the nightly sweep in `_run_retention`, and each row
+    # is a few hundred bytes with a ten-minute life.
+    ("POST", "/api/v1/auth/sso/start"),
 }
 
 
