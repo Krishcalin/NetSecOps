@@ -1321,9 +1321,32 @@ code {
   margin: 18px 0 6px;
 }
 
+/* The explanatory sections, side by side wherever there is room for two of them.
+   They were one stacked column with a 72ch measure inside a panel twice that wide,
+   which left the whole right-hand half empty — and a measure applied in a container
+   that could hold two of them reads as a layout that failed rather than as considered
+   typography.
+
+   `auto-fit` with a 22rem floor: one column on a narrow panel, two on the usual one,
+   three when all three sections are present and the window is wide. The prose keeps a
+   cap *within* its column so the widest case is still a readable line rather than a
+   150-character one. */
+.finding__explain {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  gap: 0 32px;
+  align-items: start;
+}
+
+/* The first heading in each column loses the stacked spacing above it, so the columns
+   start on one line instead of stepping down. */
+.finding__section > .finding__heading:first-child {
+  margin-top: 14px;
+}
+
 .finding__prose {
   margin: 0;
-  max-width: 72ch;
+  max-width: 68ch;
 }
 
 .finding__frameworks {

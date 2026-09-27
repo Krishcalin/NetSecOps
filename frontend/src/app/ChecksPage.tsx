@@ -155,13 +155,22 @@ function CheckDetailPanel({ checkId, devices }: { checkId: string; devices: Devi
 
   return (
     <div className="stack">
-      <p>{check.description}</p>
+      <p className="finding__prose">{check.description}</p>
 
-      <h3 className="finding__heading">Why it matters</h3>
-      <p>{check.rationale}</p>
+      {/* Side by side where there is room, for the same reason the finding panel's
+          are: stacked, each paragraph used about half the width of the card and left
+          the rest of the row empty. */}
+      <div className="finding__explain">
+        <section className="finding__section">
+          <h3 className="finding__heading">Why it matters</h3>
+          <p className="finding__prose">{check.rationale}</p>
+        </section>
 
-      <h3 className="finding__heading">How to fix it</h3>
-      <p>{check.remediation}</p>
+        <section className="finding__section">
+          <h3 className="finding__heading">How to fix it</h3>
+          <p className="finding__prose">{check.remediation}</p>
+        </section>
+      </div>
 
       {check.expression && (
         <>

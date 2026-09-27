@@ -165,33 +165,41 @@ function FindingPanel({ findingId, onClose }: { findingId: string; onClose: () =
       <h3 className="finding__heading">Evidence</h3>
       <EvidenceBlock finding={finding} />
 
-      {finding.rationale && (
-        <>
-          <h3 className="finding__heading">Why this matters</h3>
-          <p className="finding__prose">{finding.rationale}</p>
-        </>
-      )}
+      {/* The three explanatory sections sit side by side where there is room for them.
+          They were a single stacked column with a 72ch measure, which on a panel twice
+          that wide left the whole right-hand half empty — a measure is a readability
+          rule, and a reader seeing one applied inside a container that could hold two
+          of them reads it as a layout that failed rather than as considered
+          typography. Each column keeps its own comfortable line length. */}
+      <div className="finding__explain">
+        {finding.rationale && (
+          <section className="finding__section">
+            <h3 className="finding__heading">Why this matters</h3>
+            <p className="finding__prose">{finding.rationale}</p>
+          </section>
+        )}
 
-      {finding.remediation && (
-        <>
-          <h3 className="finding__heading">How to fix it</h3>
-          {/* Guidance only. NetSecOps never applies a change to a device (SRS §8). */}
-          <p className="finding__prose">{finding.remediation}</p>
-        </>
-      )}
+        {finding.remediation && (
+          <section className="finding__section">
+            <h3 className="finding__heading">How to fix it</h3>
+            {/* Guidance only. NetSecOps never applies a change to a device (SRS §8). */}
+            <p className="finding__prose">{finding.remediation}</p>
+          </section>
+        )}
 
-      {frameworks.length > 0 && (
-        <>
-          <h3 className="finding__heading">Controls</h3>
-          <ul className="finding__frameworks">
-            {frameworks.map(([key, values]) => (
-              <li key={key}>
-                <strong>{FRAMEWORK_LABELS[key]}</strong> {values.join(', ')}
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+        {frameworks.length > 0 && (
+          <section className="finding__section">
+            <h3 className="finding__heading">Controls</h3>
+            <ul className="finding__frameworks">
+              {frameworks.map(([key, values]) => (
+                  <li key={key}>
+                    <strong>{FRAMEWORK_LABELS[key]}</strong> {values.join(', ')}
+                  </li>
+                ))}
+            </ul>
+          </section>
+        )}
+      </div>
 
       {can('finding:write') && (
         <div className="finding__actions">

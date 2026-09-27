@@ -291,5 +291,32 @@ describe('FindingsPage', () => {
         ).toHaveFocus(),
       );
     });
+
+    it('groups the explanatory sections so they can sit side by side', async () => {
+      // They were stacked, each holding a 72ch measure inside a panel twice that
+      // wide, so the whole right-hand half of the panel was empty. The columns are
+      // CSS, but the grouping is structural — flattened back into siblings of the
+      // evidence block, the layout silently returns to one narrow column.
+      const user = userEvent.setup();
+      renderPage();
+
+      await user.click(
+        await screen.findByRole('button', { name: 'Details for Telnet is disabled' }),
+      );
+      const panel = await screen.findByRole('region', { name: /Finding detail/ });
+
+      const explain = panel.querySelector('.finding__explain');
+      expect(explain).not.toBeNull();
+
+      const headings = [...explain!.querySelectorAll('.finding__heading')].map(
+        (node) => node.textContent,
+      );
+      expect(headings).toContain('Why this matters');
+      expect(headings).toContain('How to fix it');
+
+      // The evidence stays outside: it holds configuration excerpts that want the
+      // full width, not a column.
+      expect(explain!.textContent).not.toContain('Evidence');
+    });
   });
 });
