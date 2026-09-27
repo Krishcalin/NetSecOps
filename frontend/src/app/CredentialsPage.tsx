@@ -29,6 +29,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
+import { PageHeader } from '../components/PageHeader';
 import type {
   Credential,
   CredentialTestResult,
@@ -526,13 +527,11 @@ export function CredentialsPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Credentials</h1>
-        <p className="page__subtitle">
-          Secrets are sealed in the vault and never returned — this page can store one and say where
-          it is used, and cannot show you one.
-        </p>
-      </header>
+      <PageHeader
+        icon="credential"
+        title="Credentials"
+        subtitle="Secrets are sealed in the vault and never returned — this page can store one and say where it is used, and cannot show you one."
+      />
 
       {error && (
         <div className="alert alert--error" role="alert">

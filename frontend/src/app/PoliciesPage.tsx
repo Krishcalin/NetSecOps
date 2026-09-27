@@ -28,6 +28,7 @@ import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { CheckSummary, PolicyDetail, Policy } from '../features/checks/types';
 import type { DeviceGroup } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
 
@@ -399,12 +400,11 @@ export function PoliciesPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Policies</h1>
-        <p className="page__subtitle">
-          Which checks run against which devices. A check that is in no policy never runs.
-        </p>
-      </header>
+      <PageHeader
+        icon="policy"
+        title="Policies"
+        subtitle="Which checks run against which devices. A check that is in no policy never runs."
+      />
 
       {canWrite && (
         <CreatePolicy

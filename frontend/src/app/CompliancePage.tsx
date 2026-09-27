@@ -10,6 +10,18 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { api, ApiError } from '../api/client';
+import { Dial, SummaryCell } from '../components/Graphics';
+import { PageHeader } from '../components/PageHeader';
+
+/** Three bands, not a gradient. A percentage of decided checks does not support
+ *  finer judgement than "good", "middling" and "bad", and the dashboard bands it
+ *  the same way so the two screens never disagree about a colour. */
+function complianceTone(percent: number | null): string {
+  if (percent === null) return 'var(--text-faint)';
+  if (percent >= 90) return 'var(--sev-low)';
+  if (percent >= 70) return 'var(--sev-medium)';
+  return 'var(--sev-critical)';
+}
 
 interface FrameworkControl {
   control: string;
@@ -63,10 +75,11 @@ export function CompliancePage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Compliance</h1>
-        <p className="page__subtitle">Check results grouped by the control each one maps to.</p>
-      </header>
+      <PageHeader
+        icon="compliance"
+        title="Compliance"
+        subtitle="Check results grouped by the control each one maps to."
+      />
 
       <div className="toolbar">
         <select
@@ -95,26 +108,72 @@ export function CompliancePage() {
 
       {data && (
         <>
-          <section className="card-grid">
-            <div className="card">
-              <h2 className="card__title">Controls passing</h2>
-              <p className="stat">
-                {data.compliance_percent === null ? '—' : `${data.compliance_percent}%`}
-              </p>
-              <p className="stat__note">
-                Of the checks that produced a verdict. Not Applicable and Not Evaluated are excluded
-                from both halves.
-              </p>
-            </div>
-            <div className="card">
-              <h2 className="card__title">Devices assessed</h2>
-              <p className="stat">{data.device_count}</p>
-            </div>
-            <div className="card">
-              <h2 className="card__title">Controls covered</h2>
-              <p className="stat">{data.controls.length}</p>
-            </div>
-          </section>
+          {/* The same dial the dashboard leads with, on the page the dashboard links
+              to. The figure is identical and so is its caveat, which is the point: a
+              number that reads one way on the front page and another when you follow
+              it is the reason nobody trusts either. */}
+          <div className="hero">
+            <section className="hero__score">
+              <Dial
+                value={data.compliance_percent}
+                label={framework.toUpperCase().slice(0, 4)}
+                tone={complianceTone(data.compliance_percent)}
+                caption={
+                  data.compliance_percent === null
+                    ? 'No check in this framework has been evaluated yet.'
+                    : `${data.compliance_percent} per cent of decided checks pass.`
+                }
+              />
+              <div className="hero__score-text">
+                <span className="hero__eyebrow">Controls passing</span>
+                <h2 className="hero__heading">{LABELS[framework] ?? framework}</h2>
+                <p className="hero__note">
+                  Of the checks that produced a verdict. Not Applicable and Not Evaluated are
+                  excluded from both halves — counting them as passes would make a device whose
+                  collection half-failed score better than one fully assessed.
+                </p>
+              </div>
+            </section>
+
+            <section className="hero__spread">
+              <div className="summary">
+                <SummaryCell
+                  icon="device"
+                  label="Devices assessed"
+                  value={data.device_count}
+                  note="Contributing a verdict to this framework"
+                />
+                <SummaryCell
+                  icon="compliance"
+                  label="Controls covered"
+                  value={data.controls.length}
+                  note="Mapped to at least one check"
+                />
+                <SummaryCell
+                  icon="cross"
+                  label="Controls failing"
+                  value={data.controls.filter((control) => control.failed > 0).length}
+                  note="At least one device failed"
+                  tone="var(--sev-critical)"
+                />
+                {/* Beside the other three rather than under them: a control nothing
+                    evaluated is not a control that passed, and the percentage above
+                    deliberately does not count it either way. */}
+                <SummaryCell
+                  icon="clock"
+                  label="Never evaluated"
+                  value={
+                    data.controls.filter(
+                      (control) =>
+                        control.not_evaluated > 0 && control.passed === 0 && control.failed === 0,
+                    ).length
+                  }
+                  note="No device produced a verdict"
+                  tone="var(--sev-medium)"
+                />
+              </div>
+            </section>
+          </div>
 
           <div className="table-wrap">
             <table className="table">

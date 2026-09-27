@@ -23,6 +23,7 @@ import { EstateMapView } from '../features/topology/EstateMapView';
 import { MapNodeDetail } from '../features/topology/MapNodeDetail';
 import { layoutMap, totalFindings } from '../features/topology/mapLayout';
 import type { EstateMap } from '../features/topology/types';
+import { PageHeader } from '../components/PageHeader';
 
 const ALL = '__all__';
 
@@ -93,14 +94,11 @@ export function NetworkMapPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Network map</h1>
-        <p className="page__subtitle">
-          Every device in the inventory, joined where one device&apos;s route points at another
-          one&apos;s interface address. Assembled entirely from stored configuration — nothing is
-          sent, no topology protocol is walked, and no packet leaves this server.
-        </p>
-      </header>
+      <PageHeader
+        icon="map"
+        title="Network map"
+        subtitle="Every device in the inventory, joined where one device's route points at another one's interface address. Assembled entirely from stored configuration — nothing is sent, no topology protocol is walked, and no packet leaves this server."
+      />
 
       <div className="map-stats">
         <Stat label="Devices" value={map.devices} />

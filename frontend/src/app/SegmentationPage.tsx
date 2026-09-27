@@ -19,10 +19,12 @@ import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api, ApiError } from '../api/client';
+import { StackBar, SummaryCell } from '../components/Graphics';
 import { useAuth } from '../features/auth/useAuth';
 import { PolicyEditor } from '../features/segmentation/PolicyEditor';
 import type { Cell, CellStatus, Matrix } from '../features/segmentation/types';
 import { STATUS_LABELS } from '../features/segmentation/types';
+import { PageHeader } from '../components/PageHeader';
 
 const ORDER: CellStatus[] = ['violated', 'unverified', 'upheld'];
 
@@ -116,22 +118,45 @@ function Row({
 
 function Summary({ matrix }: { matrix: Matrix }) {
   return (
-    <div className="card-grid">
-      <div className="stat">
-        <strong>{matrix.violated}</strong>
-        <span>violated</span>
+    <>
+      {/* The bar shows the shape; the cells carry the numbers. `not verified` sits
+          between the two verdicts rather than after them, in its own muted tone,
+          because it is neither — a reader scanning for red takes the absence of it as
+          a pass, and this is the count that says otherwise. */}
+      <StackBar
+        parts={[
+          { label: 'violated', value: matrix.violated, tone: 'var(--sev-critical)' },
+          { label: 'not verified', value: matrix.unverified, tone: 'var(--sev-none)' },
+          { label: 'upheld', value: matrix.upheld, tone: 'var(--sev-low)' },
+        ]}
+      />
+      <div className="summary" style={{ marginTop: 14 }}>
+        <SummaryCell
+          icon="cross"
+          label="Violated"
+          value={matrix.violated}
+          note="The estate does something the policy forbids"
+          tone="var(--sev-critical)"
+        />
+        {/* Worded differently from the row detail on purpose. The sentence "this is
+            not a pass" belongs to the cell a reader has opened and is reading; saying
+            it twice on one screen turns it into wallpaper. */}
+        <SummaryCell
+          icon="clock"
+          label="Unverified pairs"
+          value={matrix.unverified}
+          note="Counted apart from both verdicts, never folded into upheld"
+          tone="var(--sev-none)"
+        />
+        <SummaryCell
+          icon="tick"
+          label="Upheld"
+          value={matrix.upheld}
+          note="Checked by walking a packet, and it holds"
+          tone="var(--sev-low)"
+        />
       </div>
-      {/* Beside the violations, not tucked under them. A reader scanning for red takes
-          the absence of it as a pass, and this is the number that says otherwise. */}
-      <div className="stat">
-        <strong>{matrix.unverified}</strong>
-        <span>not verified</span>
-      </div>
-      <div className="stat">
-        <strong>{matrix.upheld}</strong>
-        <span>upheld</span>
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -173,14 +198,11 @@ export function SegmentationPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Segmentation</h1>
-        <p className="page__subtitle">
-          What the policy says should happen between zones, against what the estate actually does.
-          Each row is checked by tracing a packet across every device on the path, not by searching
-          one firewall&rsquo;s rules.
-        </p>
-      </header>
+      <PageHeader
+        icon="segmentation"
+        title="Segmentation"
+        subtitle="What the policy says should happen between zones, against what the estate actually does. Each row is checked by tracing a packet across every device on the path, not by searching one firewall&rsquo;s rules."
+      />
 
       {matrix.isLoading && <p className="page-loading">Tracing every declared pair…</p>}
 

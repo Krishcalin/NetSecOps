@@ -30,6 +30,9 @@ const ALL = [
   'finding:read',
   'vuln:read',
   'audit:read',
+  'report:read',
+  'snapshot:read',
+  'policy:read',
 ];
 
 let permissions: string[] = ALL;
@@ -49,6 +52,11 @@ vi.mock('../features/auth/useAuth', () => ({
 
 /** Counts keyed by the path each query asks for. */
 let counts: Record<string, number> = {};
+let compliancePercent: number | null = 78.4;
+let segmentationCells: { rule_id: string }[] = [{ rule_id: 'r1' }];
+let recentJobs: { id: string; kind: string; status: string; created_at: string }[] = [
+  { id: 'j1', kind: 'assessment', status: 'succeeded', created_at: '2026-09-20T10:00:00Z' },
+];
 
 function stubApi() {
   vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
@@ -64,6 +72,31 @@ function stubApi() {
     }
     if (path === '/audit-log/verify') {
       return { total: 120, valid: true } as never;
+    }
+    if (path === '/compliance/cis') {
+      return { framework: 'cis', device_count: 42, compliance_percent: compliancePercent } as never;
+    }
+    if (path === '/topology/summary') {
+      return {
+        devices: 42,
+        devices_with_routes: 40,
+        devices_without_route_data: 2,
+        devices_with_rulebase: 6,
+        routes: 900,
+        unmanaged_next_hops: 3,
+      } as never;
+    }
+    if (path === '/segmentation/matrix') {
+      return {
+        cells: segmentationCells,
+        upheld: 4,
+        violated: 1,
+        unverified: 2,
+        limitations: [],
+      } as never;
+    }
+    if (path.startsWith('/jobs?limit=5')) {
+      return { items: recentJobs, meta: { total: recentJobs.length } } as never;
     }
     const total = counts[path] ?? 0;
     return { data: [], meta: { total } } as never;
@@ -94,6 +127,11 @@ describe('DashboardPage', () => {
   beforeEach(() => {
     permissions = ALL;
     counts = { ...POPULATED };
+    compliancePercent = 78.4;
+    segmentationCells = [{ rule_id: 'r1' }];
+    recentJobs = [
+      { id: 'j1', kind: 'assessment', status: 'succeeded', created_at: '2026-09-20T10:00:00Z' },
+    ];
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => ({
@@ -177,6 +215,91 @@ describe('DashboardPage', () => {
     await screen.findByRole('link', { name: /Devices/ });
     expect(screen.queryByRole('link', { name: /Critical findings/ })).toBeNull();
     expect(screen.queryByRole('link', { name: /Known exploited/ })).toBeNull();
+  });
+
+  describe('the graphics', () => {
+    it('draws compliance, which is the only score this product actually has', async () => {
+      renderPage();
+
+      // Not a "posture score" blended out of finding counts. This figure has a
+      // referent — the percentage of CIS checks that were actually decided.
+      expect(await screen.findByText('78%')).toBeInTheDocument();
+      expect(screen.getByText(/neither half/i)).toBeInTheDocument();
+    });
+
+    it('shows a dash rather than nought per cent when nothing has been evaluated', async () => {
+      // The whole page hangs on this distinction. A 0% ring asserts that everything
+      // failed; the truth is that nothing was decided, which is the opposite claim.
+      compliancePercent = null;
+      renderPage();
+
+      // Asserted through the dial's own text alternative rather than by looking for a
+      // dash: unloaded tiles render dashes too, and matching any of them would pass
+      // whatever the dial did.
+      expect(await screen.findByText(/No CIS check has been evaluated yet/)).toBeInTheDocument();
+      expect(screen.queryByText('0%')).toBeNull();
+    });
+
+    it('gives the severity bar a text alternative carrying the counts', async () => {
+      // The bar is the fast path, never the only one: a reader must not have to
+      // estimate a value off a coloured segment (WCAG 1.4.1).
+      renderPage();
+
+      await waitFor(() =>
+        expect(screen.getByRole('img', { name: /5 critical/ })).toBeInTheDocument(),
+      );
+      expect(screen.getByRole('img', { name: /18 high/ })).toBeInTheDocument();
+    });
+
+    it('prints every severity and its count beside the bar', async () => {
+      // The legend is the part that survives greyscale, a colour-blind reader and a
+      // printed board pack. Without it the bar is five widths of colour and nothing
+      // else — which is exactly what the accessible name alone does not fix, because
+      // sighted readers never hear it.
+      const { container } = renderPage();
+      await screen.findByRole('link', { name: /Critical findings/ });
+
+      const legend = await waitFor(() => {
+        const found = container.querySelector('.stackbar__key');
+        expect(found?.textContent).toContain('critical');
+        return found!;
+      });
+      // Visible, not merely present. `textContent` reads straight through `hidden`,
+      // so a legend that had been hidden would satisfy every string assertion below
+      // while showing a sighted reader five bare widths of colour.
+      expect(legend).toBeVisible();
+      for (const word of ['critical', 'high', 'medium', 'low', 'info']) {
+        expect(legend.textContent).toContain(word);
+      }
+      // And the numbers, not just the words: a legend of five labels all reading zero
+      // would pass a word-only assertion while saying nothing.
+      expect(legend.textContent).toContain('5');
+      expect(legend.textContent).toContain('18');
+    });
+
+    it('says outright that unverified segmentation pairs are not passes', async () => {
+      renderPage();
+
+      expect(await screen.findByText(/That is not a pass/)).toBeInTheDocument();
+    });
+
+    it('marks every icon decorative, so nothing is announced twice', async () => {
+      const { container } = renderPage();
+      await screen.findByRole('link', { name: /Critical findings/ });
+
+      const icons = container.querySelectorAll('svg');
+      expect(icons.length).toBeGreaterThan(0);
+      for (const icon of icons) {
+        expect(icon).toHaveAttribute('aria-hidden', 'true');
+      }
+    });
+
+    it('names the estate figures rather than only drawing them', async () => {
+      renderPage();
+
+      expect(await screen.findByText('Unmanaged next hops')).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText('900')).toBeInTheDocument());
+    });
   });
 
   describe('an empty estate', () => {

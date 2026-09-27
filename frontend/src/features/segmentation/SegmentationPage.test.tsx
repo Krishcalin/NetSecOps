@@ -171,8 +171,10 @@ describe('SegmentationPage', () => {
       payload = matrix({ cells: [cell({ status: 'unverified' })], unverified: 3, upheld: 1 });
       renderPage();
 
-      const stat = (await screen.findByText('not verified')).closest('.stat');
-      expect(within(stat as HTMLElement).getByText('3')).toBeInTheDocument();
+      // Its own cell in the summary strip, with the count in it — not a footnote under
+      // the two verdicts, and not only a segment of the bar.
+      const cellEl = (await screen.findByText('Unverified pairs')).closest('.summary__cell');
+      expect(within(cellEl as HTMLElement).getByText('3')).toBeInTheDocument();
     });
   });
 

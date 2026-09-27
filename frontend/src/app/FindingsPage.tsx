@@ -17,6 +17,7 @@ import type { Finding, FindingDetail, FindingStatus, Severity } from '../feature
 import { SETTABLE_STATUSES, STATUS_LABELS } from '../features/findings/types';
 import type { Paginated } from '../features/inventory/types';
 import { useUrlFilters } from './useUrlFilters';
+import { PageHeader } from '../components/PageHeader';
 
 const PAGE_SIZE = 25;
 
@@ -234,13 +235,11 @@ export function FindingsPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Findings</h1>
-        <p className="page__subtitle">
-          What the checks concluded, worst first. Every finding shows the configuration line behind
-          it.
-        </p>
-      </header>
+      <PageHeader
+        icon="finding"
+        title="Findings"
+        subtitle="What the checks concluded, worst first. Every finding shows the configuration line behind it."
+      />
 
       <div className="toolbar">
         <select

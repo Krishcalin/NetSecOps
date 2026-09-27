@@ -39,6 +39,7 @@ import type {
 } from '../features/checks/types';
 import { SEVERITY_ORDER, OUTCOME_LABELS } from '../features/checks/types';
 import type { Device, Paginated } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 /** Seeded into the draft editor. Deliberately a complete, runnable check rather than an
  *  empty object: the fastest way to learn the shape is to run one and change it. */
@@ -611,13 +612,11 @@ export function ChecksPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Checks</h1>
-        <p className="page__subtitle">
-          What NetSecOps asserts about a configuration, what it looks at to decide, and how to add
-          one of your own.
-        </p>
-      </header>
+      <PageHeader
+        icon="check"
+        title="Checks"
+        subtitle="What NetSecOps asserts about a configuration, what it looks at to decide, and how to add one of your own."
+      />
 
       <CheckLibrary devices={deviceRows} />
       <EstateQuery />

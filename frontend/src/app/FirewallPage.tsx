@@ -20,6 +20,7 @@ import type {
   RuleQueryResponse,
 } from '../features/firewall/types';
 import type { DeviceDetail, Paginated } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 interface Filters {
   search: string;
@@ -334,12 +335,11 @@ export function FirewallPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Firewall analysis</h1>
-        <p className="page__subtitle">
-          Rule relationships, policy problems and NAT exposure, shown in evaluation order.
-        </p>
-      </header>
+      <PageHeader
+        icon="firewall"
+        title="Firewall analysis"
+        subtitle="Rule relationships, policy problems and NAT exposure, shown in evaluation order."
+      />
 
       {!routeDeviceId && (
         <section className="card">

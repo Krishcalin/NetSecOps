@@ -17,6 +17,7 @@ import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { MFAEnrolment } from '../features/auth/types';
 import type { ApiToken, IssuedApiToken } from '../features/users/types';
+import { PageHeader } from '../components/PageHeader';
 
 /** FR-AUTH-07 — issue and revoke tokens for your own account.
  *
@@ -275,10 +276,7 @@ export function ProfilePage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Your profile</h1>
-        <p className="page__subtitle">{user?.email}</p>
-      </header>
+      <PageHeader icon="users" title="Your profile" subtitle={user?.email} />
 
       <div className="card-grid">
         <section className="card">

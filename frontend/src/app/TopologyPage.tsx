@@ -23,6 +23,7 @@ import { api, ApiError } from '../api/client';
 import { PathDiagram } from '../features/topology/PathDiagram';
 import type { MissingDevice, PathResult, TopologySummary } from '../features/topology/types';
 import { POLICY_LABELS, ROUTING_LABELS } from '../features/topology/types';
+import { PageHeader } from '../components/PageHeader';
 
 function Verdict({
   heading,
@@ -224,14 +225,18 @@ export function TopologyPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Path analysis</h1>
-        <p className="page__subtitle">
-          Can this host reach that one, and what decides. Traced across the stored configurations of
-          every device in the inventory — nothing is sent, and no packet leaves this server. To see
-          what is out there before asking, open the <Link to="/topology/map">network map</Link>.
-        </p>
-      </header>
+      <PageHeader
+        icon="path"
+        title="Path analysis"
+        subtitle={
+          <>
+            Can this host reach that one, and what decides. Traced across the stored configurations
+            of every device in the inventory — nothing is sent, and no packet leaves this server. To
+            see what is out there before asking, open the{' '}
+            <Link to="/topology/map">network map</Link>.
+          </>
+        }
+      />
 
       {stats && stats.devices_without_route_data > 0 && (
         <div className="alert alert--info" role="note">

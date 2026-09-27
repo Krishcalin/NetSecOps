@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 
 import { api } from '../api/client';
+import { PageHeader } from '../components/PageHeader';
 
 interface AuditEntry {
   id: number;
@@ -48,13 +49,11 @@ export function AuditLogPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Audit log</h1>
-        <p className="page__subtitle">
-          Append-only and hash-chained. Every privileged action and every command sent to a device
-          is recorded here.
-        </p>
-      </header>
+      <PageHeader
+        icon="audit"
+        title="Audit log"
+        subtitle="Append-only and hash-chained. Every privileged action and every command sent to a device is recorded here."
+      />
 
       {verification.data && (
         <div

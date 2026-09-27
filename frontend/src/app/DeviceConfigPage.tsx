@@ -15,6 +15,7 @@ import { ConfigViewer } from '../features/snapshots/ConfigViewer';
 import { DiffViewer } from '../features/snapshots/DiffViewer';
 import { EvidencePanel } from '../features/snapshots/EvidencePanel';
 import type { DeviceDetail, Paginated } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 import type {
   ConfigDiff,
   ConfigUploadResponse,
@@ -149,13 +150,16 @@ export function DeviceConfigPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>{device.data?.hostname || device.data?.mgmt_ip || 'Device'} — configuration</h1>
-        <p className="page__subtitle">
-          Snapshots are stored with secrets redacted. Identical configurations are kept once.{' '}
-          <Link to="/inventory">Back to inventory</Link>
-        </p>
-      </header>
+      <PageHeader
+        icon="device"
+        title={<>{device.data?.hostname || device.data?.mgmt_ip || 'Device'} — configuration</>}
+        subtitle={
+          <>
+            Snapshots are stored with secrets redacted. Identical configurations are kept once.{' '}
+            <Link to="/inventory">Back to inventory</Link>
+          </>
+        }
+      />
 
       {drift.data && <DriftBanner drift={drift.data} />}
 

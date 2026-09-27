@@ -24,6 +24,7 @@ import type {
   PlatformSetting,
 } from '../features/settings/types';
 import { CHANNEL_LABELS, SECRET_HINTS, STATUS_TONE } from '../features/settings/types';
+import { PageHeader } from '../components/PageHeader';
 
 const CHANNELS = '/notifications/channels';
 const DELIVERIES = '/notifications/deliveries';
@@ -113,13 +114,11 @@ export function SettingsPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Settings</h1>
-        <p className="page__subtitle">
-          Where notifications go, and the platform values that are neither environment configuration
-          nor per-device state.
-        </p>
-      </header>
+      <PageHeader
+        icon="settings"
+        title="Settings"
+        subtitle="Where notifications go, and the platform values that are neither environment configuration nor per-device state."
+      />
 
       {error && (
         <div className="alert alert--error" role="alert">

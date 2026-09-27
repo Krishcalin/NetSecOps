@@ -254,10 +254,14 @@ describe('VulnerabilitiesPage', () => {
   describe('never-assessed devices are stated, not omitted', () => {
     it('counts them beside the findings count', async () => {
       renderPage();
-      await screen.findByText('devices never assessed');
+      await screen.findByText('Never assessed');
 
-      const stat = screen.getByText('devices never assessed').closest('div');
+      // The cell carries the caveat on its own line now, rather than folding it into
+      // the label — but the assertion is the same one: the count is beside the
+      // findings count, not in a footnote under it.
+      const stat = screen.getByText('Never assessed').closest('.summary__cell');
       expect(within(stat as HTMLElement).getByText('4')).toBeInTheDocument();
+      expect(within(stat as HTMLElement).getByText(/not devices found clean/i)).toBeInTheDocument();
     });
 
     it('warns that their absence from the table is not an all-clear', async () => {

@@ -38,6 +38,8 @@ import {
 } from '../features/vulnerabilities/types';
 import type { Paginated } from '../features/inventory/types';
 import { useUrlFilters } from './useUrlFilters';
+import { PageHeader } from '../components/PageHeader';
+import { StackBar, SummaryCell } from '../components/Graphics';
 
 const PAGE_SIZE = 25;
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'];
@@ -104,32 +106,68 @@ function ConfidenceBadge({ confidence }: { confidence: Vulnerability['confidence
   );
 }
 
+/** The severity order the bar is drawn in, worst first. */
+const SEVERITY_BANDS = [
+  { key: 'critical', tone: 'var(--sev-critical)' },
+  { key: 'high', tone: 'var(--sev-high)' },
+  { key: 'medium', tone: 'var(--sev-medium)' },
+  { key: 'low', tone: 'var(--sev-low)' },
+] as const;
+
 function SummaryStrip({ summary }: { summary: VulnerabilitySummary }) {
+  const bands = SEVERITY_BANDS.map((band) => ({
+    label: band.key,
+    value: summary.by_severity[band.key] ?? 0,
+    tone: band.tone,
+  }));
+  const banded = bands.reduce((sum, band) => sum + band.value, 0);
+
   return (
-    <div className="summary-strip">
-      <div className="summary-stat">
-        <span className="summary-stat__value">{summary.total.toLocaleString()}</span>
-        <span className="summary-stat__label">open vulnerability findings</span>
-      </div>
-      <div className="summary-stat">
-        <span className="summary-stat__value">{summary.kev_count.toLocaleString()}</span>
-        <span className="summary-stat__label">known exploited</span>
-      </div>
-      <div className="summary-stat">
-        <span className="summary-stat__value">{summary.devices_affected.toLocaleString()}</span>
-        <span className="summary-stat__label">devices affected</span>
-      </div>
-      {/* Deliberately beside the others rather than in a footnote: an empty table with a
+    <>
+      {/* `by_severity` has been in this payload since the endpoint shipped and the
+          page never drew it — the strip counted everything and said nothing about the
+          shape of it. */}
+      {banded > 0 && (
+        <section className="card">
+          <div className="card__header">
+            <h2 className="card__title">Open findings by severity</h2>
+          </div>
+          <StackBar parts={bands} />
+        </section>
+      )}
+
+      <div className="summary">
+        <SummaryCell
+          icon="vulnerability"
+          label="Open findings"
+          value={summary.total}
+          note="Matched to a device and not suppressed"
+        />
+        <SummaryCell
+          icon="alert"
+          label="Known exploited"
+          value={summary.kev_count}
+          note="In the CISA KEV catalogue"
+          tone="var(--sev-critical)"
+        />
+        <SummaryCell
+          icon="device"
+          label="Devices affected"
+          value={summary.devices_affected}
+          note="Carrying at least one match"
+          tone="var(--sev-high)"
+        />
+        {/* Deliberately beside the others rather than in a footnote: an empty table with a
           non-zero count here is not good news. */}
-      <div
-        className={
-          summary.devices_unassessed > 0 ? 'summary-stat summary-stat--warn' : 'summary-stat'
-        }
-      >
-        <span className="summary-stat__value">{summary.devices_unassessed.toLocaleString()}</span>
-        <span className="summary-stat__label">devices never assessed</span>
+        <SummaryCell
+          icon="clock"
+          label="Never assessed"
+          value={summary.devices_unassessed}
+          note="No assessment on record — not devices found clean"
+          tone={summary.devices_unassessed > 0 ? 'var(--sev-medium)' : undefined}
+        />
       </div>
-    </div>
+    </>
   );
 }
 
@@ -792,13 +830,11 @@ export function VulnerabilitiesPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Vulnerabilities</h1>
-        <p className="page__subtitle">
-          Derived from the software versions in each device&rsquo;s collected configuration — no
-          scanner licence, no credentialed scan, no reachability to the device.
-        </p>
-      </header>
+      <PageHeader
+        icon="vulnerability"
+        title="Vulnerabilities"
+        subtitle="Derived from the software versions in each device&rsquo;s collected configuration — no scanner licence, no credentialed scan, no reachability to the device."
+      />
 
       {summary.data && <SummaryStrip summary={summary.data} />}
 

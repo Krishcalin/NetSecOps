@@ -24,6 +24,7 @@ import { CertificateTimeline } from '../features/aaa/CertificateTimeline';
 import { describeTriState } from '../features/aaa/types';
 import type { AaaPosture, Correlation } from '../features/aaa/types';
 import { useAuth } from '../features/auth/useAuth';
+import { PageHeader } from '../components/PageHeader';
 
 function Coverage({ posture }: { posture: AaaPosture }) {
   const { coverage_percentage: percentage } = posture;
@@ -339,13 +340,11 @@ export function AaaPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>AAA posture</h1>
-        <p className="page__subtitle">
-          Who authenticates where, what the servers will accept, and which certificates stop working
-          soon.
-        </p>
-      </header>
+      <PageHeader
+        icon="aaa"
+        title="AAA posture"
+        subtitle="Who authenticates where, what the servers will accept, and which certificates stop working soon."
+      />
 
       {posture.isError && (
         <p className="alert alert--error" role="alert">

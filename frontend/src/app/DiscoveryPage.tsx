@@ -28,6 +28,7 @@ import { ApiError } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { DiscoveredHost, DiscoveryRun, DiscoveryScope } from '../features/discovery/types';
 import { SIGNAL_LABELS, confidenceBand } from '../features/discovery/types';
+import { PageHeader } from '../components/PageHeader';
 
 interface PendingResponse {
   data: DiscoveredHost[];
@@ -429,14 +430,11 @@ export function DiscoveryPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Discovery</h1>
-        <p className="page__subtitle">
-          Reachability and fingerprinting only — ICMP, a short TCP connect list, an SSH banner, a
-          TLS certificate and optionally one SNMP OID. No port sweep, no exploitation, no credential
-          guessing.
-        </p>
-      </header>
+      <PageHeader
+        icon="discovery"
+        title="Discovery"
+        subtitle="Reachability and fingerprinting only — ICMP, a short TCP connect list, an SSH banner, a TLS certificate and optionally one SNMP OID. No port sweep, no exploitation, no credential guessing."
+      />
 
       <div className="alert alert--info" role="note">
         Every run is paced (FR-DISC-05). A scope's rate is a ceiling on how often a host is

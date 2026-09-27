@@ -32,6 +32,7 @@ import type {
   ReportTemplate,
 } from '../features/reports/types';
 import type { ReportFormat } from '../features/reports/types';
+import { PageHeader } from '../components/PageHeader';
 import {
   NEEDS_FRAMEWORK,
   REQUIRED_PARAMETER,
@@ -409,14 +410,11 @@ export function ReportsPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Reports</h1>
-        <p className="page__subtitle">
-          Dated evidence, not a live view. Each report is frozen at the moment it was generated and
-          is never recalculated, so it can still answer &ldquo;what did you know on 31 March&rdquo;
-          in September.
-        </p>
-      </header>
+      <PageHeader
+        icon="report"
+        title="Reports"
+        subtitle="Dated evidence, not a live view. Each report is frozen at the moment it was generated and is never recalculated, so it can still answer &ldquo;what did you know on 31 March&rdquo; in September."
+      />
 
       {templates.data && <GeneratePanel templates={templates.data} reports={rows} />}
 

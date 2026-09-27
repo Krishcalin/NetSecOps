@@ -23,6 +23,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { DeviceGroup } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 /** Mirrors `JobType`. Only the types that make sense as standing work are offered —
  *  `credential_test` and `vuln_rematch` are things somebody does deliberately, once. */
@@ -276,13 +277,11 @@ export function SchedulesPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Schedules</h1>
-        <p className="page__subtitle">
-          Work that runs unattended. Without one, every assessment is something somebody remembered
-          to start.
-        </p>
-      </header>
+      <PageHeader
+        icon="schedule"
+        title="Schedules"
+        subtitle="Work that runs unattended. Without one, every assessment is something somebody remembered to start."
+      />
 
       {error && (
         <div className="alert alert--error" role="alert">

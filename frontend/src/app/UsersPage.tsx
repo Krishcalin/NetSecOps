@@ -31,6 +31,7 @@ import { ROLE_LABELS } from '../features/auth/types';
 import type { Role } from '../features/auth/types';
 import type { RoleInfo, User } from '../features/users/types';
 import type { DeviceGroup, Paginated } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 /** Roles whose visibility is not narrowed by Device Group scope.
  *
@@ -467,12 +468,11 @@ export function UsersPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Users</h1>
-        <p className="page__subtitle">
-          Who can sign in, what their role lets them do, and which devices they can see.
-        </p>
-      </header>
+      <PageHeader
+        icon="users"
+        title="Users"
+        subtitle="Who can sign in, what their role lets them do, and which devices they can see."
+      />
 
       {error && (
         <div className="alert alert--error" role="alert">

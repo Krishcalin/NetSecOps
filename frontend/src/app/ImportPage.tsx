@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { ApiError, request } from '../api/client';
 import type { ImportPreview } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 const SAMPLE = `mgmt_ip,hostname,vendor,platform,site,groups,tags
 10.0.0.1,core-sw-01,cisco,cisco_ios,HQ,Core|Access,dmz
@@ -60,12 +61,11 @@ export function ImportPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Import devices</h1>
-        <p className="page__subtitle">
-          Upload a CSV. Nothing is written until you review the preview and confirm.
-        </p>
-      </header>
+      <PageHeader
+        icon="inventory"
+        title="Import devices"
+        subtitle="Upload a CSV. Nothing is written until you review the preview and confirm."
+      />
 
       {error && (
         <div className="alert alert--error" role="alert">

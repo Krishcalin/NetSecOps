@@ -27,6 +27,7 @@ import { Link } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { DeviceGroup, Site } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 interface Tag {
   id: string;
@@ -346,13 +347,16 @@ export function OrganisationPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Sites, groups and tags</h1>
-        <p className="page__subtitle">
-          How the estate is divided up. Device Groups are what user scope, policy assignment and
-          schedules are all expressed in. <Link to="/inventory">Back to inventory</Link>
-        </p>
-      </header>
+      <PageHeader
+        icon="inventory"
+        title="Sites, groups and tags"
+        subtitle={
+          <>
+            How the estate is divided up. Device Groups are what user scope, policy assignment and
+            schedules are all expressed in. <Link to="/inventory">Back to inventory</Link>
+          </>
+        }
+      />
 
       <Groups canWrite={canWrite} />
       <Sites canWrite={canWrite} />

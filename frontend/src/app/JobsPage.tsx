@@ -16,6 +16,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { Job, JobDetail, JobStatus, Paginated } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 const PAGE_SIZE = 25;
 
@@ -97,12 +98,11 @@ export function JobsPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Assessments</h1>
-        <p className="page__subtitle">
-          Every run, with per-device outcomes. Commands issued are in the audit log.
-        </p>
-      </header>
+      <PageHeader
+        icon="assessment"
+        title="Assessments"
+        subtitle="Every run, with per-device outcomes. Commands issued are in the audit log."
+      />
 
       {error && (
         <div className="alert alert--error" role="alert">

@@ -26,6 +26,7 @@ import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { CheckSummary, Exception, ExceptionScope } from '../features/checks/types';
 import type { Device, DeviceGroup, Paginated } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 const SCOPES: { value: ExceptionScope; label: string; note: string }[] = [
   {
@@ -308,12 +309,11 @@ export function ExceptionsPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Exceptions</h1>
-        <p className="page__subtitle">
-          Risks this organisation has accepted on purpose — what, where, who agreed, and until when.
-        </p>
-      </header>
+      <PageHeader
+        icon="exception"
+        title="Exceptions"
+        subtitle="Risks this organisation has accepted on purpose — what, where, who agreed, and until when."
+      />
 
       {error && (
         <div className="alert alert--error" role="alert">

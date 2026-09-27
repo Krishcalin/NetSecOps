@@ -18,6 +18,7 @@ import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { Device, DeviceGroup, Paginated, PendingDevice } from '../features/inventory/types';
 import { VENDOR_LABELS } from '../features/inventory/types';
+import { PageHeader } from '../components/PageHeader';
 
 const PAGE_SIZE = 25;
 
@@ -163,12 +164,11 @@ export function InventoryPage() {
 
   return (
     <div className="page">
-      <header className="page__header">
-        <h1>Inventory</h1>
-        <p className="page__subtitle">
-          Devices you have access to. NetSecOps reads from these and never writes to them.
-        </p>
-      </header>
+      <PageHeader
+        icon="inventory"
+        title="Inventory"
+        subtitle="Devices you have access to. NetSecOps reads from these and never writes to them."
+      />
 
       <div className="toolbar">
         <label className="field field--inline">
