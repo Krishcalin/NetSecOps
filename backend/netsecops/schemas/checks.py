@@ -378,6 +378,34 @@ class FrameworkSummary(BaseModel):
     checks: int
 
 
+class FrameworkPosture(BaseModel):
+    """Where one framework stands, without its control table (FR-CHK-05).
+
+    The overview row behind the compliance page's card grid. It exists so the page can
+    show every framework at once: the alternative was six full pivots on load, one per
+    framework, each re-aggregating the same result rows — and a picker that showed one
+    framework at a time, which meant five mappings the product has and nobody looks at.
+    """
+
+    key: str
+    #: Checks in the library mapped to this framework. A framework reached by 13 checks
+    #: and one reached by 103 support very different claims.
+    checks: int
+    #: Controls those checks map to — **the denominator is ours, not the framework's**.
+    #: CIS has far more controls than a configuration read can be evidence about, and
+    #: only the ones this library maps are counted.
+    controls: int
+    controls_failing: int
+    #: Controls where nothing produced a verdict. Not passing, and deliberately not
+    #: folded into either half of the percentage.
+    controls_unevaluated: int
+    device_count: int
+    #: Share of *control* verdicts that passed, not of check runs — a check mapped to
+    #: two controls contributes its result to both, because it satisfies or fails both.
+    #: Not Applicable and Not Evaluated are in neither half.
+    compliance_percent: int | None
+
+
 class ComplianceRead(BaseModel):
     """A compliance view pivoted by framework (FR-CHK-05)."""
 

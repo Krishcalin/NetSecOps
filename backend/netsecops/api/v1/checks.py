@@ -41,6 +41,7 @@ from netsecops.schemas.checks import (
     FindingTrendRead,
     FindingUpdate,
     FrameworkControl,
+    FrameworkPosture,
     FrameworkSummary,
     PaginatedFindings,
     PolicyAssign,
@@ -923,6 +924,104 @@ async def list_frameworks() -> list[FrameworkSummary]:
         FrameworkSummary(key=name, checks=len(registry.by_framework(name)))
         for name in sorted(registry.frameworks())
     ]
+
+
+@router.get(
+    "/compliance/posture",
+    response_model=list[FrameworkPosture],
+    dependencies=[Depends(require(Permission.REPORT_READ))],
+    summary="Where every framework stands, in one request (FR-CHK-05)",
+)
+async def compliance_posture(session: SessionDep) -> list[FrameworkPosture]:
+    """Every framework's headline numbers, from one pass over the results.
+
+    The compliance page shows all of them at once, and the obvious way to build that
+    is one `/compliance/{framework}` per card — six pivots, each re-aggregating the
+    same `check_results` rows, to draw six cards. This aggregates once and folds the
+    tally into whichever frameworks each check belongs to, which is cheap because a
+    check maps to several and the grouping is the expensive half.
+
+    The control tables are not here. A card fetches its own when somebody opens it,
+    so the common case — arriving, reading six figures, leaving — costs one query
+    rather than six pivots over every control in the library.
+    """
+    registry = get_registry()
+    frameworks = sorted(registry.frameworks())
+
+    rows = (
+        (
+            await session.execute(
+                select(CheckResult.check_id, CheckResult.outcome, func.count().label("n")).group_by(
+                    CheckResult.check_id, CheckResult.outcome
+                )
+            )
+        )
+        .tuples()
+        .all()
+    )
+    tally: dict[str, dict[str, int]] = {}
+    for check_id, outcome, count in rows:
+        tally.setdefault(check_id, {})[outcome] = count
+
+    device_rows = (
+        (
+            await session.execute(
+                select(
+                    CheckResult.check_id, func.count(func.distinct(CheckResult.device_id))
+                ).group_by(CheckResult.check_id)
+            )
+        )
+        .tuples()
+        .all()
+    )
+    devices_by_check = dict(device_rows)
+
+    posture: list[FrameworkPosture] = []
+    for name in frameworks:
+        mapped = registry.by_framework(name)
+
+        by_control: dict[str, list[str]] = {}
+        for definition in mapped:
+            for control in definition.references.frameworks().get(name, []):
+                by_control.setdefault(control, []).append(definition.id)
+
+        failing = unevaluated = 0
+        total_pass = total_decided = 0
+        for ids in by_control.values():
+            passed = sum(tally.get(i, {}).get(Outcome.PASS.value, 0) for i in ids)
+            failed = sum(tally.get(i, {}).get(Outcome.FAIL.value, 0) for i in ids)
+            skipped = sum(tally.get(i, {}).get(Outcome.NOT_EVALUATED.value, 0) for i in ids)
+
+            if failed:
+                failing += 1
+            # Nothing decided it either way. Counted separately rather than as a pass,
+            # which is the same rule the percentage below follows.
+            elif not passed and skipped:
+                unevaluated += 1
+
+            total_pass += passed
+            total_decided += passed + failed
+
+        posture.append(
+            FrameworkPosture(
+                key=name,
+                checks=len(mapped),
+                controls=len(by_control),
+                controls_failing=failing,
+                controls_unevaluated=unevaluated,
+                # The devices that produced a verdict against *any* check in this
+                # framework, not the size of the estate.
+                device_count=max(
+                    (devices_by_check.get(d.id, 0) for d in mapped),
+                    default=0,
+                ),
+                compliance_percent=(
+                    round(total_pass / total_decided * 100) if total_decided else None
+                ),
+            )
+        )
+
+    return posture
 
 
 @router.get(

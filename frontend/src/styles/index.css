@@ -565,6 +565,15 @@ a {
   margin: 4px 0 0;
 }
 
+/* A sentence of orientation between the header and the content — what the page is
+   about to show, counted. Distinct from the subtitle, which describes the page and
+   does not change with the data. */
+.page__lede {
+  margin: 0 0 var(--gap);
+  color: var(--text-muted);
+  max-width: 78ch;
+}
+
 .page-loading {
   color: var(--text-muted);
   padding: 40px 32px;
@@ -822,6 +831,14 @@ a {
 /* Opt back out where a line break would be a lie about the value: a timestamp split
    across two lines reads as two values, and so does an IP address. */
 .table .nowrap {
+  white-space: nowrap;
+}
+
+/* A column of figures. Right-aligned so the digits line up on their units, and
+   tabular so they do not shift about between rows as the widths change. */
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
@@ -1269,6 +1286,17 @@ code {
 
 .text-error {
   color: var(--error);
+}
+
+.text-warn {
+  color: var(--warn);
+}
+
+/* The quietest text weight, for a value that is present and is not the point: an
+   em-dash standing in for a zero, a count of things nobody evaluated. Distinct from
+   `.muted`, which is italic and reads as an aside rather than as a number. */
+.faint {
+  color: var(--text-faint);
 }
 
 .finding__description {
@@ -2964,6 +2992,148 @@ code {
   margin: 0;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+/* ──────────────────────── compliance: one card per framework ─────────────── */
+
+/* Every framework the library maps, side by side. The page used to open on one and
+   hide the rest behind a `<select>`, which made five real mappings invisible. 380px
+   is the width at which a card's figure row still fits on one line. */
+.frameworks {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
+  gap: var(--gap);
+  align-items: start;
+}
+
+.framework {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 16px 18px 14px;
+}
+
+.framework__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px 16px;
+  flex-wrap: wrap;
+}
+
+.framework__identity {
+  min-width: 0;
+}
+
+.framework__name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.framework__scope,
+.framework__percent-note {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.framework__score {
+  text-align: right;
+  flex: none;
+}
+
+.framework__percent {
+  display: block;
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Three figures under the headline, each with its name. Nothing on this page is
+   coloured without also being counted (WCAG 1.4.1). */
+.framework__figures {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.framework__figures > div {
+  min-width: 0;
+}
+
+.framework__figures dt {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-faint);
+}
+
+.framework__figures dd {
+  margin: 2px 0 0;
+  font-size: 17px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.framework__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.framework__toggle:hover:not(:disabled) {
+  text-decoration: underline;
+}
+
+.framework__toggle:disabled {
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.framework__toggle svg {
+  transition: transform 120ms ease;
+}
+
+.framework__toggle--open svg {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .framework__toggle svg {
+    transition: none;
+  }
+}
+
+.framework .table-wrap {
+  margin-top: 12px;
+  box-shadow: none;
+}
+
+/* A control nothing evaluated, drawn so a reader cannot scan past it as clean. The
+   row it replaced read `0 / 0 / 650` and sat directly under controls that genuinely
+   passed, identical in weight to every one of them. */
+.control--unevaluated td {
+  background: var(--surface-muted);
+  border-bottom-style: dashed;
+}
+
+.control__checks {
+  font-size: 12.5px;
+  color: var(--text-muted);
 }
 
 .stackbar {

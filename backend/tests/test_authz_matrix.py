@@ -334,6 +334,9 @@ MATRIX: list[Case] = [
     Case("GET", "/api/v1/devices/{device_id}/risk", _DEVICE_READERS),
     Case("GET", "/api/v1/devices/{device_id}/risk/history", _DEVICE_READERS),
     Case("GET", "/api/v1/compliance/frameworks", _DEVICE_READERS),
+    # Declared before "/compliance/{framework}" in the router for the same reason the
+    # frameworks list is: otherwise "posture" is matched as a framework name.
+    Case("GET", "/api/v1/compliance/posture", _DEVICE_READERS),
     Case("GET", "/api/v1/compliance/{framework}", _DEVICE_READERS),
     # ── Exceptions (FR-CHK-07) ──────────────────────────────────────────────
     Case("GET", "/api/v1/exceptions", _CHECK_READERS),
