@@ -1,6 +1,6 @@
 # API reachability
 
-**151 operations are published. The console requests 135 of them. 16 it never requests.**
+**151 operations are published. The console requests 140 of them. 11 it never requests.**
 
 Re-measured 2026-09-27. The published count has risen by ten since the last measure —
 estate-wide rulebase search, rule permissiveness, segmentation intent, the network map,
@@ -8,15 +8,22 @@ estate-wide rulebase search, rule permissiveness, segmentation intent, the netwo
 to undo a zone somebody created by mistake, and `GET /findings/summary`, which replaced
 the five `limit=1` counts the dashboard was making to draw one bar.
 
-The unreferenced count is back to the sixteen triaged below. It briefly rose to
-twenty-one: segmentation's five zone and rule operations had no surface, so the page
-evaluated a policy that could only be written through the API and read as permanently
-empty on any console-only deployment. That is closed — the Segmentation page now
+The unreferenced count is eleven, down from the sixteen triaged below. Two clusters
+closed since that triage, both the same shape — capability with no surface, which on a
+console-only deployment is indistinguishable from capability that does not exist.
+
+Segmentation's five zone and rule operations: the page evaluated a policy that could
+only be written through the API, so it read as permanently empty. Closed; the page now
 declares and withdraws both.
 
+Notifications' five channel-edit and subscription operations: a channel could be
+created, tested and shown healthy while nothing was subscribed to it, and the page
+said nothing about why no alert ever arrived. Closed; Settings now edits and removes a
+channel, lists subscriptions, and warns outright when an enabled channel has none.
+
 **Every area of the API now has a page.** The original finding — thirty-two operations in
-areas the console could not reach at all — is closed. What remains is fourteen operations
-on pages that exist but do not call them, plus `GET /metrics` and `GET /readyz`, which are
+areas the console could not reach at all — is closed. What remains is nine operations on
+pages that exist but do not call them, plus `GET /metrics` and `GET /readyz`, which are
 correctly machine-only.
 
 Measured 2026-09-21 against the OpenAPI schema `create_app()` produces and every `.ts`
@@ -128,6 +135,8 @@ Closed. Every area of the API has a page.
 | `POST /jobs/{id}/rerun-failed` | Re-run failed on the same row, when a device failed. |
 | `POST /vulnerabilities/feeds/import` | Bundle upload in the feed panel, with digest, vendor and product. |
 | `POST /vulnerabilities/feeds/sync` | Sync from publishers, in the same panel. |
+| The 5 `/segmentation` zone and rule operations, plus a new `DELETE …/zones/{id}` | The Segmentation page declares and withdraws both. Removing a zone an intent names is refused rather than cascading — both foreign keys do, and the database would take a dozen requirements along with the tidy-up. |
+| 5 × `/notifications` channel edit/delete and subscriptions | Settings edits, enables and removes a channel, and lists what each one is told. It also warns when an enabled channel has no subscription: configured, healthy and silent is a state the health column cannot show. |
 | The 8 `/credentials` operations, plus a new `GET …/assignments` | A Credentials page: store, list, assign to a device or group, revoke, test against a chosen device, delete. |
 | The 8 `/users` operations, plus `GET /auth/roles` | A Users page: create, search, roles, Device Group scope, password reset, deactivate, delete. The role picker is built from the served catalogue rather than a list in the browser. |
 | The 3 `/api-tokens` operations | On the profile page, not an admin one: the server classes them as self-service, and a token carries a subset of *your* permissions. The scope picker offers exactly those. |
@@ -144,15 +153,14 @@ Closed. Every area of the API has a page.
 | `DELETE /discovery/scopes/{id}` | Remove on each scope row, asked for twice. A scope is the permission to probe a range; deleting one is how you stop probing what turned out not to be yours, and doing it by accident destroys the record of what was agreed. |
 | `GET /discovery/pending/{host_id}` | The review panel re-reads the host as it opens rather than trusting the row the list was built from. The list is a snapshot of whenever it loaded, and what is decided here is the device's *platform* — which selects the collection profile and with it the command allow-list. |
 
-### A page exists but does not use the operation — 14 · `surface`
+### A page exists but does not use the operation — 6 rows, 9 operations · `surface`
 
-Ordered by how much the absence costs. The count is of rows, several of which cover a
-group of operations; the totals at the top of this document are of operations.
+Ordered by how much the absence costs. Rows, not operations: several cover a group.
+The totals at the top of this document count operations.
 
 | Operation | Page | Cost of the gap |
 |---|---|---|
 | `GET /jobs/{id}/progress` | Jobs | Live progress. Low value while the list already refreshes every five seconds. |
-| 5 × `/notifications` channel edit/delete, subscriptions | Settings | Settings creates channels, tests them and requeues dead deliveries, but a channel cannot be edited or removed and subscriptions have no surface at all — so who gets told what is API-only. |
 | `GET /devices/{id}/checks`, `/risk` | Device config | Per-device check results and risk score. |
 | `POST /devices/{id}/children/preview`, `/import` | Inventory | Managed-device import from a manager. |
 | `GET /audit-log/export` | Audit log | Export button. |

@@ -15,6 +15,25 @@ export interface NotificationChannel {
   last_error: string | null;
 }
 
+/** The events a person can be notified about, mirroring `integrations/events.py`.
+ *
+ *  `audit` is deliberately absent. It exists in the backend's vocabulary for the
+ *  SIEM feed, which wants the whole audit trail — but FR-INT-01 notifies a *person*,
+ *  and offering "every audit record" as something to be paged about would turn a
+ *  login failure into an interruption. Subscribing to it is not a thing this form
+ *  should make easy. */
+export const EVENT_LABELS: Record<string, string> = {
+  'job.completed': 'Assessment finished',
+  'job.failed': 'Assessment failed',
+  'finding.opened': 'New critical or high finding',
+  'vuln.kev_matched': 'Known-exploited CVE matched',
+  'drift.detected': 'Configuration drift',
+  'device.identity_changed': 'Device identity changed',
+  'credential.failed': 'Credential failed',
+  'feed.sync_failed': 'Feed sync failed',
+  'exception.expiring': 'Exception about to expire',
+};
+
 export interface NotificationSubscription {
   id: string;
   channel_id: string;

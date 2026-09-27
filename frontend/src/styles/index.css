@@ -3059,3 +3059,25 @@ code {
   height: 26px;
   border-radius: 7px;
 }
+
+/* A grid of checkboxes inside a fieldset — the event picker on Settings. Wraps to a
+   single column at phone width rather than squeezing three unreadable ones. */
+.checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 2px 14px;
+  margin: 2px 0 4px;
+}
+
+.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.checkbox input {
+  flex: none;
+  margin: 0;
+}

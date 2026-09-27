@@ -21,13 +21,20 @@ import type {
   ChannelKind,
   NotificationChannel,
   NotificationDelivery,
+  NotificationSubscription,
   PlatformSetting,
 } from '../features/settings/types';
-import { CHANNEL_LABELS, SECRET_HINTS, STATUS_TONE } from '../features/settings/types';
+import {
+  CHANNEL_LABELS,
+  EVENT_LABELS,
+  SECRET_HINTS,
+  STATUS_TONE,
+} from '../features/settings/types';
 import { PageHeader } from '../components/PageHeader';
 
 const CHANNELS = '/notifications/channels';
 const DELIVERIES = '/notifications/deliveries';
+const SUBSCRIPTIONS = '/notifications/subscriptions';
 const SETTINGS = '/settings';
 
 function describe(error: unknown): string {
@@ -48,6 +55,204 @@ function ChannelHealth({ channel }: { channel: NotificationChannel }) {
     return <span className="badge badge--success">delivering</span>;
   }
   return <span className="badge">not used yet</span>;
+}
+
+/** Which events reach which channel (FR-INT-01).
+ *
+ * A channel with no subscription is wired up, healthy, tested — and silent. That is
+ * the state this panel exists to make visible: until now the subscription endpoints
+ * had no surface at all, so on a console-only deployment every channel was in it and
+ * the page above said nothing about why nothing arrived.
+ *
+ * **The severity floor is a floor, not a filter.** `min_severity: medium` means
+ * medium and worse, so a subscription to `finding.opened` at that level will not
+ * carry an informational one. The form says so rather than leaving somebody to
+ * discover it from an alert that never came.
+ */
+function SubscriptionsPanel({
+  channels,
+  onError,
+}: {
+  channels: NotificationChannel[];
+  onError: (message: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [channelId, setChannelId] = useState('');
+  const [kinds, setKinds] = useState<string[]>([]);
+  const [floor, setFloor] = useState('medium');
+
+  const subscriptions = useQuery({
+    queryKey: [SUBSCRIPTIONS],
+    queryFn: () => api.get<NotificationSubscription[]>(SUBSCRIPTIONS),
+  });
+
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: [SUBSCRIPTIONS] });
+  };
+
+  const subscribe = useMutation({
+    mutationFn: () =>
+      api.post<NotificationSubscription>(SUBSCRIPTIONS, {
+        channel_id: channelId,
+        event_kinds: kinds,
+        min_severity: floor,
+      }),
+    onSuccess: () => {
+      setKinds([]);
+      refresh();
+    },
+    onError: (err) => onError(describe(err)),
+  });
+
+  const unsubscribe = useMutation({
+    mutationFn: (id: string) => api.delete<void>(`${SUBSCRIPTIONS}/${id}`),
+    onSuccess: refresh,
+    onError: (err) => onError(describe(err)),
+  });
+
+  const named = (id: string) => channels.find((c) => c.id === id)?.name ?? id;
+  const rows = subscriptions.data ?? [];
+  const subscribed = new Set(rows.map((row) => row.channel_id));
+  const silent = channels.filter((channel) => channel.enabled && !subscribed.has(channel.id));
+
+  return (
+    <section className="card">
+      <h2>What each channel is told</h2>
+      <p className="card__hint">
+        A channel with no subscription is configured and silent. Leave the event list empty to
+        subscribe to everything — the severity floor still applies, so that is not the same as every
+        message.
+      </p>
+
+      {/* The finding this panel makes visible. A healthy channel nobody subscribed
+          anything to looks identical, in the table above, to one that is working. */}
+      {silent.length > 0 && (
+        <div className="alert alert--warning" role="status">
+          {silent.length} enabled channel{silent.length === 1 ? '' : 's'} (
+          {silent.map((c) => c.name).join(', ')}) {silent.length === 1 ? 'has' : 'have'} no
+          subscription, so nothing is sent to {silent.length === 1 ? 'it' : 'them'}.
+        </div>
+      )}
+
+      <table className="table">
+        <caption className="visually-hidden">Event subscriptions by channel</caption>
+        <thead>
+          <tr>
+            <th>Channel</th>
+            <th>Events</th>
+            <th>From severity</th>
+            <th>State</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id}>
+              <td>{named(row.channel_id)}</td>
+              <td>
+                {row.event_kinds.length === 0 ? (
+                  <em>every kind</em>
+                ) : (
+                  row.event_kinds.map((kind) => EVENT_LABELS[kind] ?? kind).join(', ')
+                )}
+              </td>
+              <td>
+                <span className={`pill pill--${row.min_severity}`}>{row.min_severity}</span> and
+                worse
+              </td>
+              <td>{row.enabled ? 'active' : <span className="pill pill--unknown">paused</span>}</td>
+              <td>
+                <button
+                  className="button button--ghost button--small"
+                  onClick={() => unsubscribe.mutate(row.id)}
+                  disabled={unsubscribe.isPending}
+                >
+                  Remove
+                </button>
+              </td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={5}>
+                Nothing is subscribed, so no channel is told anything. Events are still recorded and
+                still visible in the console.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      <form
+        className="form-row"
+        onSubmit={(event) => {
+          event.preventDefault();
+          subscribe.mutate();
+        }}
+      >
+        <label className="field">
+          <span className="field__label">Channel</span>
+          <select
+            className="field__input"
+            value={channelId}
+            onChange={(e) => setChannelId(e.target.value)}
+            required
+          >
+            <option value="">Choose a channel</option>
+            {channels.map((channel) => (
+              <option key={channel.id} value={channel.id}>
+                {channel.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <fieldset className="field">
+          <legend className="field__label">Events</legend>
+          <div className="checkbox-grid">
+            {Object.entries(EVENT_LABELS).map(([value, label]) => (
+              <label key={value} className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={kinds.includes(value)}
+                  onChange={(e) =>
+                    setKinds((current) =>
+                      e.target.checked
+                        ? [...current, value]
+                        : current.filter((kind) => kind !== value),
+                    )
+                  }
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+          <span className="field__help">
+            {kinds.length === 0 ? 'None ticked — every kind of event.' : `${kinds.length} chosen.`}
+          </span>
+        </fieldset>
+
+        <label className="field">
+          <span className="field__label">From severity</span>
+          <select className="field__input" value={floor} onChange={(e) => setFloor(e.target.value)}>
+            {['critical', 'high', 'medium', 'low', 'info'].map((value) => (
+              <option key={value} value={value}>
+                {value} and worse
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <button
+          className="button button--primary"
+          type="submit"
+          disabled={subscribe.isPending || !channelId}
+        >
+          Subscribe
+        </button>
+      </form>
+    </section>
+  );
 }
 
 export function SettingsPage() {
@@ -104,6 +309,19 @@ export function SettingsPage() {
     onError: (err) => setError(describe(err)),
   });
 
+  const setChannel = useMutation({
+    mutationFn: ({ id, patch }: { id: string; patch: Record<string, unknown> }) =>
+      api.patch<NotificationChannel>(`${CHANNELS}/${id}`, patch),
+    onSuccess: refresh,
+    onError: (err) => setError(describe(err)),
+  });
+
+  const removeChannel = useMutation({
+    mutationFn: (id: string) => api.delete<void>(`${CHANNELS}/${id}`),
+    onSuccess: refresh,
+    onError: (err) => setError(describe(err)),
+  });
+
   const requeue = useMutation({
     mutationFn: (id: string) => api.post(`${DELIVERIES}/${id}/requeue`),
     onSuccess: refresh,
@@ -146,6 +364,7 @@ export function SettingsPage() {
               <th>Name</th>
               <th>Type</th>
               <th>Secret</th>
+              <th>State</th>
               <th>Health</th>
               <th />
             </tr>
@@ -156,10 +375,20 @@ export function SettingsPage() {
                 <td>{channel.name}</td>
                 <td>{CHANNEL_LABELS[channel.channel_type]}</td>
                 <td>{channel.has_secret ? 'stored' : <em>none</em>}</td>
+                {/* A disabled channel is not a broken one, and the health column
+                    cannot say so — it reports the last delivery, which for something
+                    switched off yesterday still reads as a success. */}
+                <td>
+                  {channel.enabled ? (
+                    'enabled'
+                  ) : (
+                    <span className="pill pill--unknown">disabled</span>
+                  )}
+                </td>
                 <td>
                   <ChannelHealth channel={channel} />
                 </td>
-                <td>
+                <td className="table__actions">
                   <button
                     className="button button--ghost button--small"
                     onClick={() => sendTest.mutate(channel.id)}
@@ -167,12 +396,31 @@ export function SettingsPage() {
                   >
                     Send test
                   </button>
+                  {/* Disabling is the reversible half of removing, and it is what
+                      somebody silencing a noisy channel for an afternoon actually
+                      wants. Offering only delete makes that a destructive act. */}
+                  <button
+                    className="button button--ghost button--small"
+                    onClick={() =>
+                      setChannel.mutate({ id: channel.id, patch: { enabled: !channel.enabled } })
+                    }
+                    disabled={setChannel.isPending}
+                  >
+                    {channel.enabled ? 'Disable' : 'Enable'}
+                  </button>
+                  <button
+                    className="button button--ghost button--small"
+                    onClick={() => removeChannel.mutate(channel.id)}
+                    disabled={removeChannel.isPending}
+                  >
+                    Remove
+                  </button>
                 </td>
               </tr>
             ))}
             {channels.data?.length === 0 && (
               <tr>
-                <td colSpan={5}>
+                <td colSpan={6}>
                   No channels yet, so nothing is notified. Findings and jobs are still recorded —
                   they are just not pushed anywhere.
                 </td>
@@ -236,6 +484,8 @@ export function SettingsPage() {
         </form>
       </section>
 
+      <SubscriptionsPanel channels={channels.data ?? []} onError={setError} />
+
       <section className="card">
         <h2>Recent deliveries</h2>
         <p className="card__hint">
@@ -279,7 +529,7 @@ export function SettingsPage() {
             ))}
             {deliveries.data?.length === 0 && (
               <tr>
-                <td colSpan={5}>Nothing has been sent yet.</td>
+                <td colSpan={6}>Nothing has been sent yet.</td>
               </tr>
             )}
           </tbody>

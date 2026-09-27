@@ -871,6 +871,17 @@ quadratic in the estate and measures the queries somebody happened to ask instea
 gap itself. The addresses are evidence, not a work queue: an unmanaged next hop may be an
 ISP router, a customer handoff, or a virtual address no single box owns.
 
+**The graph is held between requests, and this reverses a decision the code used to
+state.** `services/topology.py` refused to cache it — "a topology answer that silently
+reflects yesterday's estate is the kind of wrong that looks right" — and that objection
+is answered rather than overruled: every entry is keyed on a fingerprint of the devices
+and snapshots behind it, so a hit is byte-for-byte what a rebuild would produce and any
+change that could alter the graph forces one. It was worth doing because the graph costs
+~580ms at 650 devices and every screen that touches topology built its own; a single
+dashboard load built two, in parallel, for one figure each. Measured on that estate, the
+dashboard pair went 1094ms → 313ms and the map 672ms → 63ms. Set
+`NETSECOPS_TOPOLOGY_GRAPH_CACHE=false` to go back to a rebuild per request.
+
 **The network map** is the same graph before you know which question to ask: every
 device, drawn in columns by how many hops it sits from the estate's edge, with the
 strands between them. A strand exists only where one device's route names an address
@@ -1280,7 +1291,7 @@ The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at
 `/api/v1/docs` outside production.
 
 **The console reaches every area of it.** 151 operations are published and the console
-requests 135; the 16 it does not are individual operations on pages that already exist,
+requests 140; the 11 it does not are individual operations on pages that already exist,
 plus the two probe endpoints, and each is named with what its absence costs. That is
 measured rather than estimated (`scripts/api_reachability.py`) and tracked in
 [docs/api-reachability.md](docs/api-reachability.md), because capability nobody can reach
