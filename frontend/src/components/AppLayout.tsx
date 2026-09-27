@@ -134,38 +134,45 @@ export function AppLayout() {
           })}
         </nav>
 
-        <div className="sidebar__user">
-          <NavLink to="/profile" className="sidebar__user-link">
-            <span className="sidebar__user-name">{user?.full_name || user?.username}</span>
-            <span className="sidebar__user-role">
+      </aside>
+
+      {/* The section's colour, set once from the route, on the column rather than on
+          `<main>` — the top bar is inside it too and inherits the same value. */}
+      <div
+        className="layout__column"
+        style={{ '--section': sectionTone(pathname) } as React.CSSProperties}
+      >
+        {/* Who you are signed in as, top right, where an application's account
+            controls are looked for. It sat at the foot of the navigation, which put
+            the one control people hunt for — sign out — below twenty-one entries and
+            off the bottom of a short window.
+
+            Sticky, so it stays reachable down a long findings list. */}
+        <header className="topbar">
+          <NavLink to="/profile" className="topbar__user">
+            <span className="topbar__name">{user?.full_name || user?.username}</span>
+            <span className="topbar__role">
               {user?.roles.map((r) => ROLE_LABELS[r]).join(', ') || 'No role assigned'}
             </span>
           </NavLink>
           <button className="button button--ghost button--small" onClick={handleSignOut}>
             Sign out
           </button>
-        </div>
-      </aside>
+        </header>
 
-      {/* `tabIndex={-1}` so the skip link can actually move focus here. Without it the
-          browser scrolls to the target and leaves focus behind in the sidebar, which
-          looks like the link worked and leaves the next Tab back at item two. */}
-      {/* The section's colour, set once from the route. Everything below inherits it,
-          so a page header tints itself without needing router context of its own. */}
-      <main
-        className="content"
-        id="main"
-        tabIndex={-1}
-        style={{ '--section': sectionTone(pathname) } as React.CSSProperties}
-      >
-        {user?.must_change_password && (
-          <div className="alert alert--warning" role="alert">
-            Your password must be changed. Visit <NavLink to="/profile">your profile</NavLink> to
-            set a new one.
-          </div>
-        )}
-        <Outlet />
-      </main>
+        {/* `tabIndex={-1}` so the skip link can actually move focus here. Without it the
+            browser scrolls to the target and leaves focus behind in the sidebar, which
+            looks like the link worked and leaves the next Tab back at item two. */}
+        <main className="content" id="main" tabIndex={-1}>
+          {user?.must_change_password && (
+            <div className="alert alert--warning" role="alert">
+              Your password must be changed. Visit <NavLink to="/profile">your profile</NavLink> to
+              set a new one.
+            </div>
+          )}
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

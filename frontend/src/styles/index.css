@@ -533,34 +533,69 @@ a {
   white-space: nowrap;
 }
 
-.sidebar__user {
-  border-top: 1px solid var(--border);
-  padding-top: 14px;
+/* The content column: a top bar and the page below it, stacked, so the bar spans the
+   content and not the navigation beside it. */
+.layout__column {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  min-width: 0;
 }
 
-.sidebar__user-link {
+/* Account controls, top right. They were at the foot of the navigation, which put the
+   one control people hunt for — sign out — below twenty-one entries and off the bottom
+   of a short window.
+
+   Sticky rather than fixed: it takes its own space in the flow, so nothing has to be
+   padded to clear it, and it stays reachable down a long list. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 10px 32px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.topbar__user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
   text-decoration: none;
   color: inherit;
-  padding: 4px 10px;
+  padding: 3px 10px;
   border-radius: var(--radius-sm);
-  display: flex;
-  flex-direction: column;
+  min-width: 0;
 }
 
-.sidebar__user-link:hover {
+.topbar__user:hover {
   background: var(--surface-muted);
 }
 
-.sidebar__user-name {
+.topbar__name {
   font-weight: 600;
+  font-size: 13px;
 }
 
-.sidebar__user-role {
+.topbar__role {
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11.5px;
+}
+
+/* On a phone the bar keeps the page's own side gutter rather than the wider one the
+   content uses, and the name may wrap to nothing useful — so the role drops out and
+   the name alone identifies the session. */
+@media (max-width: 560px) {
+  .topbar {
+    padding: 8px 16px;
+  }
+
+  .topbar__role {
+    display: none;
+  }
 }
 
 .content {
