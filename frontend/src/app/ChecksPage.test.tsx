@@ -267,5 +267,52 @@ describe('ChecksPage', () => {
       // The query surface stays: it reads and writes nothing.
       expect(screen.getByLabelText('Expression')).toBeInTheDocument();
     });
+
+    it('offers a golden-config starting point, which nothing else in the product does', async () => {
+      // A golden template describes *this* estate's build standard, so no shipped check
+      // can be one and this editor is the only place an operator can write one. Without
+      // a starting point here the check type exists only in the schema.
+      renderPage();
+
+      await userEvent.selectOptions(await screen.findByLabelText('Start from'), 'golden');
+
+      const editor = await screen.findByLabelText<HTMLTextAreaElement>('Definition');
+      const parsed = JSON.parse(editor.value) as {
+        logic: { type: string; blocks: { name: string; expect?: string }[] };
+      };
+      expect(parsed.logic.type).toBe('golden');
+      // Both directions, because a template that only ever requires lines teaches half
+      // the feature — and "this must not be here" is the half that catches telnet.
+      expect(parsed.logic.blocks.map((b) => b.expect ?? 'present')).toContain('absent');
+    });
+
+    it('sends the golden template as-is, so the seeded example is one the server accepts', async () => {
+      // The example is the documentation. One that fails validation teaches the wrong
+      // shape to everybody who starts from it.
+      const post = vi.spyOn(api, 'post').mockResolvedValue({
+        check_id: 'custom-access-switch-build',
+        outcome: 'pass',
+        severity: 'medium',
+        message: 'ok',
+        reason: null,
+        evidence: {},
+      } as never);
+      renderPage();
+
+      await screen.findByRole('option', { name: 'core-sw-01' });
+      await userEvent.selectOptions(screen.getByLabelText('Start from'), 'golden');
+      await userEvent.selectOptions(screen.getByLabelText('Device to draft against'), 'd1');
+      await userEvent.click(screen.getByRole('button', { name: 'Preview' }));
+
+      expect(post).toHaveBeenCalledWith(
+        '/checks/preview',
+        expect.objectContaining({
+          device_id: 'd1',
+          definition: expect.objectContaining({
+            logic: expect.objectContaining({ type: 'golden' }),
+          }),
+        }),
+      );
+    });
   });
 });

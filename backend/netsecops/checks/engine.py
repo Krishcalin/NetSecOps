@@ -35,6 +35,7 @@ from packaging.version import InvalidVersion, Version
 from netsecops.checks.schema import (
     Assertion,
     CheckDefinition,
+    GoldenBlock,
     LogicType,
     MissingPolicy,
     Outcome,
@@ -444,6 +445,8 @@ def evaluate(
                 return _evaluate_regex(check, evaluation, finish)
             case LogicType.PYTHON:
                 return _evaluate_python(check, evaluation, finish, severity)
+            case LogicType.GOLDEN:
+                return _evaluate_golden(check, evaluation, finish)
 
     except Exception as exc:
         # A broken check must never stop the policy: the other forty still have to run.
@@ -509,6 +512,168 @@ def _evaluate_ncm(
         observed=value,
         expected=expected,
         evidence=evidence,
+    )
+
+
+#: Lines ignored when deciding whether a block's lines are adjacent. A comment or a
+#: blank between two required lines is formatting, not a gap in the configuration, and
+#: treating it as one would fail every device whose config has been tidied.
+_NOISE = re.compile(r"^\s*(?:!|#|$)")
+
+
+def _normalise(line: str) -> str:
+    """Strip indentation and collapse runs of whitespace.
+
+    Indentation is how IOS shows sub-mode and it is genuinely meaningful, but it is
+    also inconsistent between releases and between what a device prints and what
+    somebody pasted into a template. Comparing on the stripped text matches what an
+    operator means by "this line is present"; a block that truly depends on nesting
+    should use `match: regex` and say so explicitly.
+    """
+    return " ".join(line.split())
+
+
+def _find(needle: str, lines: list[tuple[int, str]], *, regex: bool) -> list[int]:
+    """Every line number matching one required line."""
+    if regex:
+        pattern = re.compile(needle)
+        return [number for number, text in lines if pattern.search(text)]
+    wanted = _normalise(needle)
+    return [number for number, text in lines if _normalise(text) == wanted]
+
+
+def _contiguous_run(block: GoldenBlock, lines: list[tuple[int, str]]) -> int | None:
+    """The line number where the block's lines appear consecutively, or None.
+
+    Blank lines and comments between them do not break the run — see `_NOISE`.
+    """
+    meaningful = [(number, text) for number, text in lines if not _NOISE.match(text)]
+    span = len(block.lines)
+    for start in range(len(meaningful) - span + 1):
+        window = meaningful[start : start + span]
+        if all(
+            _find(wanted, [candidate], regex=block.match == "regex")
+            for wanted, candidate in zip(block.lines, window, strict=True)
+        ):
+            return window[0][0]
+    return None
+
+
+def _evaluate_golden(
+    check: CheckDefinition, context: EvaluationContext, finish: _Finish
+) -> CheckResult:
+    """Measure a configuration against a golden template (FR-DRIFT-04).
+
+    **Every block is evaluated, not just up to the first failure.** A template exists
+    to answer "how far is this device from the standard build", and stopping at the
+    first missing line turns that into "at least one thing is wrong" — which sends
+    somebody back for a second pass after each fix.
+
+    **The message names what is missing or forbidden**, block by block. "Does not
+    match the golden config" is not something anybody can act on.
+    """
+    logic = check.logic
+
+    if not context.config_text:
+        return finish(
+            _missing_outcome(logic.missing),
+            "Not evaluated: no configuration text was available to compare against the template.",
+            reason="missing:config_text",
+        )
+
+    lines = list(enumerate(context.config_text.splitlines(), start=1))
+    regex = False
+    failures: list[str] = []
+    evidence: list[EvidenceLine] = []
+    passed_blocks = 0
+
+    for block in logic.blocks:
+        regex = block.match == "regex"
+
+        if block.expect == "present":
+            if block.contiguous:
+                start = _contiguous_run(block, lines)
+                if start is None:
+                    failures.append(
+                        f"{block.name}: the {len(block.lines)} lines are not present consecutively"
+                    )
+                    continue
+                passed_blocks += 1
+                evidence.append(
+                    EvidenceLine(
+                        path="config",
+                        line_start=start,
+                        line_end=start + len(block.lines) - 1,
+                        excerpt=_normalise(block.lines[0]),
+                    )
+                )
+                continue
+
+            missing = [wanted for wanted in block.lines if not _find(wanted, lines, regex=regex)]
+            if missing:
+                shown = ", ".join(repr(line) for line in missing[:3])
+                more = f" and {len(missing) - 3} more" if len(missing) > 3 else ""
+                failures.append(f"{block.name}: missing {shown}{more}")
+                continue
+            passed_blocks += 1
+            first = _find(block.lines[0], lines, regex=regex)[0]
+            evidence.append(
+                EvidenceLine(
+                    path="config",
+                    line_start=first,
+                    line_end=first,
+                    excerpt=_normalise(dict(lines)[first]),
+                )
+            )
+            continue
+
+        # expect == "absent"
+        found = [
+            (wanted, number)
+            for wanted in block.lines
+            for number in _find(wanted, lines, regex=regex)
+        ]
+        if found:
+            shown = ", ".join(repr(wanted) for wanted, _ in found[:3])
+            failures.append(f"{block.name}: found {shown} on {len(found)} line(s)")
+            evidence.extend(
+                EvidenceLine(
+                    path="config",
+                    line_start=number,
+                    line_end=number,
+                    excerpt=_normalise(dict(lines)[number]),
+                )
+                for _, number in found[:5]
+            )
+            continue
+        passed_blocks += 1
+
+    total = len(logic.blocks)
+    expected = f"the configuration should satisfy all {total} block(s) of this template"
+
+    if not failures:
+        return finish(
+            Outcome.PASS,
+            f"{check.title}: all {total} block(s) of the template are satisfied.",
+            observed={"blocks": total, "satisfied": total},
+            expected=expected,
+            evidence=evidence[:10],
+        )
+
+    return finish(
+        Outcome.FAIL,
+        f"{len(failures)} of {total} block(s) differ from the template — "
+        + "; ".join(failures[:5])
+        + ("; …" if len(failures) > 5 else "."),
+        # Structured as well as in the message, so a report can count blocks rather
+        # than parse prose.
+        observed={
+            "blocks": total,
+            "satisfied": passed_blocks,
+            "failed": [failure.split(":", 1)[0] for failure in failures],
+        },
+        expected=expected,
+        evidence=evidence[:10],
     )
 
 

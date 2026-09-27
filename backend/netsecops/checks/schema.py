@@ -23,6 +23,8 @@ from typing import Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from netsecops.core.redaction import REDACTED
+
 
 class Severity(StrEnum):
     CRITICAL = "critical"
@@ -79,6 +81,72 @@ class LogicType(StrEnum):
     NCM = "ncm"
     REGEX = "regex"
     PYTHON = "python"
+    #: A golden-config template (FR-DRIFT-04): several named blocks of lines that must
+    #: or must not appear, evaluated together and reported block by block.
+    GOLDEN = "golden"
+
+
+class GoldenBlock(BaseModel):
+    """One named requirement inside a golden-config template.
+
+    A template is a list of these rather than one long pattern, and the reason is the
+    whole point of the feature: "this device does not match the standard build" is not
+    actionable, and "the AAA block is missing and telnet is still enabled on the vty
+    lines" is. Each block is named, evaluated on its own, and reported on its own.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: What this block is for, in words. It goes in the finding, so it is written for
+    #: whoever reads that rather than as an identifier.
+    name: str = Field(min_length=1, max_length=150)
+    #: `present` — every line must appear. `absent` — none of them may.
+    expect: Literal["present", "absent"] = "present"
+    #: The lines themselves. Literal by default; `match: regex` treats each as a
+    #: pattern, which is what anything with a hostname or an address in it needs.
+    lines: list[str] = Field(min_length=1, max_length=200)
+    match: Literal["literal", "regex"] = "literal"
+    #: Require the lines to appear consecutively, ignoring blank lines and comments.
+    #:
+    #: Off by default, because most requirements are a set of settings that may be
+    #: anywhere. On for the cases where adjacency is the requirement — a banner, an
+    #: ordered access list — where checking the lines individually would pass a device
+    #: whose rules are in an order that means something entirely different.
+    contiguous: bool = False
+
+    @model_validator(mode="after")
+    def _patterns_compile(self) -> Self:
+        if self.match == "regex":
+            for line in self.lines:
+                try:
+                    re.compile(line)
+                except re.error as exc:
+                    raise ValueError(
+                        f"Block {self.name!r} has an invalid regular expression {line!r}: {exc}"
+                    ) from exc
+        return self
+
+    @model_validator(mode="after")
+    def _no_redaction_markers(self) -> Self:
+        """Refuse a line pasted out of a redacted configuration.
+
+        Templates get written by copying lines from the configuration the UI shows,
+        and what the UI shows is redacted: the keyword survives but the secret is
+        replaced, so `snmp-server community public RO` reads back as
+        `snmp-server community «redacted:…» RO`. Such a line matches nothing on any
+        device, forever — a `present` block reports missing on a device that has the
+        setting, and an `absent` block passes every device that does. Both are silent,
+        so this is refused at authoring time where it is still obvious what happened.
+        """
+        for line in self.lines:
+            if REDACTED in line:
+                raise ValueError(
+                    f"Block {self.name!r} contains {REDACTED}…», which means the line "
+                    f"was copied from a redacted configuration and would never match. "
+                    f"Match on the keyword instead of the secret — "
+                    f"'snmp-server community' rather than the community string itself."
+                )
+        return self
 
 
 class MissingPolicy(StrEnum):
@@ -229,6 +297,13 @@ class CheckLogic(BaseModel):
     #: For ``type: python``: the name a check function registered under.
     function: str | None = None
 
+    #: For ``type: golden``: the blocks the configuration is measured against.
+    #:
+    #: Which platforms a template applies to is `applicability.platforms`, the same
+    #: field every other check uses. A parallel per-platform mechanism here would let
+    #: a template be written for one platform and silently evaluated on another.
+    blocks: list[GoldenBlock] = Field(default_factory=list)
+
     #: NCM paths whose absence makes this check Not Evaluated rather than Fail.
     requires: list[str] = Field(default_factory=list)
     missing: MissingPolicy = MissingPolicy.NOT_EVALUATED
@@ -251,6 +326,10 @@ class CheckLogic(BaseModel):
                 raise ValueError(f"Invalid regular expression {self.pattern!r}: {exc}") from exc
         elif self.type is LogicType.PYTHON and not self.function:
             raise ValueError("A 'python' check needs 'function'.")
+        elif self.type is LogicType.GOLDEN and not self.blocks:
+            # A template with no blocks would pass every device it was applied to,
+            # which is the most confident way this feature could be wrong.
+            raise ValueError("A 'golden' check needs at least one block in 'blocks'.")
         return self
 
     def provenance_paths(self) -> list[str]:

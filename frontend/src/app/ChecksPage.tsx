@@ -61,6 +61,43 @@ const TEMPLATE = `{
   "tags": ["custom", "ssh"]
 }`;
 
+/** A golden-config template (FR-DRIFT-04), the second shape a definition can take.
+ *
+ *  It is offered here because it cannot be offered anywhere else: an expression check
+ *  asks one question of the parsed configuration and ships in the library, whereas a
+ *  golden template says what *your* build looks like, so no library can contain one and
+ *  this editor is the only way anybody gets one. Left undiscoverable it is a feature that
+ *  exists in the schema and never in an estate. */
+const GOLDEN_TEMPLATE = `{
+  "id": "custom-access-switch-build",
+  "title": "Access switches match the standard build",
+  "description": "The agreed configuration for an access switch.",
+  "rationale": "A device that has drifted from the standard build is one nobody owns.",
+  "severity": "medium",
+  "applicability": { "platforms": ["cisco_ios"] },
+  "logic": {
+    "type": "golden",
+    "blocks": [
+      { "name": "AAA", "lines": ["aaa new-model"] },
+      {
+        "name": "VTY hardening",
+        "lines": ["exec-timeout 5 0", "transport input ssh"],
+        "contiguous": true
+      },
+      { "name": "No telnet", "expect": "absent", "lines": ["transport input telnet"] }
+    ],
+    "missing": "not_evaluated"
+  },
+  "remediation": "Bring the configuration back in line with the standard build.",
+  "references": { "nist_800_53": ["CM-2", "CM-6"] },
+  "tags": ["custom", "golden"]
+}`;
+
+const STARTING_POINTS = [
+  { id: 'expression', label: 'Expression check', body: TEMPLATE },
+  { id: 'golden', label: 'Golden config', body: GOLDEN_TEMPLATE },
+] as const;
+
 function message(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.problem.detail : fallback;
 }
@@ -541,6 +578,35 @@ function DraftCheck({ devices }: { devices: Device[] }) {
           policy includes it.
         </div>
       )}
+
+      <label className="field">
+        <span className="field__label">Start from</span>
+        <select
+          className="field__input field__input--small"
+          value=""
+          aria-label="Start from"
+          onChange={(event) => {
+            const chosen = STARTING_POINTS.find((point) => point.id === event.target.value);
+            if (!chosen) return;
+            setDefinition(chosen.body);
+            setSaved(null);
+            setPreview(null);
+          }}
+        >
+          <option value="">Keep what is in the editor</option>
+          {STARTING_POINTS.map((point) => (
+            <option key={point.id} value={point.id}>
+              {point.label}
+            </option>
+          ))}
+        </select>
+        <span className="field__help">
+          An expression check asks one question of the parsed configuration. A golden config
+          compares the device against blocks of lines that must be present or absent — the shape
+          to use for a build standard, which no shipped check can express. Choosing one replaces
+          everything in the editor.
+        </span>
+      </label>
 
       <label className="field">
         <span className="field__label">Definition</span>

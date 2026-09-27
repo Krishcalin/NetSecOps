@@ -360,9 +360,9 @@ class PolicyService:
 
         if parsed.logic.type is LogicType.PYTHON:
             raise ValidationProblem(
-                "Custom checks may use 'ncm' or 'regex' logic. Python checks are part "
-                "of the shipped library because their code is reviewed with the "
-                "product."
+                "Custom checks may use 'ncm', 'regex' or 'golden' logic. Python checks "
+                "are part of the shipped library because their code is reviewed with "
+                "the product."
             )
 
         if parsed.id in set(self.registry.ids):

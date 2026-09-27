@@ -348,6 +348,17 @@ Each phase below says what it delivers and, where relevant, what it still owes. 
 - **Custom checks** written through the API against the same schema the loader uses —
   and refused if they declare Python logic, since accepting a function name from a web
   form would let a user invoke any registered callable.
+- **Golden-config templates** as a fourth logic type (FR-DRIFT-04): named blocks of
+  lines that must be present, or must not be, matched literally or by pattern and
+  optionally required to be adjacent. Every block is evaluated rather than stopping at
+  the first miss, because a template exists to say *how far* a device is from the build
+  — "does not match golden" sends somebody back for another pass after each fix. A
+  template describes one estate's own standard, so none ships in the library; the
+  console's draft editor seeds one, which is the only place anybody can write one.
+  Three authoring-time refusals guard the failure mode that matters, a template that
+  cannot fail: no blocks at all, a pattern that will not compile, and a line pasted out
+  of a redacted configuration — the last matches nothing on any device for ever, and
+  says so at no point.
 - **Exceptions with a mandatory expiry.** The check still runs and its result is still
   stored; only the finding is suppressed. Hiding the result would make the compliance
   figure a fiction, and an exception without an end date is an undocumented decision.

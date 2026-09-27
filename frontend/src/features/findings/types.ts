@@ -69,7 +69,7 @@ export interface CheckSummary {
   severity: Severity;
   description: string;
   tags: string[];
-  logic_type: 'ncm' | 'regex' | 'python';
+  logic_type: 'ncm' | 'regex' | 'python' | 'golden';
   vendors: string[];
   platforms: string[];
   frameworks: Record<string, string[]>;

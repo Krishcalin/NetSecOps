@@ -93,6 +93,13 @@ def _detail(definition: CheckDefinition, *, is_custom: bool = False) -> CheckDet
     expression = logic.expression if logic.type is LogicType.NCM else logic.pattern
     if logic.type is LogicType.PYTHON:
         expression = f"python:{logic.function}"
+    if logic.type is LogicType.GOLDEN:
+        # A template has no single expression, and leaving this None renders the
+        # library row blank — which reads as a check with no logic rather than one
+        # whose logic is a list. The block names are what somebody is looking for.
+        expression = " · ".join(f"{block.name} ({block.expect})" for block in logic.blocks[:6]) + (
+            " · …" if len(logic.blocks) > 6 else ""
+        )
 
     return CheckDetail(
         **_summary(definition, is_custom=is_custom).model_dump(),
