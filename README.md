@@ -871,6 +871,31 @@ quadratic in the estate and measures the queries somebody happened to ask instea
 gap itself. The addresses are evidence, not a work queue: an unmanaged next hop may be an
 ISP router, a customer handoff, or a virtual address no single box owns.
 
+**The network map** is the same graph before you know which question to ask: every
+device, drawn in columns by how many hops it sits from the estate's edge, with the
+strands between them. A strand exists only where one device's route names an address
+that is genuinely configured on another's interface — the join the path walk makes.
+Drawing a link because two devices share a subnet would be the tempting shortcut and
+would put wires on the picture that no packet follows; both ends of a transit /30
+"contain" the next hop, and picking either invents an adjacency.
+
+Three things it refuses to do. It does not omit its own boundary — an address the estate
+routes to and no inventoried device answers for is a box of its own, because that box
+names the device somebody would onboard to learn more. It does not fold a device that
+carries a rulebase into a bundle: fifty access switches collapse into one box with a
+count, which is the only reason a 650-device site is readable, and a firewall never does,
+because a control quietly taken off the picture is worse than a crowded one. And nothing
+about the layout is simulated — tier is breadth-first depth from the boundary, groups are
+the connected components of the graph, and every ordering falls back to the hostname, so
+the same estate draws the same way twice and this week's map can be compared with last
+week's.
+
+Groups are structural and their names usually are not. Two devices are in one group when
+a packet can actually travel between them; the label is a site where one is configured
+and a shared hostname prefix otherwise, and the page says which — so nobody reads
+"london" as a site that somebody defined. Two sites defaulting to the same ISP address
+are deliberately *not* one group: no packet crosses between them.
+
 **The acceptance criterion is met** ([`test_phase8_acceptance.py`](backend/tests/test_phase8_acceptance.py)):
 a five-device fixture estate, a path query crossing three of them with the right
 traversed-device list and rule verdicts, and a query whose next hop belongs to no
@@ -1221,12 +1246,14 @@ and deletes it afterwards, so it never alters the account it signs in with.
 The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at
 `/api/v1/docs` outside production.
 
-**The console reaches every area of it.** 141 operations are published and the console
-requests 125; the 16 it does not are individual operations on pages that already exist,
-plus the two probe endpoints, and each is named with what its absence costs. That is
-measured rather than estimated (`scripts/api_reachability.py`) and tracked in
-[docs/api-reachability.md](docs/api-reachability.md), because capability nobody can reach
-is indistinguishable from capability that does not exist.
+**The console reaches every area of it.** 149 operations are published and the console
+requests 128; the 21 it does not are individual operations on pages that already exist,
+plus the two probe endpoints, and each is named with what its absence costs. One of them
+is a genuine gap rather than a detail: the Segmentation page reads the matrix and nothing
+in the console declares a zone or a rule, so the policy the matrix is judged against is
+API-only. That is measured rather than estimated (`scripts/api_reachability.py`) and
+tracked in [docs/api-reachability.md](docs/api-reachability.md), because capability
+nobody can reach is indistinguishable from capability that does not exist.
 
 ---
 

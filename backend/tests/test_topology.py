@@ -112,9 +112,14 @@ def node(
     return built
 
 
-@pytest.fixture
-def estate():
-    """The three-device estate drawn in the module docstring."""
+def build_estate():
+    """The three-device estate drawn in the module docstring.
+
+    A plain function as well as a fixture, so `test_topology_map.py` can draw the same
+    network this file walks paths across. Two files describing two different estates
+    while both claiming to describe "the" estate is how a picture and a path answer
+    start disagreeing.
+    """
     edge = node(
         "edge-fw",
         addresses={"outside": "203.0.113.2/29", "inside": "10.0.0.1/30"},
@@ -151,6 +156,11 @@ def estate():
         firewall=permit_all(),
     )
     return build_graph([edge, core, dmz])
+
+
+@pytest.fixture
+def estate():
+    return build_estate()
 
 
 @pytest.fixture

@@ -16,6 +16,7 @@
  */
 
 import { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { api, ApiError } from '../api/client';
@@ -178,8 +179,14 @@ function PathAnswer({ result }: { result: PathResult }) {
 }
 
 export function TopologyPage() {
-  const [source, setSource] = useState('');
-  const [destination, setDestination] = useState('');
+  // Prefilled from the URL so the map can hand a device over without anybody retyping
+  // an address off the screen — which is exactly where a typo becomes a wrong answer.
+  // Read once as the initial value rather than tracked: the field is the operator's
+  // after that, and having the URL overwrite what they typed would be worse than
+  // having no prefill at all.
+  const [params] = useSearchParams();
+  const [source, setSource] = useState(() => params.get('source') ?? '');
+  const [destination, setDestination] = useState(() => params.get('destination') ?? '');
   const [protocol, setProtocol] = useState('tcp');
   const [port, setPort] = useState(443);
   const [error, setError] = useState<string | null>(null);
@@ -221,7 +228,8 @@ export function TopologyPage() {
         <h1>Path analysis</h1>
         <p className="page__subtitle">
           Can this host reach that one, and what decides. Traced across the stored configurations of
-          every device in the inventory — nothing is sent, and no packet leaves this server.
+          every device in the inventory — nothing is sent, and no packet leaves this server. To see
+          what is out there before asking, open the <Link to="/topology/map">network map</Link>.
         </p>
       </header>
 

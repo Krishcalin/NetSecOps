@@ -41,6 +41,11 @@ const NAV_ITEMS: NavItem[] = [
   // devices instead of one: that viewer answers "which rule matches here", this answers
   // "which firewalls are even in the way". Same permission, for the same reason — both
   // are assembled entirely out of stored configuration.
+  // Above path analysis rather than below it, because it is the earlier question: the
+  // map is what somebody opens to find out what is out there, and a path query is
+  // usually started from a device they found on it. Same permission — both are drawn
+  // entirely from stored configuration.
+  { label: 'Network Map', to: '/topology/map', permission: 'snapshot:read' },
   { label: 'Path Analysis', to: '/topology', permission: 'snapshot:read' },
   // Directly below path analysis because it is that engine run over every declared
   // zone pair at once. Behind `policy:read`, not `snapshot:read`: the page is only

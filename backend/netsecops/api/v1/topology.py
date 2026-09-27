@@ -22,7 +22,12 @@ from netsecops.api.deps import SessionDep, require, verify_csrf
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
 from netsecops.schemas.topology import (
+    EstateMapRead,
     HopRead,
+    MapGroupRead,
+    MapInterfaceRead,
+    MapLinkRead,
+    MapNodeRead,
     MissingDeviceRead,
     PathRequest,
     PathResponse,
@@ -138,6 +143,103 @@ async def list_missing_devices(
         )
         for item in found
     ]
+
+
+@router.get(
+    "/topology/map",
+    response_model=EstateMapRead,
+    dependencies=[Depends(require(Permission.SNAPSHOT_READ))],
+    summary="The whole layer-3 graph, drawable (FR-TOPO-02)",
+)
+async def estate_map(
+    topology: ServiceDep, limit: Annotated[int, Query(ge=1, le=5000)] = 2000
+) -> EstateMapRead:
+    """Every device, every adjacency, and every point at which the estate ends.
+
+    Same permission as the path query and for the same reason: this is a projection of
+    stored configuration, and anyone who may read the configuration may see how it wires
+    together. Nothing is sent to a device to produce it.
+
+    Links are the same join a path walk makes — a route's next hop matched to an
+    interface address — so a strand here is one a packet can actually take. Where that
+    match fails, the next hop becomes a node of its own rather than being dropped: the
+    boundary of the managed estate is the most useful thing on the picture.
+
+    `limit` drops whole groups rather than individual devices, and `omitted_groups`
+    names what was left out. A partial component would be a picture of a network that
+    does not exist.
+    """
+    result = await topology.estate_map(limit=limit)
+
+    return EstateMapRead(
+        nodes=[
+            MapNodeRead(
+                id=node.id,
+                kind=node.kind,
+                label=node.label,
+                group=node.group,
+                tier=node.tier,
+                platform=node.platform,
+                vendor=node.vendor,
+                device_class=node.device_class,
+                criticality=node.criticality,
+                status=node.status,
+                site=node.site,
+                has_rulebase=node.has_rulebase,
+                inspects=node.inspects,
+                routes=node.routes,
+                routes_known=node.routes_known,
+                interfaces=[
+                    MapInterfaceRead(
+                        name=interface.name,
+                        addresses=list(interface.addresses),
+                        zone=interface.zone,
+                    )
+                    for interface in node.interfaces
+                ],
+                interface_count=node.interface_count,
+                findings=dict(node.findings),
+                has_snapshot=node.has_snapshot,
+                referenced_by=list(node.referenced_by),
+                carries_default_route=node.carries_default_route,
+            )
+            for node in result.nodes
+        ],
+        links=[
+            MapLinkRead(
+                id=link.id,
+                source=link.source,
+                target=link.target,
+                via=list(link.via),
+                prefixes=link.prefixes,
+                carries_default=link.carries_default,
+                bidirectional=link.bidirectional,
+                source_interface=link.source_interface,
+                target_interface=link.target_interface,
+                crosses_firewall=link.crosses_firewall,
+            )
+            for link in result.links
+        ],
+        groups=[
+            MapGroupRead(
+                id=group.id,
+                label=group.label,
+                label_source=group.label_source,
+                devices=group.devices,
+                firewalls=group.firewalls,
+                unmanaged=group.unmanaged,
+                links=group.links,
+                tiers=group.tiers,
+            )
+            for group in result.groups
+        ],
+        devices=result.devices,
+        unmanaged=result.unmanaged,
+        devices_without_route_data=result.devices_without_route_data,
+        isolated=result.isolated,
+        omitted_groups=list(result.omitted_groups),
+        omitted_devices=result.omitted_devices,
+    )
 
 
 @router.get(

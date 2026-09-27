@@ -64,6 +64,87 @@ export interface MissingDevice {
   reason: string;
 }
 
+export interface MapInterface {
+  name: string;
+  addresses: string[];
+  zone: string | null;
+}
+
+export interface MapNode {
+  id: string;
+  /** `device` or `unmanaged`. The second is an address routes point at that no device
+   *  in the inventory answers for — a hole in the evidence, and never drawn as a box
+   *  like the others. */
+  kind: 'device' | 'unmanaged';
+  label: string;
+  group: string;
+  /** Breadth-first distance from the estate boundary. The column the box sits in. */
+  tier: number;
+  platform: string | null;
+  vendor: string | null;
+  device_class: string | null;
+  criticality: string | null;
+  status: string | null;
+  site: string | null;
+  has_rulebase: boolean;
+  /** Carries rules in force on traffic crossing it. Narrower than `has_rulebase`, and
+   *  what the map is drawn from: an access list bound to nothing — a vty filter, a
+   *  leftover — filters no transit traffic, so its device is not a control and must
+   *  not be badged as one. */
+  inspects: boolean;
+  routes: number;
+  /** False where the snapshot predates route parsing: no routes anybody read, which is
+   *  not the same as having none. */
+  routes_known: boolean;
+  interfaces: MapInterface[];
+  /** Every interface. `interfaces` holds only the addressed ones, so a 48-port switch
+   *  shows one SVI and this says the other forty-seven exist. */
+  interface_count: number;
+  findings: Record<string, number>;
+  has_snapshot: boolean;
+  referenced_by: string[];
+  carries_default_route: boolean;
+}
+
+export interface MapLink {
+  id: string;
+  source: string;
+  target: string;
+  via: string[];
+  prefixes: number;
+  carries_default: boolean;
+  /** False where only one end routes to the other. A real asymmetry, drawn as one. */
+  bidirectional: boolean;
+  source_interface: string | null;
+  target_interface: string | null;
+  crosses_firewall: boolean;
+}
+
+export interface MapGroup {
+  id: string;
+  label: string;
+  /** `site` | `hostname` | `index` — where the label came from, so an inferred name is
+   *  not read as something somebody configured. */
+  label_source: string;
+  devices: number;
+  firewalls: number;
+  unmanaged: number;
+  links: number;
+  tiers: number;
+}
+
+export interface EstateMap {
+  nodes: MapNode[];
+  links: MapLink[];
+  groups: MapGroup[];
+  devices: number;
+  unmanaged: number;
+  devices_without_route_data: number;
+  isolated: number;
+  omitted_groups: string[];
+  omitted_devices: number;
+}
+
 export interface TopologySummary {
   devices: number;
   devices_with_routes: number;

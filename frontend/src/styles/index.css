@@ -2048,3 +2048,382 @@ code {
 .estate__rules {
   margin-top: 4px;
 }
+
+/* ── Network map (FR-TOPO-02) ─────────────────────────────────────────────────
+ *
+ * The map is one image with a text alternative, so nothing in here is the only
+ * carrier of a fact: every box states its class in words, a rulebase has a glyph as
+ * well as an outline, and a finding count is a number rather than a shade. Tone is
+ * reinforcement (WCAG 1.4.1), and everything derives from the theme tokens so the
+ * dark theme needs no rules of its own.
+ */
+
+.map-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.map-stat {
+  display: flex;
+  flex-direction: column;
+  min-width: 132px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.map-stat__value {
+  font-size: 22px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+
+.map-stat__label {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.map-stat__note {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.map-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: var(--gap);
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .map-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.map-side {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  max-height: 760px;
+  overflow-y: auto;
+}
+
+.map-grouplist {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.map-group {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 9px;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+
+.map-group:hover {
+  background: var(--surface-muted);
+}
+
+.map-group.is-active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.map-group__name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.map-group__meta {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.map-matchlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+}
+
+.map-main {
+  min-width: 0;
+}
+
+.estatemap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.estatemap__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.estatemap__frame {
+  position: relative;
+  height: 640px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  touch-action: none;
+  cursor: grab;
+}
+
+.estatemap__frame:active {
+  cursor: grabbing;
+}
+
+.estatemap__svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.estatemap__band {
+  fill: var(--surface);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.estatemap__bandlabel {
+  font-size: 13px;
+  font-weight: 650;
+  fill: var(--text);
+}
+
+.estatemap__bandmeta {
+  font-size: 12px;
+  font-weight: 400;
+  fill: var(--text-muted);
+}
+
+.estatemap__strand {
+  fill: none;
+  stroke: var(--border-strong);
+  stroke-width: 1.4;
+}
+
+/* A strand with a firewall at either end inspected what crossed it. Drawn heavier
+   rather than in another colour, so it survives greyscale. */
+.estatemap__strand--inspected {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+/* The way out. Dashed as well as tinted, because "this is the default route" is the
+   one strand people look for on a picture like this. */
+.estatemap__strand--default {
+  stroke-dasharray: 7 4;
+}
+
+.estatemap__arrowhead {
+  fill: var(--border-strong);
+}
+
+.estatemap__endlabel,
+.estatemap__count {
+  font-size: 10px;
+  fill: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.estatemap__node {
+  cursor: pointer;
+}
+
+.estatemap__box {
+  fill: var(--surface);
+  stroke: var(--border-strong);
+  stroke-width: 1.2;
+}
+
+.estatemap__box--firewall {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+
+.estatemap__box--switch {
+  fill: var(--surface-muted);
+  stroke: var(--border);
+}
+
+/* Never drawn like a device: this is an address the estate routes to and nothing in
+   the inventory answers for, which is a hole in the evidence rather than a thing. */
+.estatemap__box--unmanaged {
+  fill: none;
+  stroke: var(--text-muted);
+  stroke-dasharray: 5 4;
+}
+
+.estatemap__box.is-selected {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.is-dim {
+  opacity: 0.22;
+}
+
+.estatemap__tag {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  fill: var(--text-muted);
+}
+
+.estatemap__label {
+  font-size: 12.5px;
+  font-weight: 600;
+  fill: var(--text);
+}
+
+.estatemap__sub {
+  font-size: 10.5px;
+  fill: var(--text-muted);
+}
+
+.estatemap__shield {
+  font-size: 11px;
+  fill: var(--accent);
+}
+
+.estatemap__risk {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  fill: var(--text-muted);
+}
+
+.estatemap__risk--critical,
+.estatemap__risk--high {
+  fill: var(--error);
+}
+
+.estatemap__risk--medium {
+  fill: var(--warn);
+}
+
+.estatemap__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.estatemap__legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.estatemap__swatch {
+  width: 18px;
+  height: 11px;
+  border-radius: 3px;
+  border: 1.4px solid var(--border-strong);
+  background: var(--surface);
+  flex: none;
+}
+
+.estatemap__swatch--firewall {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+
+.estatemap__swatch--unmanaged {
+  background: none;
+  border-style: dashed;
+  border-color: var(--text-muted);
+}
+
+.estatemap__swatch--oneway {
+  height: 0;
+  border: none;
+  border-top: 2px solid var(--border-strong);
+  border-radius: 0;
+}
+
+/* ── shared small pieces first used by the map ───────────────────────────── */
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
+  gap: 6px 16px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+
+.detail-grid dt {
+  color: var(--text-muted);
+}
+
+.detail-grid dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-button + .link-button::before {
+  content: ', ';
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.pill-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.estatemap__colhead {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  fill: var(--text-muted);
+}

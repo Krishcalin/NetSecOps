@@ -29,6 +29,7 @@ from tests.conftest import make_user
 PATH = "/api/v1/topology/path"
 MISSING = "/api/v1/topology/missing-devices"
 SUMMARY = "/api/v1/topology/summary"
+MAP = "/api/v1/topology/map"
 
 
 @pytest.fixture
@@ -372,3 +373,70 @@ class TestTheEndpoints:
 
         assert response.status_code == 200
         assert response.json()["devices"] == 0
+
+
+# ═════════════════════════ the map, over the wire ═════════════════════════
+
+
+class TestTheMapEndpoint:
+    """`GET /topology/map` (FR-TOPO-02).
+
+    The map is built from the same graph the path walk uses, so the properties worth
+    proving here are the ones that only appear once a database is involved: that the
+    inventory's own facts reach the picture, and that an empty estate draws as empty
+    rather than failing.
+    """
+
+    async def test_it_draws_the_stored_estate_and_its_boundary(
+        self, client: AsyncClient, session: AsyncSession, estate, signed_in
+    ) -> None:
+        await session.commit()
+        response = await client.get(MAP)
+
+        assert response.status_code == 200, response.text
+        body = response.json()
+
+        labels = {node["label"]: node for node in body["nodes"]}
+        assert {"edge-fw", "core-rtr", "dmz-fw"} <= set(labels)
+        # The ISP router is in nobody's inventory and is on the map regardless: it is
+        # what names the device somebody would onboard to learn more.
+        assert labels["203.0.113.1"]["kind"] == "unmanaged"
+        assert labels["203.0.113.1"]["carries_default_route"] is True
+
+    async def test_interfaces_and_zones_reach_the_picture(
+        self, client: AsyncClient, session: AsyncSession, estate, signed_in
+    ) -> None:
+        """The NCM-to-map mapping, which is where a renamed parser field would
+        silently empty every device panel while the map still looked fine."""
+        await session.commit()
+        body = (await client.get(MAP)).json()
+
+        edge = next(node for node in body["nodes"] if node["label"] == "edge-fw")
+        zones = {iface["name"]: iface["zone"] for iface in edge["interfaces"]}
+
+        assert zones == {"outside": "outside", "inside": "inside"}
+        assert edge["has_rulebase"] is True
+        assert edge["device_class"] == "firewall"
+
+    async def test_each_end_of_a_strand_names_its_interface(
+        self, client: AsyncClient, session: AsyncSession, estate, signed_in
+    ) -> None:
+        await session.commit()
+        body = (await client.get(MAP)).json()
+
+        labels = {node["id"]: node["label"] for node in body["nodes"]}
+        link = next(
+            item
+            for item in body["links"]
+            if {labels[item["source"]], labels[item["target"]]} == {"edge-fw", "core-rtr"}
+        )
+        assert {link["source_interface"], link["target_interface"]} == {"inside", "up"}
+
+    async def test_an_empty_estate_draws_as_empty_rather_than_failing(
+        self, client: AsyncClient, signed_in
+    ) -> None:
+        response = await client.get(MAP)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert (body["devices"], body["nodes"], body["links"]) == (0, [], [])

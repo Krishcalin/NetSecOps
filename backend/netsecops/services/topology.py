@@ -19,17 +19,23 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.core.logging import get_logger
-from netsecops.db.models.collection import Snapshot
-from netsecops.db.models.inventory import Device, DeviceStatus
+from netsecops.db.models.collection import Finding, FindingStatus, Snapshot
+from netsecops.db.models.inventory import Device, DeviceStatus, Site
 from netsecops.ncm.models import Route
 from netsecops.parsers.routes import interface_network
+from netsecops.topology.estate_map import (
+    DeviceMeta,
+    EstateMap,
+    MapInterface,
+    build_map,
+)
 from netsecops.topology.graph import DeviceNode, TopologyGraph, build_graph
 from netsecops.topology.missing import MissingDevice, missing_devices
 from netsecops.topology.path import PathResult, walk
@@ -59,6 +65,15 @@ class TopologyService:
         self.session = session
         self.org_id = org_id
         self._graph: TopologyGraph | None = None
+        #: Filled while the graph is built, from rows already in hand. The map needs
+        #: what the inventory knows and the routing graph deliberately does not carry —
+        #: device class, criticality, the interface list — and re-reading the devices to
+        #: get it would undo the single-query build NFR-PERF-01 asks for.
+        self._meta: dict[uuid.UUID, DeviceMeta] = {}
+        #: Kept beside the metadata rather than in it: a site *id* is a database fact
+        #: that means nothing on a picture, and resolving names is one more query that
+        #: only the map pays for.
+        self._site_ids: dict[uuid.UUID, uuid.UUID | None] = {}
 
     async def graph(self) -> TopologyGraph:
         if self._graph is None:
@@ -97,6 +112,11 @@ class TopologyService:
         )
         snapshots = {row.device_id: (row.id, row.ncm) for row in await self.session.execute(latest)}
 
+        self._meta = {
+            device.id: _meta_from(device, *snapshots.get(device.id, (None, None)))
+            for device in devices
+        }
+        self._site_ids = {device.id: device.site_id for device in devices}
         return [_node_from(device, *snapshots.get(device.id, (None, None))) for device in devices]
 
     async def summary(self) -> GraphSummary:
@@ -146,6 +166,49 @@ class TopologyService:
 
     async def missing(self, *, limit: int = 50) -> list[MissingDevice]:
         return missing_devices(await self.graph(), limit=limit)
+
+    async def estate_map(self, *, limit: int = 2000) -> EstateMap:
+        """The whole graph, projected into something drawable (FR-TOPO-02).
+
+        Two queries beyond the graph build, both aggregates over the whole estate rather
+        than one per device: the site names, and the open findings per device. A map
+        that costs a round trip per box is one nobody opens twice.
+        """
+        graph = await self.graph()
+
+        sites = {
+            row.id: row.name
+            for row in await self.session.execute(
+                select(Site.id, Site.name).where(Site.org_id == self.org_id)
+            )
+        }
+        findings = await self._finding_counts()
+
+        meta = {
+            device_id: replace(
+                info,
+                site=sites.get(self._site_ids.get(device_id)) if self._site_ids else None,
+                findings=findings.get(device_id, {}),
+            )
+            for device_id, info in self._meta.items()
+        }
+        return build_map(graph, meta=meta, limit=limit)
+
+    async def _finding_counts(self) -> dict[uuid.UUID, dict[str, int]]:
+        """Open findings per device, by severity, in one grouped query."""
+        rows = await self.session.execute(
+            select(Finding.device_id, Finding.severity, func.count())
+            .where(
+                Finding.org_id == self.org_id,
+                Finding.status.in_(FindingStatus.active_values()),
+            )
+            .group_by(Finding.device_id, Finding.severity)
+        )
+
+        counts: dict[uuid.UUID, dict[str, int]] = {}
+        for device_id, severity, total in rows:
+            counts.setdefault(device_id, {})[severity] = int(total)
+        return counts
 
 
 def _node_from(
@@ -200,6 +263,48 @@ def _node_from(
         _index_address(node, "management", f"{device.mgmt_ip}/32")
 
     return node
+
+
+#: How many addressed interfaces reach the map per device. A core switch can carry
+#: hundreds of SVIs and the panel is not the place to read them all; the device's
+#: configuration page is.
+MAX_INTERFACES = 24
+
+
+def _meta_from(
+    device: Device, snapshot_id: uuid.UUID | None, snapshot_ncm: dict[str, Any] | None
+) -> DeviceMeta:
+    """What the picture needs about a device beyond its routes.
+
+    Only addressed interfaces reach the map. A layer-3 picture is drawn from addresses,
+    and an access switch's forty-eight unaddressed ports would be forty-eight rows of a
+    payload that no strand on the map is drawn from — so the count of all of them is
+    carried separately rather than the list being quietly filtered.
+    """
+    ncm = snapshot_ncm or {}
+    raw = ncm.get("interfaces") or []
+
+    addressed: list[MapInterface] = []
+    for interface in raw:
+        name = interface.get("name")
+        addresses = tuple(str(value) for value in (interface.get("ip_addresses") or []))
+        if not name or not addresses:
+            continue
+        addressed.append(MapInterface(name=name, addresses=addresses, zone=interface.get("zone")))
+
+    return DeviceMeta(
+        device_class=device.device_class,
+        criticality=device.criticality,
+        status=device.status,
+        interfaces=tuple(addressed[:MAX_INTERFACES]),
+        interface_count=len(raw),
+        # Deliberately the snapshot and not `last_collected_at`: that column is written
+        # by fact recording during a live collection, so a device whose configuration
+        # arrived by upload has none — and this estate is full of them. A flag that is
+        # false for most of the inventory would put "never collected" on devices with
+        # a parsed configuration and hundreds of findings.
+        has_snapshot=snapshot_id is not None,
+    )
 
 
 def _index_address(node: DeviceNode, interface: str, address: str) -> None:

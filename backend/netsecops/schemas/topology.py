@@ -120,6 +120,107 @@ class MissingDeviceRead(BaseModel):
     reason: str
 
 
+class MapInterfaceRead(BaseModel):
+    """One addressed interface, as the picture and its detail panel need it."""
+
+    name: str
+    addresses: list[str] = Field(default_factory=list)
+    zone: str | None = None
+
+
+class MapNodeRead(BaseModel):
+    """A box on the map (FR-TOPO-02)."""
+
+    id: str
+    #: `device` or `unmanaged`. The second is an address routes point at that nothing in
+    #: the inventory answers for — a hole in the evidence, never drawn as a device.
+    kind: str
+    label: str
+    group: str
+    #: Breadth-first distance from the estate boundary. The column the box is drawn in.
+    tier: int
+
+    platform: str | None = None
+    vendor: str | None = None
+    device_class: str | None = None
+    criticality: str | None = None
+    status: str | None = None
+    site: str | None = None
+
+    #: Carries security rules of any kind.
+    has_rulebase: bool = False
+    #: Carries rules in force on traffic crossing it. Narrower, and what the picture is
+    #: drawn from: an access list bound to nothing — a vty filter, a leftover — filters
+    #: no transit traffic, and badging its device as a firewall would put a control on
+    #: the map where the network has none.
+    inspects: bool = False
+    routes: int = 0
+    #: False where the snapshot predates route parsing: the device has no routes that
+    #: anybody read, which is not the same as having none.
+    routes_known: bool = True
+    interfaces: list[MapInterfaceRead] = Field(default_factory=list)
+    #: Every interface, addressed or not. `interfaces` carries only the addressed ones.
+    interface_count: int = 0
+    findings: dict[str, int] = Field(default_factory=dict)
+    has_snapshot: bool = False
+
+    referenced_by: list[str] = Field(default_factory=list)
+    carries_default_route: bool = False
+
+
+class MapLinkRead(BaseModel):
+    """A strand between two boxes."""
+
+    id: str
+    source: str
+    target: str
+    #: The next-hop addresses that produced it, capped.
+    via: list[str] = Field(default_factory=list)
+    prefixes: int = 0
+    carries_default: bool = False
+    #: False where only one end routes to the other, which is a real asymmetry and is
+    #: drawn as one rather than tidied into a plain line.
+    bidirectional: bool = False
+    source_interface: str | None = None
+    target_interface: str | None = None
+    crosses_firewall: bool = False
+
+
+class MapGroupRead(BaseModel):
+    """A connected component of the graph."""
+
+    id: str
+    label: str
+    #: `site` | `hostname` | `index`. Where the label came from, so nobody reads an
+    #: inferred one as something that was configured.
+    label_source: str
+    devices: int = 0
+    firewalls: int = 0
+    unmanaged: int = 0
+    links: int = 0
+    tiers: int = 1
+
+
+class EstateMapRead(BaseModel):
+    """The whole graph, drawable (FR-TOPO-02)."""
+
+    nodes: list[MapNodeRead] = Field(default_factory=list)
+    links: list[MapLinkRead] = Field(default_factory=list)
+    groups: list[MapGroupRead] = Field(default_factory=list)
+
+    devices: int = 0
+    unmanaged: int = 0
+    devices_without_route_data: int = 0
+    #: Devices no strand touches. Either genuinely standalone or never collected, and
+    #: the picture cannot tell those apart — so it counts them rather than hiding them.
+    isolated: int = 0
+
+    #: Whole groups dropped because the estate exceeded the cap. Whole ones, because
+    #: half a component is a picture of a network that does not exist.
+    omitted_groups: list[str] = Field(default_factory=list)
+    omitted_devices: int = 0
+
+
 class TopologySummary(BaseModel):
     """What the graph is made of, so an answer can be read with its coverage in view."""
 
@@ -135,7 +236,12 @@ class TopologySummary(BaseModel):
 
 
 __all__ = [
+    "EstateMapRead",
     "HopRead",
+    "MapGroupRead",
+    "MapInterfaceRead",
+    "MapLinkRead",
+    "MapNodeRead",
     "MissingDeviceRead",
     "PathRequest",
     "PathResponse",

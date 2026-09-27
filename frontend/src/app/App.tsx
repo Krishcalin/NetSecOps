@@ -30,6 +30,7 @@ import { ExceptionsPage } from './ExceptionsPage';
 import { CompliancePage } from './CompliancePage';
 import { ReportsPage } from './ReportsPage';
 import { TopologyPage } from './TopologyPage';
+import { NetworkMapPage } from './NetworkMapPage';
 import { SegmentationPage } from './SegmentationPage';
 import { JobsPage } from './JobsPage';
 import { UsersPage } from './UsersPage';
@@ -111,6 +112,9 @@ export function App() {
               {/* Estate-wide by nature: the question is which devices are between two
                   hosts, which cannot be asked of one device. */}
               <Route path="topology" element={<TopologyPage />} />
+              {/* The same graph, before you know which question to ask: the map is what
+                  gets looked at first, and a path query is usually started from it. */}
+              <Route path="topology/map" element={<NetworkMapPage />} />
               {/* The same engine, asked about every declared zone pair at once. */}
               <Route path="segmentation" element={<SegmentationPage />} />
               {/* Estate-wide rather than per-device: the whole subject is what the

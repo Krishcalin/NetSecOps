@@ -360,6 +360,9 @@ MATRIX: list[Case] = [
     ),
     Case("GET", "/api/v1/topology/missing-devices", _DEVICE_READERS),
     Case("GET", "/api/v1/topology/summary", _DEVICE_READERS),
+    # The same graph the path query walks, projected for drawing. Nothing in it is
+    # derived from anything but stored configuration, so it sits with the reads above.
+    Case("GET", "/api/v1/topology/map", _DEVICE_READERS),
     # ── Segmentation intent (FR-TOPO-07) ────────────────────────────────────
     # Reading the declared policy and the matrix sits with the other device reads: the
     # matrix is a path answer per zone pair, assembled from the same stored
