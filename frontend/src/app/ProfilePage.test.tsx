@@ -7,7 +7,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MemoryRouter } from 'react-router-dom';
@@ -142,7 +142,10 @@ describe('ProfilePage', () => {
   });
 
   describe('turning MFA off', () => {
-    it('asks first, because it lowers the account back to a password alone', async () => {
+    it('re-proves both factors rather than asking for a confirmation click', async () => {
+      // A session says somebody signed in once; it does not say who is at the keyboard
+      // now. Removing the second factor from a borrowed unlocked browser was one
+      // click, and it is the single change that weakens every future sign-in.
       currentUser = { ...currentUser, mfa_enabled: true };
       const remove = vi.spyOn(api, 'delete').mockResolvedValue(undefined as never);
       renderPage();
@@ -150,8 +153,53 @@ describe('ProfilePage', () => {
       await userEvent.click(await screen.findByRole('button', { name: 'Turn off MFA' }));
       expect(remove).not.toHaveBeenCalled();
 
-      await userEvent.click(screen.getByRole('button', { name: 'Yes, turn it off' }));
-      expect(remove).toHaveBeenCalledWith('/auth/mfa');
+      // Scoped to the two-factor card: the password-change form above it has its own
+      // `Current password` field, so an unscoped query matches two.
+      const card = screen.getByRole('heading', { name: 'Two-factor authentication' })
+        .closest('.card') as HTMLElement;
+      await userEvent.type(within(card).getByLabelText('Current password'), 'Correct-Horse-9!');
+      await userEvent.type(within(card).getByLabelText('Code from your app'), '123456');
+      await userEvent.click(within(card).getByRole('button', { name: 'Turn off two-factor' }));
+
+      expect(remove).toHaveBeenCalledWith('/auth/mfa', {
+        password: 'Correct-Horse-9!',
+        code: '123456',
+      });
+    });
+
+    it('will not submit with only one of the two', async () => {
+      // Asserted through the disabled button rather than through `required`, which
+      // jsdom does not enforce — a test written against the attribute passes here and
+      // proves nothing about the code.
+      currentUser = { ...currentUser, mfa_enabled: true };
+      renderPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Turn off MFA' }));
+      const card = screen.getByRole('heading', { name: 'Two-factor authentication' })
+        .closest('.card') as HTMLElement;
+      const submit = within(card).getByRole('button', { name: 'Turn off two-factor' });
+
+      expect(submit).toBeDisabled();
+
+      await userEvent.type(within(card).getByLabelText('Current password'), 'Correct-Horse-9!');
+      expect(submit).toBeDisabled();
+
+      await userEvent.type(within(card).getByLabelText('Code from your app'), '123456');
+      expect(submit).toBeEnabled();
+    });
+
+    it('warns when the recovery codes have run out', async () => {
+      // They cannot be redisplayed, only reissued. Nought left is a lockout waiting
+      // for a lost phone, and it was not visible anywhere before.
+      currentUser = { ...currentUser, mfa_enabled: true };
+      vi.spyOn(api, 'get').mockImplementation(async (path: string) =>
+        (path === '/auth/mfa'
+          ? { enabled: true, recovery_codes_left: 0 }
+          : tokens) as never,
+      );
+      renderPage();
+
+      expect(await screen.findByText(/none left/)).toBeInTheDocument();
     });
 
     it('is not offered when MFA is already off', async () => {
@@ -159,6 +207,62 @@ describe('ProfilePage', () => {
 
       await waitFor(() => expect(screen.getByText(/not enabled/)).toBeInTheDocument());
       expect(screen.queryByRole('button', { name: 'Turn off MFA' })).not.toBeInTheDocument();
+    });
+  });
+
+  describe('enrolling', () => {
+    /** Three ways to get one secret into an authenticator, because one is never enough
+     *  in practice. The screen offered exactly one — a bare base32 string under the
+     *  words "scan this" — for three phases, while `qrcode` sat in the dependency list
+     *  unimported. */
+
+    const ENROLMENT = {
+      secret: 'JBSWY3DPEHPK3PXP',
+      formatted_secret: 'JBSW Y3DP EHPK 3PXP',
+      provisioning_uri: 'otpauth://totp/NetSecOps:admin@example.com?secret=JBSWY3DPEHPK3PXP',
+      qr_svg: '<svg viewBox="0 0 41 41"><path d="M2,2H3V3H2z"/></svg>',
+      recovery_codes: ['aaaa1111-bbbb2222', 'cccc3333-dddd4444'],
+    };
+
+    async function startEnrolment() {
+      vi.spyOn(api, 'post').mockResolvedValue(ENROLMENT as never);
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Set up|Enable MFA/ }));
+    }
+
+    it('gives something to scan', async () => {
+      await startEnrolment();
+
+      const card = screen.getByRole('heading', { name: 'Two-factor authentication' })
+        .closest('.card') as HTMLElement;
+      expect(card.querySelector('.mfa-qr svg')).not.toBeNull();
+    });
+
+    it('offers a tap-through for somebody reading this on the phone', async () => {
+      // There is nothing to scan when the screen holding the QR is the phone itself.
+      await startEnrolment();
+
+      const link = await screen.findByRole('link', { name: /Open in your authenticator/ });
+      expect(link).toHaveAttribute('href', ENROLMENT.provisioning_uri);
+    });
+
+    it('shows the key grouped, for typing in by hand', async () => {
+      // For a shared screen, or a machine with no camera. An unbroken 32-character
+      // base32 string is transcribed wrongly often enough that every authenticator
+      // app groups it.
+      await startEnrolment();
+
+      expect(await screen.findByText('JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    });
+
+    it('shows the recovery codes rather than folding them away', async () => {
+      // They are displayed exactly once and can never be redisplayed. A disclosure
+      // somebody does not open is a set of codes they do not have when the phone goes.
+      await startEnrolment();
+
+      expect(await screen.findByText('aaaa1111-bbbb2222')).toBeVisible();
+      expect(screen.getByText('cccc3333-dddd4444')).toBeVisible();
+      expect(screen.getByText(/one time they can be shown/)).toBeInTheDocument();
     });
   });
 });

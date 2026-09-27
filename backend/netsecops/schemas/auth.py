@@ -88,9 +88,39 @@ class SSORoleMapWrite(BaseModel):
 
 
 class MFAEnrolmentResponse(BaseModel):
+    """Everything needed to get the secret into an authenticator, three ways.
+
+    One is never enough in practice: the QR for a phone camera, the `otpauth://` link
+    for when the screen being read *is* the phone, and the grouped key for when the
+    camera is unavailable or the screen is being shared. All three carry one secret.
+    """
+
     secret: str = Field(description="Base32 TOTP secret — shown once, at enrolment")
+    formatted_secret: str = Field(description="The same secret in groups of four")
     provisioning_uri: str = Field(description="otpauth:// URI for authenticator apps")
+    qr_svg: str = Field(description="The URI as an inline SVG QR code")
     recovery_codes: list[str] = Field(description="Single-use codes — shown once")
+
+
+class MFAStatusResponse(BaseModel):
+    enabled: bool
+    #: Single-use and never redisplayed, so nought left is a lockout waiting for a
+    #: lost phone. Reissued only by turning the factor off and on again.
+    recovery_codes_left: int
+
+
+class MFADisableRequest(BaseModel):
+    """Turning the second factor off re-proves both of them.
+
+    A live session is not enough: removing MFA from a borrowed unlocked browser would
+    otherwise be one click. `code` accepts a recovery code, which is what those exist
+    for when the phone is gone.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    password: str = Field(min_length=1, max_length=256)
+    code: str = Field(min_length=6, max_length=32)
 
 
 class MFAConfirmRequest(BaseModel):

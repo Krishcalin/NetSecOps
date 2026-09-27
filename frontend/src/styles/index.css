@@ -273,19 +273,82 @@ a {
 
 /* ───────────────────────────── auth screen ───────────────────────────── */
 
+/* Two halves: the form on the left, the brand on the right. It was one narrow card
+   centred on an empty page, which gave a 400px column of chrome on a 2560px screen
+   and put a 280px logo above the fields — most of the card was picture and the thing
+   somebody came to do was below the fold on a laptop. */
 .auth-shell {
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: var(--gap);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  background: var(--surface);
 }
 
 .auth-card {
-  width: min(400px, 100%);
-  background: var(--surface);
+  align-self: center;
+  justify-self: center;
+  width: min(23rem, 100%);
+  padding: 32px 24px;
+}
+
+/* The brand side, on its own ground so the split is visible rather than implied. */
+.auth-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+}
+
+.auth-brand__mark {
+  display: block;
+  width: 100%;
+  max-width: 26rem;
+  height: auto;
+}
+
+/* One column below 820px, brand first — a narrow window identifies the product
+   before it asks for a password, and a bare username box with no branding above it
+   is exactly what a phishing page looks like. */
+@media (max-width: 820px) {
+  .auth-shell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .auth-brand {
+    order: -1;
+    padding: 1.5rem;
+    border-left: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .auth-brand__mark {
+    max-width: 16rem;
+  }
+}
+
+.auth-card__title {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+  font-weight: 650;
+}
+
+/* The enrolment QR. On its own white ground regardless of theme: a code inverted for
+   dark mode is one a camera will not read, and the point of it is to be scanned. */
+.mfa-qr {
+  display: inline-block;
+  margin: 10px 0;
+  padding: 10px;
+  background: #fff;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 32px;
+}
+
+.mfa-qr svg {
+  display: block;
+  width: 180px;
+  height: 180px;
 }
 
 /* The sign-in heading is the logo itself, so the `h1` is a container for the image and

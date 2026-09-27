@@ -48,6 +48,7 @@ SELF_SERVICE_PATHS = {
     ("POST", "/api/v1/auth/password"),
     ("POST", "/api/v1/auth/mfa/enroll"),
     ("POST", "/api/v1/auth/mfa/confirm"),
+    ("GET", "/api/v1/auth/mfa"),
     ("DELETE", "/api/v1/auth/mfa"),
     ("GET", "/api/v1/auth/roles"),
     ("GET", "/api/v1/api-tokens"),

@@ -33,7 +33,9 @@ from netsecops.schemas.auth import (
     LoginRequest,
     MFAChallengeResponse,
     MFAConfirmRequest,
+    MFADisableRequest,
     MFAEnrolmentResponse,
+    MFAStatusResponse,
     MFAVerifyRequest,
     PasswordChangeRequest,
     RoleInfo,
@@ -409,7 +411,9 @@ async def enroll_mfa(
     enrolment = await auth.begin_mfa_enrolment(user)
     return MFAEnrolmentResponse(
         secret=enrolment.secret,
+        formatted_secret=enrolment.formatted_secret,
         provisioning_uri=enrolment.provisioning_uri,
+        qr_svg=enrolment.qr_svg,
         recovery_codes=enrolment.recovery_codes,
     )
 
@@ -428,18 +432,42 @@ async def confirm_mfa(
     await auth.confirm_mfa_enrolment(user, payload.code)
 
 
+@router.get(
+    "/mfa",
+    response_model=MFAStatusResponse,
+    summary="Whether MFA is on, and how much recovery is left (FR-AUTH-03)",
+)
+async def mfa_status(auth: AuthServiceDep, user: CurrentUserDep) -> MFAStatusResponse:
+    """Recovery codes remaining is the part worth surfacing.
+
+    They are single-use and can never be redisplayed — only reissued by turning the
+    factor off and on. Nought left is a lockout waiting for a lost phone, and until
+    now the only way to discover the number was to reach it.
+    """
+    return MFAStatusResponse(
+        enabled=user.mfa_enabled,
+        recovery_codes_left=await auth.recovery_codes_left(user),
+    )
+
+
 @router.delete(
     "/mfa",
     status_code=status.HTTP_204_NO_CONTENT,
     dependencies=[Depends(verify_csrf)],
-    summary="Disable MFA for your own account",
+    summary="Disable MFA for your own account, re-proving both factors",
 )
 async def disable_mfa(
+    payload: MFADisableRequest,
     auth: AuthServiceDep,
     principal: PrincipalDep,
     user: CurrentUserDep,
 ) -> None:
-    await auth.disable_mfa(user, principal)
+    """Takes a password and a code, which a session alone used to stand in for.
+
+    Removing the second factor from a borrowed unlocked browser was one click, and it
+    is the one change that weakens every future sign-in on the account.
+    """
+    await auth.disable_mfa(user, principal, password=payload.password, code=payload.code)
 
 
 @router.get(

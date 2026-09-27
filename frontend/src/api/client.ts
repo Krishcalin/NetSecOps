@@ -174,5 +174,9 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  /** `body` is optional and almost always absent. It exists for the one delete that
+   *  has to carry credentials — turning off the second factor re-proves both, and a
+   *  password does not belong in a query string, where it would reach the access log
+   *  and the browser's history. */
+  delete: <T>(path: string, body?: unknown) => request<T>(path, { method: 'DELETE', body }),
 };

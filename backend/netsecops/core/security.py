@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
+import re
 import secrets
 import string
 import uuid
@@ -17,8 +19,10 @@ from typing import Any, Final
 
 import jwt
 import pyotp
+import qrcode
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
+from qrcode.image.svg import SvgPathImage
 
 from netsecops.core.config import Settings, get_settings
 from netsecops.core.errors import AuthenticationError, PasswordPolicyError
@@ -262,6 +266,39 @@ def mfa_provisioning_uri(secret: str, account_name: str, settings: Settings | No
     return build_totp(secret, settings).provisioning_uri(
         name=account_name, issuer_name=settings.mfa_issuer
     )
+
+
+def mfa_qr_svg(provisioning_uri: str) -> str:
+    """The enrolment URI as an inline SVG QR code.
+
+    `qrcode` has shipped in this project's dependencies since Phase 0 and nothing had
+    ever imported it: the enrolment screen said "scan this into your authenticator app"
+    above a base32 string, with nothing to scan. Typing 32 characters from a screen
+    into a phone is where enrolment is abandoned.
+
+    **Safe to inline.** The SVG factory emits one `<path>` of numeric coordinates, so
+    no part of the URI — which contains the secret — reaches the markup as text. The
+    XML declaration is stripped because this is embedded in a document, not served as
+    a file, and `width`/`height` go with it so the page sizes it with CSS rather than
+    the encoder deciding in millimetres.
+    """
+    image = qrcode.make(provisioning_uri, image_factory=SvgPathImage, box_size=10, border=2)
+    buffer = io.BytesIO()
+    image.save(buffer)
+    svg = buffer.getvalue().decode("utf-8")
+
+    svg = re.sub(r"<\?xml[^>]*\?>\s*", "", svg)
+    return re.sub(r'\s(?:width|height)="[^"]*"', "", svg, count=2)
+
+
+def format_mfa_secret(secret: str, group: int = 4) -> str:
+    """The secret in groups, for the people who type it in by hand.
+
+    An unbroken 32-character base32 string is transcribed wrongly often enough that
+    every authenticator app displays it grouped, and a mistyped key fails at the
+    confirm step with nothing to say which character was wrong.
+    """
+    return " ".join(secret[i : i + group] for i in range(0, len(secret), group))
 
 
 def verify_totp(secret: str, code: str, settings: Settings | None = None) -> bool:

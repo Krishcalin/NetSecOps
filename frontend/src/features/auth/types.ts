@@ -41,10 +41,25 @@ export interface CurrentUser {
   unrestricted_scope: boolean;
 }
 
+/** Everything needed to get the secret into an authenticator, three ways: the QR for
+ *  a camera, the `otpauth://` link for when the screen being read *is* the phone, and
+ *  the grouped key for when the camera is unavailable or the screen is shared. */
 export interface MFAEnrolment {
   secret: string;
+  /** The same secret in groups of four, for typing in by hand. */
+  formatted_secret: string;
   provisioning_uri: string;
+  /** The provisioning URI as an inline SVG. Safe to inject: the encoder emits one
+   *  `<path>` of numeric coordinates, so no part of the URI reaches the markup. */
+  qr_svg: string;
   recovery_codes: string[];
+}
+
+export interface MFAStatus {
+  enabled: boolean;
+  /** Single-use and never redisplayed — only reissued by turning the factor off and
+   *  on again. Nought is a lockout waiting for a lost phone. */
+  recovery_codes_left: number;
 }
 
 /** What the sign-in screen may know before anybody has signed in (FR-AUTH-04). */

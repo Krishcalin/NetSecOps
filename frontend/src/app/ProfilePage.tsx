@@ -15,7 +15,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
-import type { MFAEnrolment } from '../features/auth/types';
+import type { MFAEnrolment, MFAStatus } from '../features/auth/types';
 import type { ApiToken, IssuedApiToken } from '../features/users/types';
 import { PageHeader } from '../components/PageHeader';
 
@@ -215,6 +215,15 @@ export function ProfilePage() {
   const [mfaError, setMfaError] = useState<string | null>(null);
   const [mfaDone, setMfaDone] = useState(false);
   const [confirmDisable, setConfirmDisable] = useState(false);
+  const [disablePassword, setDisablePassword] = useState('');
+
+  // How many single-use codes are left. They can never be redisplayed, only reissued
+  // by turning the factor off and on — so nought is a lockout waiting for a lost
+  // phone, and until this endpoint existed the only way to find out was to run out.
+  const mfa = useQuery({
+    queryKey: ['mfa-status'],
+    queryFn: () => api.get<MFAStatus>('/auth/mfa'),
+  });
 
   async function changePassword(event: FormEvent) {
     event.preventDefault();
@@ -262,15 +271,23 @@ export function ProfilePage() {
     }
   }
 
-  async function disableMfa() {
+  async function disableMfa(event: FormEvent) {
+    event.preventDefault();
     setMfaError(null);
-    setConfirmDisable(false);
     try {
-      await api.delete('/auth/mfa');
+      // Both factors, not a confirmation click. A session says somebody signed in
+      // once; it does not say who is at the keyboard now, and this is the one change
+      // that weakens every future sign-in.
+      await api.delete('/auth/mfa', { password: disablePassword, code: mfaCode });
       setMfaDone(false);
+      setConfirmDisable(false);
+      setDisablePassword('');
+      setMfaCode('');
       await refreshUser();
+      await mfa.refetch();
     } catch (err) {
       setMfaError(err instanceof ApiError ? err.problem.detail : 'Could not turn MFA off.');
+      setMfaCode('');
     }
   }
 
@@ -350,21 +367,70 @@ export function ProfilePage() {
                 MFA is <strong>enabled</strong>. You will be asked for a code from your
                 authenticator app at each sign-in.
               </p>
-              {/* Offered because the alternative, when someone loses their phone and has
-                  spent their recovery codes, is a Super Admin editing the database. */}
+
+              {mfa.data && (
+                <p className={mfa.data.recovery_codes_left === 0 ? 'text-error' : 'field__help'}>
+                  Recovery codes remaining: <strong>{mfa.data.recovery_codes_left}</strong>
+                  {mfa.data.recovery_codes_left === 0 &&
+                    ' — none left. They cannot be redisplayed, only reissued: turn two-factor off and on again for a new set.'}
+                </p>
+              )}
+
               {confirmDisable ? (
-                <div className="toolbar">
-                  <span>Turn MFA off and go back to a password alone?</span>
-                  <button className="button button--ghost button--small" onClick={disableMfa}>
-                    Yes, turn it off
-                  </button>
-                  <button
-                    className="button button--ghost button--small"
-                    onClick={() => setConfirmDisable(false)}
-                  >
-                    Cancel
-                  </button>
-                </div>
+                <form onSubmit={disableMfa} noValidate>
+                  {/* Both factors, not a confirmation click. Removing the second
+                      factor from a borrowed unlocked browser was one click, and it is
+                      the single change that weakens every future sign-in. */}
+                  <p className="field__help">
+                    Turning it off re-proves both factors. A recovery code works here too, which is
+                    what they are for when the phone is gone.
+                  </p>
+                  <label className="field">
+                    <span className="field__label">Current password</span>
+                    <input
+                      className="field__input"
+                      type="password"
+                      autoComplete="current-password"
+                      value={disablePassword}
+                      onChange={(e) => setDisablePassword(e.target.value)}
+                      required
+                    />
+                  </label>
+                  <label className="field">
+                    <span className="field__label">Code from your app</span>
+                    <input
+                      className="field__input"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value)}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      required
+                    />
+                  </label>
+                  <div className="toolbar">
+                    {/* Disabled until both are present rather than relying on
+                        `required`, which stops a person typing into the form and does
+                        nothing for a submit that arrives any other way. */}
+                    <button
+                      className="button button--ghost button--small"
+                      type="submit"
+                      disabled={!disablePassword || !mfaCode}
+                    >
+                      Turn off two-factor
+                    </button>
+                    <button
+                      className="button button--ghost button--small"
+                      type="button"
+                      onClick={() => {
+                        setConfirmDisable(false);
+                        setDisablePassword('');
+                        setMfaCode('');
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
               ) : (
                 <button
                   className="button button--ghost button--small"
@@ -376,23 +442,42 @@ export function ProfilePage() {
             </>
           ) : enrolment ? (
             <>
+              {/* Three ways in, because one is never enough: the camera, the tap if
+                  you are reading this on the phone, and the typed key when the camera
+                  is unavailable or the screen is shared. All three carry one secret. */}
               <p className="field__help">
-                Scan this into your authenticator app, or enter the secret manually, then confirm
-                with a generated code.
+                Scan this with Microsoft Authenticator, Google Authenticator, Authy, 1Password —
+                anything that speaks the standard.
               </p>
-              <p className="mono secret-block">{enrolment.secret}</p>
 
-              <details className="recovery">
-                <summary>Recovery codes ({enrolment.recovery_codes.length})</summary>
-                <p className="field__help">
-                  Store these somewhere safe. Each works once, and they are shown only now.
-                </p>
+              <div
+                className="mfa-qr"
+                /* Safe: the encoder emits one <path> of numeric coordinates, so no
+                   part of the URI — which carries the secret — reaches the markup. */
+                dangerouslySetInnerHTML={{ __html: enrolment.qr_svg }}
+              />
+
+              <p className="field__help">
+                On the phone already? <a href={enrolment.provisioning_uri}>Open in your
+                authenticator app</a>
+              </p>
+
+              <p className="field__help">Or type this setup key in by hand:</p>
+              <p className="mono secret-block">{enrolment.formatted_secret}</p>
+
+              {/* Shown, not folded into a <details>. They are displayed exactly once
+                  and can never be redisplayed — a disclosure somebody does not open is
+                  a set of codes they do not have when the phone goes. */}
+              <div className="alert alert--warning" role="status">
+                <strong>Save these recovery codes now.</strong> Only fingerprints are stored, so
+                this is the one time they can be shown. Each works once, and they are the way back
+                in if the phone is lost.
                 <ul className="recovery__list mono">
                   {enrolment.recovery_codes.map((code) => (
                     <li key={code}>{code}</li>
                   ))}
                 </ul>
-              </details>
+              </div>
 
               <form onSubmit={confirmEnrolment} noValidate>
                 <label className="field">

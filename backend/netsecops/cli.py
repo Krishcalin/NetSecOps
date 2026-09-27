@@ -169,7 +169,9 @@ def cmd_reset_mfa(
             actor = Principal(
                 id=user.id, username="cli", roles=frozenset({Role.SUPER_ADMIN}), scope=Scope.all()
             )
-            await AuthService(session).disable_mfa(user, actor)
+            # The break-glass path: whoever runs this can produce neither factor,
+            # which is the entire reason the command exists.
+            await AuthService(session).disable_mfa(user, actor, proof_required=False)
 
     asyncio.run(_run())
     console.print(f"[green]MFA cleared for:[/green] {username}")

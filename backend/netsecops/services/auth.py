@@ -33,11 +33,13 @@ from netsecops.core.security import (
     create_mfa_pending_token,
     create_refresh_token,
     decode_token,
+    format_mfa_secret,
     generate_mfa_secret,
     generate_recovery_codes,
     hash_password,
     hash_token,
     mfa_provisioning_uri,
+    mfa_qr_svg,
     needs_rehash,
     validate_password_policy,
     verify_password,
@@ -81,7 +83,13 @@ class MFAChallenge:
 @dataclass(frozen=True, slots=True)
 class MFAEnrolment:
     secret: str
+    #: The same secret in groups of four, for whoever types it in by hand.
+    formatted_secret: str
     provisioning_uri: str
+    #: The provisioning URI as an inline SVG QR code. The screen said "scan this"
+    #: above a bare base32 string for three phases; `qrcode` was a declared dependency
+    #: the whole time and nothing imported it.
+    qr_svg: str
     recovery_codes: list[str]
 
 
@@ -489,9 +497,12 @@ class AuthService:
             object_type="user",
             object_id=user.id,
         )
+        uri = mfa_provisioning_uri(secret, user.email, self.settings)
         return MFAEnrolment(
             secret=secret,
-            provisioning_uri=mfa_provisioning_uri(secret, user.email, self.settings),
+            formatted_secret=format_mfa_secret(secret),
+            provisioning_uri=uri,
+            qr_svg=mfa_qr_svg(uri),
             recovery_codes=recovery_codes,
         )
 
@@ -516,9 +527,50 @@ class AuthService:
             object_id=user.id,
         )
 
-    async def disable_mfa(self, user: User, actor: Principal) -> None:
+    async def disable_mfa(
+        self,
+        user: User,
+        actor: Principal,
+        *,
+        password: str | None = None,
+        code: str | None = None,
+        proof_required: bool = True,
+    ) -> None:
+        """Turn off the second factor (FR-AUTH-03).
+
+        **Both factors are re-proved by default.** A live session is not enough:
+        removing MFA from a borrowed unlocked browser would otherwise be one click, and
+        it is the single change that weakens every future sign-in on the account. The
+        code may be a recovery code, which is what those are for when the phone is
+        gone.
+
+        `proof_required=False` is the break-glass path and has exactly one caller,
+        `netsecops-cli reset-mfa`, where an operator with server access clears an
+        enrolment for somebody who cannot produce either factor — the situation the
+        whole command exists for.
+
+        It is a parameter rather than something inferred from the actor because the
+        inference was wrong: the CLI builds its principal with the *target user's* id
+        so the audit names the right object, so `actor.id == user.id` is true on the
+        recovery path too, and keying off it demanded a password from the one caller
+        that by definition has none.
+        """
         if not (actor.id == user.id or actor.is_super_admin):
             raise PermissionDeniedError("Only the account owner or a Super Admin may disable MFA.")
+
+        if proof_required and user.mfa_enabled:
+            if not password or not verify_password(password, user.password_hash):
+                raise AuthenticationError("That password is not correct.")
+
+            secret_row = await self._mfa_secret_for(user)
+            if secret_row is None:
+                raise AuthenticationError("MFA is not configured for this account.")
+
+            secret = self.vault.open(secret_row.encrypted_secret, aad=str(user.id)).decode("utf-8")
+            if not (code and verify_totp(secret, code, self.settings)) and not (
+                code and await self._consume_recovery_code(secret_row, user, code)
+            ):
+                raise AuthenticationError("That verification code is not valid.")
 
         # Query rather than trusting the relationship: a stale None here would leave
         # an orphaned secret row behind while the account reported MFA as off.
@@ -534,6 +586,20 @@ class AuthService:
             object_type="user",
             object_id=user.id,
         )
+
+    async def recovery_codes_left(self, user: User) -> int:
+        """How many single-use codes remain unspent.
+
+        Zero is the number worth showing: the codes cannot be redisplayed, only
+        reissued by turning the factor off and on, so an account down to none is one
+        lost phone away from needing `netsecops-cli reset-mfa`.
+        """
+        secret_row = await self._mfa_secret_for(user)
+        if secret_row is None or secret_row.encrypted_recovery_codes is None:
+            return 0
+
+        raw = self.vault.open(secret_row.encrypted_recovery_codes, aad=str(user.id))
+        return len(json.loads(raw.decode("utf-8")))
 
     async def _consume_recovery_code(self, secret_row: MFASecret, user: User, code: str) -> bool:
         """Accept and burn a single-use recovery code."""

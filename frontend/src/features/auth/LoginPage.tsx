@@ -117,11 +117,8 @@ export function LoginPage() {
     <div className="auth-shell">
       <div className="auth-card">
         <header className="auth-card__header">
-          {/* Intrinsic size given so the card does not reflow once the image lands —
-              the asset is 560x522 and renders at half that. `alt` carries the product
-              name because this image *is* the `h1`. */}
-          <h1 className="brand-panel">
-            <img src="/brand/netsecops-lockup.png" alt="NetSecOps" width={280} height={261} />
+          <h1 className="auth-card__title">
+            {mfaToken ? 'Two-factor authentication' : 'Sign in'}
           </h1>
           <p className="auth-card__tagline">Network configuration &amp; vulnerability assessment</p>
         </header>
@@ -221,6 +218,22 @@ export function LoginPage() {
         <footer className="auth-card__footer">
           NetSecOps performs read-only assessment. It never modifies a target device.
         </footer>
+      </div>
+
+      {/* The brand, beside the form rather than above it. Second in the DOM and first
+          on screen below 820px, so a narrow window identifies the product before it
+          asks for a password — a bare username box with no branding above it is what
+          a phishing page looks like. */}
+      <div className="auth-brand">
+        {/* Intrinsic size so nothing reflows once the image lands. `alt` carries the
+            product name because this image is the only place it appears. */}
+        <img
+          className="auth-brand__mark brand-panel"
+          src="/brand/netsecops-lockup.png"
+          alt="NetSecOps"
+          width={560}
+          height={522}
+        />
       </div>
     </div>
   );

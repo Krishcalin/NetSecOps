@@ -13,8 +13,9 @@ from httpx import AsyncClient
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from netsecops.core.errors import PermissionDeniedError
+from netsecops.core.errors import AuthenticationError, PermissionDeniedError
 from netsecops.core.rbac import Principal, Role, Scope
+from netsecops.core.security import create_mfa_pending_token
 from netsecops.db.models import AuditLog, MFASecret, User
 from netsecops.services.auth import AuthService
 from tests.conftest import TEST_PASSWORD, make_user
@@ -48,7 +49,7 @@ class TestBreakGlassReset:
         assert user.mfa_enabled is True
 
         # The operator clears it out-of-band, as netsecops-cli reset-mfa does.
-        await auth.disable_mfa(user, principal(user))
+        await auth.disable_mfa(user, principal(user), proof_required=False)
         await session.flush()
 
         assert user.mfa_enabled is False
@@ -62,7 +63,7 @@ class TestBreakGlassReset:
         await enrol(auth, user)
         assert await secret_count(session, user) == 1
 
-        await auth.disable_mfa(user, principal(user))
+        await auth.disable_mfa(user, principal(user), proof_required=False)
         await session.flush()
 
         assert await secret_count(session, user) == 0
@@ -71,7 +72,7 @@ class TestBreakGlassReset:
         auth = AuthService(session, vault=vault)
         user = await make_user(session, username="audited_reset")
         await enrol(auth, user)
-        await auth.disable_mfa(user, principal(user))
+        await auth.disable_mfa(user, principal(user), proof_required=False)
         await session.flush()
 
         actions = (
@@ -90,7 +91,7 @@ class TestBreakGlassReset:
         auth = AuthService(session, vault=vault)
         user = await make_user(session, username="never_enrolled")
 
-        await auth.disable_mfa(user, principal(user))
+        await auth.disable_mfa(user, principal(user), proof_required=False)
         assert user.mfa_enabled is False
 
 
@@ -100,7 +101,7 @@ class TestReEnrolmentAfterReset:
         user = await make_user(session, username="re_enroller")
 
         first = await enrol(auth, user)
-        await auth.disable_mfa(user, principal(user))
+        await auth.disable_mfa(user, principal(user), proof_required=False)
         await session.flush()
 
         second = await enrol(auth, user)
@@ -117,7 +118,7 @@ class TestReEnrolmentAfterReset:
         user = await make_user(session, username="old_secret_dead")
 
         old = await enrol(auth, user)
-        await auth.disable_mfa(user, principal(user))
+        await auth.disable_mfa(user, principal(user), proof_required=False)
         await session.flush()
         await enrol(auth, user)
 
@@ -141,13 +142,182 @@ class TestReEnrolmentAfterReset:
         assert user.mfa_enabled is True
 
 
+class TestTurningItOffReprovesBothFactors:
+    """Removing the second factor from a borrowed unlocked browser was one click.
+
+    A session is proof that somebody signed in once; it is not proof that the person
+    at the keyboard now is the account holder. And this is the single change that
+    weakens every future sign-in, so it is the one worth asking twice about.
+    """
+
+    async def test_it_needs_the_password(self, session: AsyncSession, vault) -> None:
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="needs_password")
+        secret = await enrol(auth, user)
+
+        with pytest.raises(AuthenticationError, match="password"):
+            await auth.disable_mfa(user, principal(user), code=pyotp.TOTP(secret).now())
+
+        assert user.mfa_enabled is True
+
+    async def test_it_needs_a_code(self, session: AsyncSession, vault) -> None:
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="needs_code")
+        await enrol(auth, user)
+
+        with pytest.raises(AuthenticationError, match="verification code"):
+            await auth.disable_mfa(user, principal(user), password=TEST_PASSWORD)
+
+        assert user.mfa_enabled is True
+
+    async def test_a_wrong_password_is_refused(self, session: AsyncSession, vault) -> None:
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="wrong_password")
+        secret = await enrol(auth, user)
+
+        with pytest.raises(AuthenticationError):
+            await auth.disable_mfa(
+                user, principal(user), password="not-it", code=pyotp.TOTP(secret).now()
+            )
+
+        assert user.mfa_enabled is True
+
+    async def test_both_together_turn_it_off(self, session: AsyncSession, vault) -> None:
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="proves_both")
+        secret = await enrol(auth, user)
+
+        await auth.disable_mfa(
+            user, principal(user), password=TEST_PASSWORD, code=pyotp.TOTP(secret).now()
+        )
+
+        assert user.mfa_enabled is False
+
+    async def test_a_recovery_code_works_when_the_phone_is_gone(
+        self, session: AsyncSession, vault
+    ) -> None:
+        """Which is the whole point of issuing them. Without this, losing the phone
+        means an operator with server access, for a change the owner is entitled to
+        make."""
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="lost_phone")
+        enrolment = await auth.begin_mfa_enrolment(user)
+        await auth.confirm_mfa_enrolment(user, pyotp.TOTP(enrolment.secret).now())
+
+        await auth.disable_mfa(
+            user,
+            principal(user),
+            password=TEST_PASSWORD,
+            code=enrolment.recovery_codes[0],
+        )
+
+        assert user.mfa_enabled is False
+
+
+class TestEnrolmentIsScannable:
+    """`qrcode` shipped as a dependency from Phase 0 and nothing imported it, so the
+    screen said "scan this into your authenticator app" above a bare base32 string."""
+
+    async def test_it_returns_a_qr_code(self, session: AsyncSession, vault) -> None:
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="scannable")
+
+        enrolment = await auth.begin_mfa_enrolment(user)
+
+        assert enrolment.qr_svg.startswith("<svg")
+        assert "<path" in enrolment.qr_svg
+
+    async def test_the_secret_is_not_in_the_qr_markup(self, session: AsyncSession, vault) -> None:
+        """What makes it safe to inline. The SVG factory emits one path of numeric
+        coordinates, so no part of the URI reaches the document as text."""
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="qr_safe")
+
+        enrolment = await auth.begin_mfa_enrolment(user)
+
+        assert enrolment.secret not in enrolment.qr_svg
+        assert "otpauth" not in enrolment.qr_svg
+
+    async def test_the_qr_carries_the_same_secret_as_the_key(
+        self, session: AsyncSession, vault
+    ) -> None:
+        """Three ways in, one secret. A QR encoding a different URI from the one the
+        typed key belongs to would enrol a device that never produces a valid code."""
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="one_secret")
+
+        enrolment = await auth.begin_mfa_enrolment(user)
+
+        assert enrolment.secret in enrolment.provisioning_uri
+        assert enrolment.formatted_secret.replace(" ", "") == enrolment.secret
+
+    def test_the_qr_actually_encodes_its_input(self) -> None:
+        """A QR encoding the wrong URI enrols a device that never produces a valid
+        code, and the person blames their authenticator.
+
+        Asserted as "depends on the input and is stable for it" rather than by
+        decoding, which would mean a QR reader in the test dependencies. It is enough
+        to kill the mutation that matters — an encoder wired to a constant — without
+        pretending to verify more than it does.
+        """
+        from netsecops.core.security import mfa_qr_svg
+
+        one = mfa_qr_svg("otpauth://totp/NetSecOps:a@b.c?secret=AAAAAAAAAAAAAAAA")
+        two = mfa_qr_svg("otpauth://totp/NetSecOps:a@b.c?secret=BBBBBBBBBBBBBBBB")
+
+        assert one != two
+        assert one == mfa_qr_svg("otpauth://totp/NetSecOps:a@b.c?secret=AAAAAAAAAAAAAAAA")
+
+    async def test_the_key_is_grouped_for_typing(self, session: AsyncSession, vault) -> None:
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="grouped")
+
+        enrolment = await auth.begin_mfa_enrolment(user)
+
+        assert " " in enrolment.formatted_secret
+        assert all(len(part) <= 4 for part in enrolment.formatted_secret.split())
+
+
+class TestRecoveryCodesRemaining:
+    async def test_a_fresh_enrolment_reports_its_codes(self, session: AsyncSession, vault) -> None:
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="counts_codes")
+        enrolment = await auth.begin_mfa_enrolment(user)
+        await auth.confirm_mfa_enrolment(user, pyotp.TOTP(enrolment.secret).now())
+
+        assert await auth.recovery_codes_left(user) == len(enrolment.recovery_codes)
+
+    async def test_spending_one_lowers_the_count(self, session: AsyncSession, vault) -> None:
+        # Nought left is a lockout waiting for a lost phone, and it was not visible
+        # anywhere until the count was exposed.
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="spends_codes")
+        enrolment = await auth.begin_mfa_enrolment(user)
+        await auth.confirm_mfa_enrolment(user, pyotp.TOTP(enrolment.secret).now())
+        before = await auth.recovery_codes_left(user)
+
+        await auth.complete_mfa(
+            create_mfa_pending_token(str(user.id))[0], enrolment.recovery_codes[0]
+        )
+
+        assert await auth.recovery_codes_left(user) == before - 1
+
+    async def test_an_account_without_mfa_reports_none(self, session: AsyncSession, vault) -> None:
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="no_mfa_codes")
+
+        assert await auth.recovery_codes_left(user) == 0
+
+
 class TestPermissions:
     async def test_owner_may_disable_their_own(self, session: AsyncSession, vault) -> None:
         auth = AuthService(session, vault=vault)
         user = await make_user(session, username="self_disable")
-        await enrol(auth, user)
+        secret = await enrol(auth, user)
 
-        await auth.disable_mfa(user, principal(user))
+        await auth.disable_mfa(
+            user, principal(user), password=TEST_PASSWORD, code=pyotp.TOTP(secret).now()
+        )
         assert user.mfa_enabled is False
 
     async def test_super_admin_may_disable_another(
@@ -157,7 +327,7 @@ class TestPermissions:
         user = await make_user(session, username="admin_disabled")
         await enrol(auth, user)
 
-        await auth.disable_mfa(user, principal(super_admin))
+        await auth.disable_mfa(user, principal(super_admin), proof_required=False)
         assert user.mfa_enabled is False
 
     async def test_another_user_may_not(self, session: AsyncSession, vault) -> None:
@@ -167,7 +337,7 @@ class TestPermissions:
         intruder = await make_user(session, username="mfa_intruder", roles={Role.SECURITY_ANALYST})
 
         with pytest.raises(PermissionDeniedError, match="owner or a Super Admin"):
-            await auth.disable_mfa(target, principal(intruder))
+            await auth.disable_mfa(target, principal(intruder), proof_required=False)
 
         assert target.mfa_enabled is True
 
