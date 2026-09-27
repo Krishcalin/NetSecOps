@@ -65,6 +65,15 @@ const CONTROLS = {
       failed: 0,
       not_evaluated: 650,
     },
+    {
+      // A real shape from the CEA mapping: a named control with fifteen checks behind
+      // it, which as one comma-run was wider than the screen.
+      control: 'Access Control',
+      checks: Array.from({ length: 15 }, (_, i) => `aaa-control-check-number-${i + 1}`),
+      passed: 120,
+      failed: 4,
+      not_evaluated: 0,
+    },
   ],
 };
 
@@ -206,6 +215,70 @@ describe('CompliancePage', () => {
       renderPage();
 
       expect(await screen.findByRole('button', { name: /Show the 0 controls/ })).toBeDisabled();
+    });
+  });
+
+  describe('a control with many checks', () => {
+    /** Fifteen check ids joined by commas were wider than the screen, so the three
+     *  figures the row exists for — passed, failed, not evaluated — were pushed off
+     *  the right-hand edge, and reading them meant scrolling a table sideways. */
+
+    async function openControls() {
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Show the 61 controls/ }));
+      return (await screen.findByText('Access Control')).closest('tr')!;
+    }
+
+    it('shows only the first few, with the rest folded away', async () => {
+      const row = await openControls();
+
+      expect(within(row).getByText('aaa-control-check-number-1')).toBeInTheDocument();
+      expect(within(row).getByText('aaa-control-check-number-3')).toBeInTheDocument();
+      expect(within(row).queryByText('aaa-control-check-number-4')).toBeNull();
+      expect(within(row).getByRole('button', { name: '+12 more' })).toBeInTheDocument();
+    });
+
+    it('keeps the figures beside them, which is what the row is for', async () => {
+      // The regression this guards: the checks column grew until passed/failed/not
+      // evaluated were off-screen.
+      const row = await openControls();
+
+      expect(row).toHaveTextContent('120');
+      expect(row).toHaveTextContent('4');
+    });
+
+    it('shows all of them when asked, and folds them back', async () => {
+      const row = await openControls();
+
+      await userEvent.click(within(row).getByRole('button', { name: '+12 more' }));
+      expect(within(row).getByText('aaa-control-check-number-15')).toBeInTheDocument();
+
+      await userEvent.click(within(row).getByRole('button', { name: 'show fewer' }));
+      expect(within(row).queryByText('aaa-control-check-number-15')).toBeNull();
+    });
+
+    it('gives each check its own element rather than one comma-run', async () => {
+      // `a-b-c, d-e-f, g-h-i` reads as a single hyphenated string: the commas are lost
+      // among the hyphens and there is no way to see where one id ends.
+      const row = await openControls();
+
+      const chips = within(row)
+        .getAllByText(/^aaa-control-check-number-\d+$/)
+        .map((element) => element.textContent);
+      expect(chips).toEqual([
+        'aaa-control-check-number-1',
+        'aaa-control-check-number-2',
+        'aaa-control-check-number-3',
+      ]);
+    });
+
+    it('folds nothing away for a control with only a few', async () => {
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Show the 61 controls/ }));
+
+      const row = (await screen.findByText('1.1.8')).closest('tr')!;
+      expect(within(row).queryByRole('button', { name: /more/ })).toBeNull();
+      expect(within(row).getByText('cisco-login-block-for')).toBeInTheDocument();
     });
   });
 });

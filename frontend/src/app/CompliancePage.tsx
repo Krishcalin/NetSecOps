@@ -91,6 +91,42 @@ function stateOf(control: FrameworkControl): 'failing' | 'passing' | 'unevaluate
   return 'unevaluated';
 }
 
+/** How many check ids a control shows before folding the rest away.
+ *
+ * Some controls map to fifteen. Rendered as one comma-run they were wider than the
+ * screen, which pushed Passed, Failed and Not evaluated off the right-hand edge — so
+ * the column of supporting detail hid the three numbers the page exists to show, and
+ * reading them meant scrolling a table sideways. */
+const CHECKS_SHOWN = 3;
+
+/** The checks behind a control, as chips rather than a sentence of slugs.
+ *
+ * `aaa-no-cleartext-credentials, aaa-server-admin-mfa, aaa-servers-have-shared-secrets`
+ * joined by commas reads as one long hyphenated string — the commas disappear among the
+ * hyphens and there is no way to see where one id ends. Each on its own ground is
+ * scannable at a glance and wraps without becoming a paragraph.
+ */
+function CheckChips({ checks }: { checks: string[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const hidden = checks.length - CHECKS_SHOWN;
+  const shown = expanded ? checks : checks.slice(0, CHECKS_SHOWN);
+
+  return (
+    <div className="chips">
+      {shown.map((check) => (
+        <span className="chip mono" key={check}>
+          {check}
+        </span>
+      ))}
+      {hidden > 0 && (
+        <button type="button" className="chip chip--more" onClick={() => setExpanded(!expanded)}>
+          {expanded ? 'show fewer' : `+${hidden} more`}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ControlTable({ framework }: { framework: string }) {
   const detail = useQuery({
     queryKey: ['compliance', framework],
@@ -136,8 +172,14 @@ function ControlTable({ framework }: { framework: string }) {
             const state = stateOf(control);
             return (
               <tr key={control.control} className={`control control--${state}`}>
-                <td className="mono nowrap">{control.control}</td>
-                <td className="control__checks">{control.checks.join(', ')}</td>
+                {/* Not `nowrap`. It was right when a control was `1.1.1` and wrong the
+                    moment a framework names them — CEA's are phrases like "Logging and
+                    Monitoring", and holding one on a single line widened the column
+                    enough to push the figures off the screen. */}
+                <td className="control__id mono">{control.control}</td>
+                <td className="control__checks">
+                  <CheckChips checks={control.checks} />
+                </td>
                 {state === 'unevaluated' ? (
                   <>
                     {/* Em-dashes rather than zeroes. `0 passed, 0 failed` is a row a
