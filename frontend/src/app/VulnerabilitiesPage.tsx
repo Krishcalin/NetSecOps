@@ -413,7 +413,7 @@ function renderFeedTable(rows: FeedStatus[]) {
                   : '—'}
               </td>
               <td>{row.records_rejected > 0 ? row.records_rejected.toLocaleString() : '—'}</td>
-              <td>{new Date(row.started_at).toLocaleString()}</td>
+              <td className="nowrap">{new Date(row.started_at).toLocaleString()}</td>
               <td className="mono">{row.source_version ?? '—'}</td>
             </tr>
           ))}

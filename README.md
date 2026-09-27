@@ -1112,6 +1112,36 @@ evaluated. A translating firewall at the end of the path changes nothing: the tr
 over and the addresses it reasoned about were the ones asked for. Normalising NAT across
 the parsers is the prerequisite and is its own piece of work.
 
+### Twenty-six screens that tell you which one you are on
+
+The console is plain CSS with custom properties — no utility framework, no UI kit
+(SRS §2.2) — and one consequence of one layout, one type scale and one accent across
+twenty-six screens was that the fastest way to know where you were was to read the
+heading. Each navigation group now has a colour, carried on its sidebar heading and on
+a rule under the page title of every screen it leads to. That mapping is derived from
+the navigation rather than passed to each page, and
+[`sections.test.ts`](frontend/src/components/sections.test.ts) walks the sidebar and
+fails if the two disagree — which they did on the first attempt, because Firewall
+Analysis reads as a Risk page and is filed under Network.
+
+The palette deliberately avoids red, amber and green. The severity ramp is the only
+colour in this product that means anything, and a page header that could be mistaken
+for a verdict about what is on the page would be worse than a grey one.
+
+Three layout faults went with it, all invisible until content got long. Table cells
+were `white-space: nowrap`, which does not truncate a finding's title — it widens the
+column, so one sentence pushed every other column off the side. Grid tracks written
+`1fr` are really `minmax(auto, 1fr)` and refuse to shrink below their content, so a
+64-character digest overflowed its column and sat on top of the next; every one is now
+`minmax(0, 1fr)`, including the main content column, which had been letting a wide
+table stretch the whole page. And the split-diff header had two tracks where its rows
+had four, so neither label sat over the pane it named.
+
+The stylesheet also had four lines of English prose being parsed as CSS — a comment
+had lost its opening delimiter, esbuild recovered, and the only trace was a build
+warning nobody read. [`stylesheet.test.ts`](frontend/src/test/stylesheet.test.ts) now
+fails on unbalanced comment delimiters, stray prose and bare `1fr` tracks.
+
 ### The console can reach the whole product
 
 Unreachable capability is indistinguishable from absent capability, and this codebase had

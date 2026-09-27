@@ -552,7 +552,7 @@ export function DiscoveryPage() {
               <tbody>
                 {(runs.data ?? []).map((run) => (
                   <tr key={run.id}>
-                    <td>{new Date(run.started_at).toLocaleString()}</td>
+                    <td className="nowrap">{new Date(run.started_at).toLocaleString()}</td>
                     <td>{run.status}</td>
                     <td>{run.addresses_probed.toLocaleString()}</td>
                     <td>{run.hosts_found.toLocaleString()}</td>

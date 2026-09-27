@@ -58,6 +58,27 @@
   --sev-info: #1d4ed8;
   --sev-none: #7b8494;
 
+  /* ── Section hues ──────────────────────────────────────────────────────────
+   * One colour per navigation group, so twenty-six screens that share a layout
+   * are still telling you which part of the product you are in. Used on the page
+   * header's chip and its hairline rule, and on the sidebar group heading — never
+   * on a figure, a row or a status.
+   *
+   * That restriction is what makes adding colour safe here. The severity ramp above
+   * is the only palette that *means* anything, and a second meaningful palette would
+   * make every reader ask which one they were looking at. These say "you are in
+   * Network", which is a fact the navigation already states twice.
+   *
+   * Chosen to sit outside the severity ramp for the same reason: no red, no amber,
+   * no green, so a page header can never be mistaken for a verdict about what is on
+   * the page. All are >= 4.5:1 on `--surface`. */
+  --sec-dashboard: #1d4ed8;
+  --sec-estate: #4338ca;
+  --sec-risk: #6d28d9;
+  --sec-network: #0e7490;
+  --sec-policy: #a21caf;
+  --sec-admin: #475569;
+
   /* A second panel surface, for a tile inside a card or a header strip above a
    * table. One surface and one border cannot express depth, and a dashboard is
    * mostly nested boxes. */
@@ -121,6 +142,16 @@
     --sev-info: #6d9bff;
     --sev-none: #8a94a3;
 
+    /* Lifted the same way the severity ramp is: the light values are 4.5:1 on white
+     * and roughly 2:1 on the dark surface, so reusing them would make every page
+     * header the least legible thing on the screen. */
+    --sec-dashboard: #6d9bff;
+    --sec-estate: #8da2fb;
+    --sec-risk: #b195f8;
+    --sec-network: #4bc0d9;
+    --sec-policy: #e879f9;
+    --sec-admin: #9aa6b6;
+
     --surface-raised: #1c222a;
     --panel-tint: #141920;
     --text-faint: #7d8794;
@@ -157,6 +188,13 @@ a {
 .mono {
   font-family: var(--font-mono);
   font-size: 0.92em;
+  /* Everything set in mono here is a single unbroken token — a digest, a fingerprint,
+     a path, an expression — so there is no space for the default rule to break at and
+     the value runs out of its container instead.
+
+     `break-word`, for the same reason as the table cells: `anywhere` would also let
+     a layout shrink an IP address or a short hostname to one character per line. */
+  overflow-wrap: break-word;
 }
 
 /* Visible focus everywhere — keyboard navigation is a WCAG AA requirement. */
@@ -312,7 +350,7 @@ a {
 
 .layout {
   display: grid;
-  grid-template-columns: var(--sidebar-width) 1fr;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   min-height: 100vh;
 }
 
@@ -374,13 +412,30 @@ a {
   display: contents;
 }
 
+/* Each run of entries is headed in its own colour, matching the rule under the page
+   header it leads to. The heading was `--text-faint`, which made five groups look
+   like one long list with occasional small print — the colour is what turns them into
+   five places. A dash of the same colour sits before the word so the grouping still
+   reads without hue (WCAG 1.4.1). */
 .sidebar__group {
-  margin: 14px 10px 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 16px 10px 4px;
   font-size: 10.5px;
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--text-faint);
+  color: var(--section, var(--text-faint));
+}
+
+.sidebar__group::before {
+  content: '';
+  width: 10px;
+  height: 2px;
+  border-radius: 999px;
+  background: currentcolor;
+  flex: none;
 }
 
 .sidebar__link {
@@ -486,8 +541,18 @@ a {
 
 /* ─────────────────────────────── pages ───────────────────────────────── */
 
+/* A hairline in the section's colour under every page heading (`--section` is set
+   inline by PageHeader from the route). It is the cheapest possible way to make
+   twenty-six identically-laid-out screens tell you which part of the product you are
+   in, and because it sits under the title rather than on any figure it cannot be
+   mistaken for saying something about the data.
+
+   `--section` has a fallback so a page that renders the header without the component
+   — or a test that mounts it bare — still gets a rule rather than an invisible one. */
 .page__header {
   margin-bottom: 24px;
+  padding-bottom: 14px;
+  border-bottom: 2px solid var(--section, var(--border));
 }
 
 .page__header h1 {
@@ -515,6 +580,15 @@ a {
   align-items: start;
 }
 
+/* Cards read as separate objects, which on a page of five of them they were not
+   quite doing: `--border` is 1.39:1 on `--surface` by design — right for a hairline,
+   too quiet to be the only thing dividing one block of content from the next — and
+   the shadow is deliberately faint. So the separation comes from the gap and from a
+   tinted heading strip rather than from shouting with either.
+
+   The card keeps the hairline. What changed is that its heading now sits on
+   `--panel-tint`, which gives every card a visible top edge and a clear place where
+   one ends and the next begins. */
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -522,6 +596,15 @@ a {
   box-shadow: var(--shadow-card);
   padding: 20px;
   margin-bottom: var(--gap);
+}
+
+/* Prose in a card gets a measure. Without one a sentence runs the full width of a
+   2560px monitor, which is about 200 characters — unreadable in a different way from
+   being cramped, and the reason several of these hints were being skipped. */
+.card > p,
+.card__hint,
+.field__help {
+  max-width: 78ch;
 }
 
 .card:last-child {
@@ -544,7 +627,7 @@ a {
 
 .kv {
   display: grid;
-  grid-template-columns: auto 1fr;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 6px 16px;
   margin: 0;
 }
@@ -717,6 +800,28 @@ a {
   text-align: left;
   padding: 9px 14px;
   border-bottom: 1px solid var(--border);
+  /* Cells wrap. They were `nowrap`, which is right for a table of dates and counts and
+     wrong for this product: findings carry a sentence for a title, settings carry a
+     description, and checks carry a rationale. A no-wrap cell does not truncate — it
+     widens — so one sentence pushed every other column off the side and the reader
+     scrolled a table sideways to compare two numbers that used to be adjacent.
+
+     `break-word` and deliberately not `anywhere`. The two look identical until the
+     table is squeezed: `anywhere` lowers a cell's min-content width to a single
+     character, so the auto layout is free to crush the column holding
+     `198.51.100.10` down to `198.51.1` / `00.10`. `break-word` leaves the column
+     asking for its longest word and breaks one only when it genuinely will not fit,
+     which is the behaviour an address or a digest wants. */
+  white-space: normal;
+  overflow-wrap: break-word;
+  /* With wrapping, rows have different heights. Top-aligned keeps the first line of
+     every cell on one baseline, so a row still reads across. */
+  vertical-align: top;
+}
+
+/* Opt back out where a line break would be a lie about the value: a timestamp split
+   across two lines reads as two values, and so does an IP address. */
+.table .nowrap {
   white-space: nowrap;
 }
 
@@ -800,8 +905,9 @@ a {
    where the pill's visible text is a bare count — three medium issues and three low
    issues were indistinguishable by any means at all. They now differ in weight and in a
    left rule as well as in tone, and the severity word is in the pill for assistive
-   technology. */
-The severity scale gives these two genuinely different hues now, but the left rule
+   technology.
+
+   The severity scale gives these two genuinely different hues now, but the left rule
    and the weight stay: the reason they were added was that tone alone is not a
    difference a colour-blind reader or a greyscale printer can see, and a better
    palette does not change that. */
@@ -902,7 +1008,7 @@ The severity scale gives these two genuinely different hues now, but the left ru
 
 .intent__summary {
   display: grid;
-  grid-template-columns: minmax(12rem, 2fr) 6rem 6rem auto;
+  grid-template-columns: minmax(0, 2fr) 6rem 6rem auto;
   align-items: center;
   gap: 12px;
   width: 100%;
@@ -934,7 +1040,7 @@ The severity scale gives these two genuinely different hues now, but the left ru
   /* Four columns do not fit a phone. The pair matters most, so it keeps the full
      width and the rest stack under it rather than the row scrolling sideways. */
   .intent__summary {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 4px;
   }
 }
@@ -1272,14 +1378,35 @@ code {
 
 /* ─────────────────── configuration viewer (IF-UI-04) ─────────────────── */
 
+/* Pulled out to the card's own edges and tinted, so the heading is a band rather than
+   a line of text with a rule under it. That band is what makes a column of cards read
+   as separate objects instead of one long scroll — and it wraps, because a title plus
+   a couple of buttons does not fit side by side on a phone and was overlapping there. */
 .card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
-  padding-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+  padding: 12px 16px;
+  background: var(--panel-tint);
   border-bottom: 1px solid var(--border);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+/* Only a direct child of a card reaches out to the card's own edges, because only
+   there is the offset known — `.card` has 20px of padding and nothing else that uses
+   this class does. Scoped rather than applied to every `.card__header`, so one used
+   inside some other container keeps the tint and stays within its box instead of
+   hanging 20px outside it. */
+.card > .card__header {
+  margin: -20px -20px 16px;
+  padding: 12px 20px;
+  /* One pixel tighter than the card's own radius, because the band sits inside the
+     card's 1px border: matching radii leave a hairline of card background showing
+     through each top corner. */
+  border-radius: calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px) 0 0;
 }
 
 .card__header .card__title {
@@ -1599,9 +1726,13 @@ code {
   background: var(--surface-muted);
 }
 
+/* The same four tracks as a row, so each label sits over the pane it names.
+   It was `1fr 1fr`, which split the header in half while the rows below it were
+   `gutter | pane | gutter | pane` — so both labels sat left of the panes they
+   described, and on a narrow screen the right-hand one sat over the left pane. */
 .diff__split-head {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 4em minmax(0, 1fr) 4em minmax(0, 1fr);
   gap: 1px;
   background: var(--border);
 }
@@ -1611,11 +1742,23 @@ code {
   padding: 6px 10px;
   font-size: 0.85rem;
   color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The two labels go in the pane columns; the line-number gutters stay empty. */
+.diff__split-head span:first-child {
+  grid-column: 2;
+}
+
+.diff__split-head span:last-child {
+  grid-column: 4;
 }
 
 .diff__row {
   display: grid;
-  grid-template-columns: 4em 1fr 4em 1fr;
+  grid-template-columns: 4em minmax(0, 1fr) 4em minmax(0, 1fr);
   white-space: pre;
 }
 
@@ -1877,7 +2020,7 @@ code {
   }
 
   .layout {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sidebar {
@@ -1957,7 +2100,7 @@ code {
 
 .evidence__signals > div {
   display: grid;
-  grid-template-columns: minmax(140px, 200px) 1fr;
+  grid-template-columns: minmax(140px, 200px) minmax(0, 1fr);
   gap: 8px;
   padding: 6px 0;
   border-bottom: 1px solid var(--border);
@@ -2105,7 +2248,7 @@ code {
 
 .step {
   display: grid;
-  grid-template-columns: 28px 1fr;
+  grid-template-columns: 28px minmax(0, 1fr);
   gap: 12px;
   align-items: start;
   padding: 12px 14px;

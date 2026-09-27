@@ -31,6 +31,9 @@ export function PageHeader({
    *  genuinely need no gloss — but most do, and the ones that dropped it were the
    *  ones a new operator could not place. */
   subtitle?: ReactNode;
+  /** Overrides the colour this page's navigation group would give it. Almost nothing
+   *  should: the point of taking it from the section is that the header and the
+   *  sidebar cannot disagree about where the page lives. */
   tone?: string;
   /** Controls that belong to the page as a whole rather than to a card on it. */
   actions?: ReactNode;
@@ -38,7 +41,11 @@ export function PageHeader({
   return (
     <header className="page__header">
       <div className="page__heading">
-        <IconChip name={icon} tone={tone ?? 'var(--accent)'} size={19} />
+        {/* `--section` is set once by the layout, from the route, and inherits down to
+            here — so this component needs no router context and stays renderable on
+            its own. Reading the route here instead made every test that mounts a page
+            without a `MemoryRouter` throw, which was 109 of them. */}
+        <IconChip name={icon} tone={tone ?? 'var(--section, var(--accent))'} size={19} />
         <div className="page__heading-text">
           <h1>{title}</h1>
           {subtitle && <p className="page__subtitle">{subtitle}</p>}
