@@ -44,7 +44,7 @@ from enum import StrEnum
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from netsecops.core.errors import NotFoundError, ValidationProblem
+from netsecops.core.errors import ConflictError, NotFoundError, ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.db.models.segmentation import (
     SegmentationExpectation,
@@ -224,6 +224,12 @@ class SegmentationService:
         )
         return list(rows.scalars().all())
 
+    async def zone(self, zone_id: uuid.UUID) -> SegmentationZone:
+        found = await self.session.get(SegmentationZone, zone_id)
+        if found is None or found.org_id != self.org_id:
+            raise NotFoundError(f"No segmentation zone {zone_id}.")
+        return found
+
     async def create_zone(
         self, *, name: str, prefixes: list[str], description: str | None = None
     ) -> SegmentationZone:
@@ -234,6 +240,17 @@ class SegmentationService:
                 "unverifiable."
             )
         _verify_prefix(prefixes, name)
+
+        # Checked here rather than left to the unique constraint. While the policy was
+        # written by script a duplicate was somebody's bug; from a form it is the most
+        # ordinary mistake there is — a retried submit — and an IntegrityError surfaces
+        # as a 500 with nothing a reader can act on.
+        if any(zone.name == name for zone in await self.zones()):
+            raise ConflictError(
+                f"A zone called {name!r} already exists. Zone names are how every rule "
+                "refers to address space, so two with one name would make the matrix "
+                "ambiguous about which was meant."
+            )
 
         zone = SegmentationZone(
             org_id=self.org_id, name=name, prefixes=prefixes, description=description
@@ -264,10 +281,29 @@ class SegmentationService:
                 "not cross a boundary, so there is nothing for a path walk to evaluate."
             )
 
-        known = {zone.id for zone in await self.zones()}
+        names = {zone.id: zone.name for zone in await self.zones()}
         for zone_id, label in ((source_zone_id, "source"), (destination_zone_id, "destination")):
-            if zone_id not in known:
+            if zone_id not in names:
                 raise NotFoundError(f"No segmentation zone {zone_id} to use as the {label}.")
+
+        # One statement per pair and traffic, enforced here as well as by the unique
+        # constraint. Two rules for the same pair and port would be two different claims
+        # about one thing, and the matrix would show both — with no way to tell a reader
+        # which the organisation actually means.
+        for existing in await self.rules():
+            if (
+                existing.source_zone_id == source_zone_id
+                and existing.destination_zone_id == destination_zone_id
+                and existing.protocol == protocol
+                and existing.port == port
+            ):
+                raise ConflictError(
+                    f"{names[source_zone_id]} → {names[destination_zone_id]} on "
+                    f"{protocol}/{port} is already declared as {existing.expectation!r}. "
+                    "Withdraw that statement before making a different one, so the "
+                    "change is a decision in the audit log rather than two rules "
+                    "disagreeing."
+                )
 
         rule = SegmentationRule(
             org_id=self.org_id,
@@ -281,6 +317,35 @@ class SegmentationService:
         self.session.add(rule)
         await self.session.flush()
         return rule
+
+    async def delete_zone(self, zone_id: uuid.UUID) -> None:
+        """Remove a zone, but only once nothing is declared about it.
+
+        **The refusal is the point.** Both foreign keys are `ON DELETE CASCADE`, so the
+        database would happily take a zone and every intent mentioning it — which means
+        deleting one row could withdraw a dozen statements about what the organisation
+        requires, with one audit entry naming the zone and none naming the policy that
+        went with it. Somebody tidying up an unused zone would silently stop checking
+        the thing the zone existed for.
+
+        The cascade stays as a safety net against orphans. It is not the way out of
+        here, and the rules have to be withdrawn deliberately first.
+        """
+        zone = await self.zone(zone_id)
+        referencing = [
+            rule
+            for rule in await self.rules()
+            if zone_id in (rule.source_zone_id, rule.destination_zone_id)
+        ]
+        if referencing:
+            raise ConflictError(
+                f"{zone.name!r} is named by {len(referencing)} declared intent(s), and "
+                "removing it would withdraw every one of them. Withdraw the intents "
+                "first, so each is a decision somebody made rather than a side effect."
+            )
+
+        await self.session.delete(zone)
+        await self.session.flush()
 
     async def delete_rule(self, rule_id: uuid.UUID) -> None:
         """Withdraw one declared expectation.

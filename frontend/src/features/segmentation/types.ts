@@ -19,6 +19,26 @@ export interface IntentRule {
   justification: string;
 }
 
+export interface ZoneCreate {
+  name: string;
+  description: string | null;
+  prefixes: string[];
+}
+
+export interface RuleCreate {
+  source_zone_id: string;
+  destination_zone_id: string;
+  expectation: Expectation;
+  protocol: string;
+  port: number;
+  justification: string;
+}
+
+/** The shortest justification the API accepts. Mirrored here so the form can say so
+ *  before a submit rather than after one — the server's 422 arrives with the field
+ *  already forgotten. */
+export const MIN_JUSTIFICATION = 10;
+
 export type CellStatus = 'upheld' | 'violated' | 'unverified';
 
 export interface Cell {

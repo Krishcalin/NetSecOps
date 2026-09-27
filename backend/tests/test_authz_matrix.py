@@ -398,6 +398,14 @@ MATRIX: list[Case] = [
         "/api/v1/segmentation/rules/{rule_id}",
         _POLICY_AUTHORS,
     ),
+    # Removing a zone is policy authorship too, and more of it than it looks: both
+    # foreign keys cascade, so the only thing standing between one request and a dozen
+    # silently withdrawn requirements is the refusal in the service.
+    Case(
+        "DELETE",
+        "/api/v1/segmentation/zones/{zone_id}",
+        _POLICY_AUTHORS,
+    ),
     # ── Manager child enumeration (FR-INV-04, FR-DISC-06) ───────────────────
     # Previewing reads and writes nothing — a POST only because a manager's device list
     # does not fit in a URL — so it sits with the other device reads.

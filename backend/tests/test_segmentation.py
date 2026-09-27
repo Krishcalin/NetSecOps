@@ -25,11 +25,13 @@ from typing import Any
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from netsecops.core.errors import ValidationProblem
+from netsecops.core.errors import ConflictError, ValidationProblem
 from netsecops.core.rbac import Role
 from netsecops.db.models import User
+from netsecops.db.models.audit import AuditLog
 from netsecops.db.models.segmentation import SegmentationExpectation
 from netsecops.ncm.models import Route
 from netsecops.services.segmentation import CellStatus, SegmentationService
@@ -411,6 +413,117 @@ class TestDeclaringThePolicy:
             )
 
 
+class TestWithdrawingAndRedeclaring:
+    """The half of policy authorship that only appears once there is a form.
+
+    While the policy was written by a script, a duplicate name was somebody's bug and a
+    zone was never deleted. From a console both are ordinary: a retried submit, and
+    tidying up a zone somebody created by mistake. Each of these used to be either a
+    500 from an integrity error or a silent cascade.
+    """
+
+    async def test_a_second_zone_with_the_same_name_is_refused(self, session: AsyncSession) -> None:
+        service = SegmentationService(session)
+        await service.create_zone(name="Prod", prefixes=["10.10.0.0/24"])
+
+        with pytest.raises(ConflictError, match="already exists"):
+            await service.create_zone(name="Prod", prefixes=["10.30.0.0/24"])
+
+    async def test_a_second_statement_about_one_pair_is_refused(
+        self, session: AsyncSession
+    ) -> None:
+        """Two rules for one pair and port are two claims about one thing, and the
+        matrix would show both with no way to tell which is meant."""
+        service = SegmentationService(session)
+        prod = await service.create_zone(name="Prod", prefixes=["10.10.0.0/24"])
+        cde = await service.create_zone(name="CDE", prefixes=["10.20.0.0/24"])
+        common = {
+            "source_zone_id": prod.id,
+            "destination_zone_id": cde.id,
+            "protocol": "tcp",
+            "port": 443,
+        }
+        await service.create_rule(
+            **common,
+            expectation=SegmentationExpectation.DENIED,
+            justification="The CDE is not reachable from production.",
+        )
+
+        with pytest.raises(ConflictError, match="already declared"):
+            await service.create_rule(
+                **common,
+                expectation=SegmentationExpectation.ALLOWED,
+                justification="Contradicts the statement above, which is the point.",
+            )
+
+    async def test_the_same_pair_on_another_port_is_a_separate_statement(
+        self, session: AsyncSession
+    ) -> None:
+        """The conflict is per pair *and traffic*, not per pair. A policy that named
+        443 and 445 separately is two honest statements, not a duplicate."""
+        service = SegmentationService(session)
+        prod = await service.create_zone(name="Prod", prefixes=["10.10.0.0/24"])
+        cde = await service.create_zone(name="CDE", prefixes=["10.20.0.0/24"])
+        for port in (443, 445):
+            await service.create_rule(
+                source_zone_id=prod.id,
+                destination_zone_id=cde.id,
+                expectation=SegmentationExpectation.DENIED,
+                port=port,
+                justification=f"Nothing reaches the CDE on {port} from production.",
+            )
+
+        assert len(await service.rules()) == 2
+
+    async def test_removing_a_zone_an_intent_names_is_refused(self, session: AsyncSession) -> None:
+        """The assertion this file exists for, in a new place.
+
+        Both foreign keys are `ON DELETE CASCADE`, so the database would take the zone
+        and every statement mentioning it. One tidy-up would stop checking a dozen
+        requirements, with an audit entry naming only the zone.
+        """
+        service = SegmentationService(session)
+        prod = await service.create_zone(name="Prod", prefixes=["10.10.0.0/24"])
+        cde = await service.create_zone(name="CDE", prefixes=["10.20.0.0/24"])
+        await service.create_rule(
+            source_zone_id=prod.id,
+            destination_zone_id=cde.id,
+            expectation=SegmentationExpectation.DENIED,
+            justification="PCI DSS 1.2.1 — the CDE is not reachable from production.",
+        )
+
+        with pytest.raises(ConflictError, match="1 declared intent"):
+            await service.delete_zone(cde.id)
+
+        # And the statement is still standing, not half-removed.
+        assert len(await service.rules()) == 1
+        assert len(await service.zones()) == 2
+
+    async def test_a_zone_nothing_names_can_be_removed(self, session: AsyncSession) -> None:
+        service = SegmentationService(session)
+        spare = await service.create_zone(name="Spare", prefixes=["10.90.0.0/24"])
+
+        await service.delete_zone(spare.id)
+        assert await service.zones() == []
+
+    async def test_withdrawing_the_intent_first_frees_the_zone(self, session: AsyncSession) -> None:
+        """The refusal has to be a sequence somebody can complete, not a dead end."""
+        service = SegmentationService(session)
+        prod = await service.create_zone(name="Prod", prefixes=["10.10.0.0/24"])
+        cde = await service.create_zone(name="CDE", prefixes=["10.20.0.0/24"])
+        rule = await service.create_rule(
+            source_zone_id=prod.id,
+            destination_zone_id=cde.id,
+            expectation=SegmentationExpectation.DENIED,
+            justification="PCI DSS 1.2.1 — the CDE is not reachable from production.",
+        )
+
+        await service.delete_rule(rule.id)
+        await service.delete_zone(cde.id)
+
+        assert [zone.name for zone in await service.zones()] == ["Prod"]
+
+
 class TestTheApi:
     @pytest.fixture
     async def author(self, session: AsyncSession, authenticate) -> User:
@@ -517,3 +630,65 @@ class TestTheApi:
 
         assert (await client.delete(f"{SEG}/rules/{rule['id']}")).status_code == 204
         assert (await client.get(f"{SEG}/rules")).json() == []
+
+    async def test_a_zone_an_intent_names_is_refused_over_the_wire(
+        self, client: AsyncClient, author: User
+    ) -> None:
+        """409 with a message, not a 500 and not a silent cascade."""
+        prod = (
+            await client.post(f"{SEG}/zones", json={"name": "P4", "prefixes": ["10.10.0.0/24"]})
+        ).json()
+        cde = (
+            await client.post(f"{SEG}/zones", json={"name": "C4", "prefixes": ["10.20.0.0/24"]})
+        ).json()
+        await client.post(
+            f"{SEG}/rules",
+            json={
+                "source_zone_id": prod["id"],
+                "destination_zone_id": cde["id"],
+                "expectation": "denied",
+                "justification": "Kept standing by this test, long enough to validate.",
+            },
+        )
+
+        response = await client.delete(f"{SEG}/zones/{cde['id']}")
+
+        assert response.status_code == 409, response.text
+        assert "declared intent" in response.json()["detail"]
+        assert len((await client.get(f"{SEG}/zones")).json()) == 2
+
+    async def test_an_unused_zone_is_removed_and_the_audit_names_it(
+        self, client: AsyncClient, session: AsyncSession, author: User
+    ) -> None:
+        """The name, not only the id: after the delete there is no row to resolve an
+        id against, and an audit entry nobody can read is not a record."""
+        spare = (
+            await client.post(f"{SEG}/zones", json={"name": "Spare", "prefixes": ["10.90.0.0/24"]})
+        ).json()
+
+        assert (await client.delete(f"{SEG}/zones/{spare['id']}")).status_code == 204
+        assert (await client.get(f"{SEG}/zones")).json() == []
+
+        entries = (
+            (
+                await session.execute(
+                    select(AuditLog).where(AuditLog.object_type == "segmentation_zone")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        removal = next(entry for entry in entries if entry.details.get("deleted"))
+        assert removal.details["name"] == "Spare"
+
+    async def test_a_duplicate_zone_name_is_a_conflict_not_a_server_error(
+        self, client: AsyncClient, author: User
+    ) -> None:
+        """The most ordinary mistake a form produces: a resubmitted create."""
+        await client.post(f"{SEG}/zones", json={"name": "Twice", "prefixes": ["10.10.0.0/24"]})
+        again = await client.post(
+            f"{SEG}/zones", json={"name": "Twice", "prefixes": ["10.10.0.0/24"]}
+        )
+
+        assert again.status_code == 409, again.text
+        assert "already exists" in again.json()["detail"]

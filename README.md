@@ -896,6 +896,30 @@ and a shared hostname prefix otherwise, and the page says which — so nobody re
 "london" as a site that somebody defined. Two sites defaulting to the same ISP address
 are deliberately *not* one group: no packet crosses between them.
 
+**Declared segmentation** (FR-TOPO-07) is the same engine asked about every declared
+zone pair at once — the question people are actually audited on, which is not "what does
+this configuration do" but "is what it does what we said it would do". A zone is address
+space rather than a firewall's zone name, because `dmz` on one device and `DMZ` on
+another may be different things and a router has none at all. Intent is per *ordered*
+pair: most real segmentation is asymmetric, and a symmetric matrix would quietly assert
+the reverse of everything declared.
+
+Each cell is evaluated by walking a packet, not by searching rulebases — a rule-centric
+check reports violations that do not exist (a permit on one firewall means nothing if a
+second denies it downstream) and misses violations that do (a permit assembled from one
+rule on the edge and another on the core belongs to no single rule to find). **Not
+verified is never a pass**: it has its own status, its own count beside the violations,
+and its own muted treatment, because a matrix showing green for pairs nobody could test
+is a compliance artefact asserting isolation that was never checked.
+
+The page is a list rather than a grid, because a grid has a cell for every pair and must
+put something in the ones nobody declared — and whatever goes there reads as "fine". The
+policy is written from the same page. Withdrawing a statement sits inside the verdict it
+belongs to, where somebody is most tempted to make a red row go away, and says what it
+does: the requirement stops being made and the estate does not change. Removing a zone is
+refused while any intent names it — both foreign keys cascade, so the database would
+otherwise take a dozen requirements along with the tidy-up.
+
 **The acceptance criterion is met** ([`test_phase8_acceptance.py`](backend/tests/test_phase8_acceptance.py)):
 a five-device fixture estate, a path query crossing three of them with the right
 traversed-device list and rule verdicts, and a query whose next hop belongs to no
@@ -1246,14 +1270,14 @@ and deletes it afterwards, so it never alters the account it signs in with.
 The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at
 `/api/v1/docs` outside production.
 
-**The console reaches every area of it.** 149 operations are published and the console
-requests 128; the 21 it does not are individual operations on pages that already exist,
-plus the two probe endpoints, and each is named with what its absence costs. One of them
-is a genuine gap rather than a detail: the Segmentation page reads the matrix and nothing
-in the console declares a zone or a rule, so the policy the matrix is judged against is
-API-only. That is measured rather than estimated (`scripts/api_reachability.py`) and
-tracked in [docs/api-reachability.md](docs/api-reachability.md), because capability
-nobody can reach is indistinguishable from capability that does not exist.
+**The console reaches every area of it.** 150 operations are published and the console
+requests 134; the 16 it does not are individual operations on pages that already exist,
+plus the two probe endpoints, and each is named with what its absence costs. That is
+measured rather than estimated (`scripts/api_reachability.py`) and tracked in
+[docs/api-reachability.md](docs/api-reachability.md), because capability nobody can reach
+is indistinguishable from capability that does not exist. The measure earns its keep: it
+caught the segmentation page evaluating a policy that could only be written through the
+API, which made the feature read as empty on any console-only deployment.
 
 ---
 

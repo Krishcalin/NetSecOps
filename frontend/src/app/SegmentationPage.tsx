@@ -16,15 +16,24 @@
  */
 
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api, ApiError } from '../api/client';
+import { useAuth } from '../features/auth/useAuth';
+import { PolicyEditor } from '../features/segmentation/PolicyEditor';
 import type { Cell, CellStatus, Matrix } from '../features/segmentation/types';
 import { STATUS_LABELS } from '../features/segmentation/types';
 
 const ORDER: CellStatus[] = ['violated', 'unverified', 'upheld'];
 
-function Row({ cell }: { cell: Cell }) {
+function Row({
+  cell,
+  onWithdraw,
+}: {
+  cell: Cell;
+  /** Absent for a reader without `policy:write`. */
+  onWithdraw?: (ruleId: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const status = STATUS_LABELS[cell.status];
 
@@ -81,6 +90,24 @@ function Row({ cell }: { cell: Cell }) {
               ))}
             </ul>
           )}
+
+          {/* Withdrawing lives here rather than in the editor below, because this is
+              where the statement is being read. A violated cell is exactly where
+              somebody is tempted to make the red go away, so the button says what it
+              does: the statement stops being made, and the estate does not change. */}
+          {onWithdraw && (
+            <div className="finding__actions">
+              <button
+                className="button button--ghost button--small"
+                onClick={() => onWithdraw(cell.rule_id)}
+              >
+                Withdraw this statement
+              </button>
+              <span className="finding__note">
+                Removes the requirement, not the traffic. Nothing about the estate changes.
+              </span>
+            </div>
+          )}
         </div>
       )}
     </li>
@@ -109,9 +136,27 @@ function Summary({ matrix }: { matrix: Matrix }) {
 }
 
 export function SegmentationPage() {
+  const { can } = useAuth();
+  const queryClient = useQueryClient();
+  const [withdrawError, setWithdrawError] = useState<string | null>(null);
+
   const matrix = useQuery({
     queryKey: ['segmentation-matrix'],
     queryFn: () => api.get<Matrix>('/segmentation/matrix'),
+  });
+
+  const withdraw = useMutation({
+    mutationFn: (ruleId: string) => api.delete<void>(`/segmentation/rules/${ruleId}`),
+    onSuccess: () => {
+      setWithdrawError(null);
+      for (const key of ['segmentation-matrix', 'segmentation-rules']) {
+        void queryClient.invalidateQueries({ queryKey: [key] });
+      }
+    },
+    onError: (err) =>
+      setWithdrawError(
+        err instanceof ApiError ? err.problem.detail : 'The statement could not be withdrawn.',
+      ),
   });
 
   // Worst first. The page is read top-down and the rows that need action are the ones
@@ -171,22 +216,37 @@ export function SegmentationPage() {
               <h2 className="card__title">Declared rules</h2>
             </div>
 
+            {withdrawError && (
+              <div className="alert alert--error" role="alert">
+                {withdrawError}
+              </div>
+            )}
+
             {cells.length === 0 ? (
               <p className="empty">
                 No segmentation policy has been declared yet, so there is nothing to check. An empty
-                matrix is not a clean one — declare the zone pairs that matter and each will be
-                traced across the estate.
+                matrix is not a clean one — declare the zone pairs that matter below, and each will
+                be traced across the estate.
               </p>
             ) : (
               <ul className="intent__list">
                 {cells.map((cell) => (
-                  <Row key={cell.rule_id} cell={cell} />
+                  <Row
+                    key={cell.rule_id}
+                    cell={cell}
+                    onWithdraw={can('policy:write') ? withdraw.mutate : undefined}
+                  />
                 ))}
               </ul>
             )}
           </section>
         </>
       )}
+
+      {/* Below the verdicts, not above them. This page is read as evidence first and
+          edited second, and putting a form at the top of it would make the authoring
+          the subject. */}
+      <PolicyEditor />
     </div>
   );
 }

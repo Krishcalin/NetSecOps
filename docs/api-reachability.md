@@ -1,13 +1,17 @@
 # API reachability
 
-**149 operations are published. The console requests 128 of them. 21 it never requests.**
+**150 operations are published. The console requests 134 of them. 16 it never requests.**
 
-Re-measured 2026-09-26. The published count rose by eight — estate-wide rulebase search,
-rule permissiveness, segmentation intent and the network map — and the unreferenced count
-rose by five, all of them segmentation's zone and rule CRUD. That last five is the only
-new *gap*: the Segmentation page reads the matrix and nothing in the console writes the
-policy the matrix is judged against, so a zone or an intent can only be declared through
-the API. The other sixteen are unchanged and triaged below.
+Re-measured 2026-09-27. The published count has risen by nine since the last measure —
+estate-wide rulebase search, rule permissiveness, segmentation intent, the network map,
+and `DELETE /segmentation/zones/{id}`, which existed nowhere until the console needed a
+way to undo a zone somebody created by mistake.
+
+The unreferenced count is back to the sixteen triaged below. It briefly rose to
+twenty-one: segmentation's five zone and rule operations had no surface, so the page
+evaluated a policy that could only be written through the API and read as permanently
+empty on any console-only deployment. That is closed — the Segmentation page now
+declares and withdraws both.
 
 **Every area of the API now has a page.** The original finding — thirty-two operations in
 areas the console could not reach at all — is closed. What remains is fourteen operations
@@ -139,14 +143,13 @@ Closed. Every area of the API has a page.
 | `DELETE /discovery/scopes/{id}` | Remove on each scope row, asked for twice. A scope is the permission to probe a range; deleting one is how you stop probing what turned out not to be yours, and doing it by accident destroys the record of what was agreed. |
 | `GET /discovery/pending/{host_id}` | The review panel re-reads the host as it opens rather than trusting the row the list was built from. The list is a snapshot of whenever it loaded, and what is decided here is the device's *platform* — which selects the collection profile and with it the command allow-list. |
 
-### A page exists but does not use the operation — 19 · `surface`
+### A page exists but does not use the operation — 14 · `surface`
 
 Ordered by how much the absence costs. The count is of rows, several of which cover a
 group of operations; the totals at the top of this document are of operations.
 
 | Operation | Page | Cost of the gap |
 |---|---|---|
-| 5 × `/segmentation` zones and rules, read/create/delete | Segmentation | **The largest gap here.** The page evaluates declared intent and shows every zone pair as upheld, violated or unverified — and nothing in the console declares one. The policy the whole page is judged against has to be written through the API, which means the feature reads as empty on any deployment whose operators only use the console. |
 | `GET /jobs/{id}/progress` | Jobs | Live progress. Low value while the list already refreshes every five seconds. |
 | 5 × `/notifications` channel edit/delete, subscriptions | Settings | Settings creates channels, tests them and requeues dead deliveries, but a channel cannot be edited or removed and subscriptions have no surface at all — so who gets told what is API-only. |
 | `GET /devices/{id}/checks`, `/risk` | Device config | Per-device check results and risk score. |

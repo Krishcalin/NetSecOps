@@ -82,6 +82,41 @@ async def create_zone(
     return ZoneRead.model_validate(zone)
 
 
+@router.delete(
+    "/segmentation/zones/{zone_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require(Permission.POLICY_WRITE)), Depends(verify_csrf)],
+    summary="Remove a zone nothing is declared about (FR-TOPO-07)",
+)
+async def delete_zone(
+    zone_id: uuid.UUID,
+    session: SessionDep,
+    principal: PrincipalDep,
+) -> None:
+    """Refused while any intent names the zone, rather than cascading.
+
+    The foreign keys cascade, so the database would take the zone and every statement
+    mentioning it — one request quietly withdrawing a dozen requirements, with an audit
+    trail naming only the zone. The intents come out first, each as its own decision.
+    """
+    service = SegmentationService(session)
+    # Read before the delete: the audit entry names what went, and after the delete
+    # there is nothing left to read it from.
+    zone = await service.zone(zone_id)
+    await service.delete_zone(zone_id)
+
+    await AuditService(session).record(
+        AuditAction.SEGMENTATION_POLICY_CHANGED,
+        actor_id=principal.id,
+        actor_username=principal.username,
+        object_type="segmentation_zone",
+        object_id=zone_id,
+        # The name as well as the id: an id names nothing to somebody reading the log
+        # later, and the row it pointed at is gone.
+        details={"deleted": True, "name": zone.name, "prefixes": list(zone.prefixes)},
+    )
+
+
 @router.get(
     "/segmentation/rules",
     response_model=list[RuleRead],
