@@ -33,10 +33,10 @@ import { NavLink } from 'react-router-dom';
 
 import { api } from '../api/client';
 import { Icon } from '../components/Icon';
-import { Dial, Panel, Readout, StackBar, StatTile } from '../components/Graphics';
+import { Dial, DualBars, Panel, Readout, StackBar, StatTile } from '../components/Graphics';
 import { useAuth } from '../features/auth/useAuth';
 import { ROLE_LABELS } from '../features/auth/types';
-import type { FindingSummary } from '../features/findings/types';
+import type { FindingSummary, FindingTrend } from '../features/findings/types';
 import type { TopologySummary } from '../features/topology/types';
 import type { Matrix } from '../features/segmentation/types';
 import type { VulnerabilitySummary } from '../features/vulnerabilities/types';
@@ -120,6 +120,88 @@ function Step({ n, done, title, body, to, cta }: StepProps) {
         </NavLink>
       </div>
     </li>
+  );
+}
+
+/** Whether it is getting better (FR-FIND-05).
+ *
+ * Every other figure on this page is a level: how many are open right now. None of
+ * them can distinguish an estate that has been at forty criticals for a year from one
+ * that was at four hundred in January, and that difference is the only thing anybody
+ * actually wants to know.
+ *
+ * **Two things this deliberately does not draw.** There is no open-count per day —
+ * reopening a finding clears its resolution date, so that curve would show every
+ * fixed-and-returned problem as open throughout, and it would be most wrong in the
+ * estates most worth looking at. And there is no single "trend score": the number of
+ * findings first seen is not better or worse on its own, because an estate that just
+ * added fifty devices should find more.
+ */
+function TrendPanel() {
+  const trend = useQuery({
+    queryKey: ['findings', 'trend'],
+    queryFn: () => api.get<FindingTrend>('/findings/trend?days=90'),
+  });
+
+  if (trend.isError) return null;
+
+  const data = trend.data;
+  const points = data?.points ?? [];
+  const nothingYet = data !== undefined && data.total_first_seen === 0 && data.total_resolved === 0;
+
+  return (
+    <section className="card">
+      <div className="card__header">
+        <h2 className="card__title">Ninety days</h2>
+        <NavLink className="button button--ghost button--small" to="/findings">
+          All findings
+        </NavLink>
+      </div>
+
+      {nothingYet ? (
+        <p className="card__hint">
+          Nothing was found or fixed in the last ninety days. On a new deployment that means
+          assessments have not run yet rather than that the estate is clean — the counts above are
+          the current position either way.
+        </p>
+      ) : (
+        <>
+          <DualBars
+            up={points.map((p) => ({ label: p.day, value: p.first_seen }))}
+            down={points.map((p) => ({ label: p.day, value: p.resolved }))}
+            upLabel="first seen"
+            downLabel="resolved"
+            upTone="var(--sev-high)"
+            downTone="var(--sev-low)"
+          />
+
+          <div className="readouts">
+            <Readout
+              label="Typical time to resolve"
+              // The median, not the mean: one finding left open since March drags an
+              // average somewhere no individual finding has been. A dash when nothing
+              // has been resolved, never zero — zero reads as "fixed instantly".
+              value={
+                data?.median_days_to_resolve != null ? `${data.median_days_to_resolve} days` : '—'
+              }
+              note={
+                data?.resolved_in_window
+                  ? `median of ${data.resolved_in_window} resolved`
+                  : 'nothing resolved in this window'
+              }
+            />
+            <Readout
+              label="Came back"
+              value={data?.reopened_now ?? '—'}
+              tone={data?.reopened_now ? 'var(--sev-high)' : undefined}
+              // Says outright what the resolved bars cannot see, rather than leaving
+              // the series quietly under-reporting.
+              note="resolved once and open again; not counted as resolved above"
+            />
+          </div>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -385,6 +467,9 @@ export function DashboardPage() {
           />
         )}
       </div>
+
+      {/* ── the direction, which every count above is silent about ─────────── */}
+      {may('finding:read') && <TrendPanel />}
 
       {/* ── the panels: what the estate looks like, and what just happened ──── */}
       <div className="panels">

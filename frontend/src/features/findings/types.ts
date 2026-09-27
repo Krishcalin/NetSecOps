@@ -35,6 +35,62 @@ export interface FindingSummary {
   devices_affected: number;
 }
 
+export interface TrendDay {
+  day: string;
+  /** Findings first seen on this day. Exact for all time. */
+  first_seen: number;
+  /** Resolutions that still stand — a fix later undone is not here. `reopened_now`
+   *  on the parent says how much that is. */
+  resolved: number;
+  first_seen_by_severity: Record<string, number>;
+}
+
+/** Whether the estate is getting better (FR-FIND-05).
+ *
+ * Deliberately carries no open-count per day: reopening a finding clears its
+ * `resolved_at`, so a retrospective curve would show every fixed-and-returned problem
+ * as open throughout. `open_by_severity` is today's count, which is a fact.
+ */
+export interface FindingTrend {
+  days: number;
+  since: string;
+  points: TrendDay[];
+  open_by_severity: Record<string, number>;
+  reopened_now: number;
+  median_days_to_resolve: number | null;
+  mean_days_to_resolve: number | null;
+  resolved_in_window: number;
+  total_first_seen: number;
+  total_resolved: number;
+}
+
+export interface RiskPoint {
+  at: string;
+  score: number;
+  checks_evaluated: number;
+}
+
+export interface RiskTrend {
+  device_id: string;
+  points: RiskPoint[];
+  /** Named by the server so a report and the console cannot disagree about the same
+   *  two numbers. Risk counts down, so a falling score is `improving`. */
+  direction: 'improving' | 'worsening' | 'steady' | 'unknown';
+}
+
+export interface DeviceRisk {
+  device_id: string;
+  score: number | null;
+  compliance_percent: number | null;
+  coverage_percent: number | null;
+  checks_evaluated: number;
+  checks_passed: number;
+  checks_failed: number;
+  checks_not_evaluated: number;
+  components: Record<string, unknown>;
+  assessed_at: string | null;
+}
+
 export interface Finding {
   id: string;
   device_id: string;

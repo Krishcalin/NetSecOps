@@ -2736,6 +2736,93 @@ code {
 
 /* ── the stacked proportion bar ────────────────────────────────────────── */
 
+/* ──────────────────── trends: paired bars and sparklines ─────────────────── */
+
+.bars {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Days are flex children with no min-width, so ninety of them fit the panel at any
+   width instead of scrolling. Below about 3px each the bars stop being readable, and
+   at that point the caption's totals are what the reader is using anyway. */
+.bars__plot {
+  display: flex;
+  align-items: stretch;
+  gap: 1px;
+  height: 96px;
+}
+
+.bars__day {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Two halves from a shared centre line: new grows up, resolved grows down, so a day
+   where both happened reads as both rather than as a net figure. */
+.bars__half {
+  flex: 1 1 50%;
+  display: flex;
+  min-height: 0;
+}
+
+.bars__half--up {
+  align-items: flex-end;
+  border-bottom: 1px solid var(--border);
+}
+
+.bars__half--down {
+  align-items: flex-start;
+}
+
+.bars__bar {
+  width: 100%;
+  border-radius: 1px;
+  min-height: 0;
+}
+
+.bars__caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.bars__legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+.bars__swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.bars__span {
+  margin-left: auto;
+}
+
+.sparkline {
+  display: block;
+  width: 100%;
+}
+
+.sparkline--empty {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .stackbar {
   display: flex;
   flex-direction: column;
@@ -2918,6 +3005,76 @@ code {
   margin: 10px 0 0;
   font-size: 12.5px;
   color: var(--text-muted);
+}
+
+/* A device's current risk beside where it has been. The score and the line stack on a
+   phone: at that width the sparkline is too short to read a direction off, and the
+   words beside it carry the same fact. */
+.risk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px 28px;
+}
+
+.risk__now {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.risk__score {
+  font-size: 2.4rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.risk__of,
+.risk__caption {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+/* The direction in words, and in a colour that agrees with them. Risk counts down, so
+   improving is the good tone even though the line is falling. */
+.risk__direction {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--sev-none);
+  color: #fff;
+}
+
+.risk__direction--improving {
+  background: var(--sev-low);
+}
+
+.risk__direction--worsening {
+  background: var(--sev-critical);
+}
+
+.risk__direction--steady {
+  background: var(--sev-info);
+}
+
+.risk__history {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Readouts side by side outside a panel, as under the trend chart. Two columns where
+   there is room, one below ~520px — the note under each value is a full sentence and
+   wraps to nonsense in a narrow column. */
+.readouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0 32px;
+  margin-top: 14px;
 }
 
 .readout {

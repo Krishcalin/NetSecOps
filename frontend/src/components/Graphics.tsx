@@ -236,6 +236,157 @@ export function Panel({
   );
 }
 
+export interface SeriesPoint {
+  label: string;
+  /** `null` means no reading, which is drawn as a break in the line rather than a zero.
+   *  On a risk chart the two are opposite facts: nobody assessed, versus nothing wrong. */
+  value: number | null;
+}
+
+/** Two counts a day, drawn as paired bars from a shared baseline.
+ *
+ * Bars rather than lines, because these are events on a day and not a level that
+ * persisted through it — a line implies the value existed between the points, which for
+ * "findings first seen" is meaningless. Days with nothing on them are still drawn, as
+ * empty space at their own position, so a quiet fortnight looks like a quiet fortnight
+ * and not like two adjacent busy days.
+ *
+ * The totals sit in the caption because the bars are unlabelled: at ninety days there is
+ * no room for a number on each, and a reader who needs the exact figure for one day has
+ * the tooltip, while a reader who needs the shape has the shape.
+ */
+export function DualBars({
+  up,
+  down,
+  upLabel,
+  downLabel,
+  upTone,
+  downTone,
+}: {
+  up: SeriesPoint[];
+  down: SeriesPoint[];
+  upLabel: string;
+  downLabel: string;
+  upTone: string;
+  downTone: string;
+}) {
+  const peak = Math.max(1, ...up.map((p) => p.value ?? 0), ...down.map((p) => p.value ?? 0));
+  const upTotal = up.reduce((all, p) => all + (p.value ?? 0), 0);
+  const downTotal = down.reduce((all, p) => all + (p.value ?? 0), 0);
+
+  return (
+    <figure className="bars">
+      <div
+        className="bars__plot"
+        role="img"
+        aria-label={`${upTotal} ${upLabel} and ${downTotal} ${downLabel} over ${up.length} days.`}
+      >
+        {up.map((point, index) => {
+          const other = down[index]?.value ?? 0;
+          const mine = point.value ?? 0;
+          return (
+            <span
+              className="bars__day"
+              key={point.label}
+              title={`${point.label}: ${mine} ${upLabel}, ${other} ${downLabel}`}
+            >
+              <span className="bars__half bars__half--up">
+                <span
+                  className="bars__bar"
+                  style={{ height: `${(mine / peak) * 100}%`, background: upTone }}
+                />
+              </span>
+              <span className="bars__half bars__half--down">
+                <span
+                  className="bars__bar"
+                  style={{ height: `${(other / peak) * 100}%`, background: downTone }}
+                />
+              </span>
+            </span>
+          );
+        })}
+      </div>
+      <figcaption className="bars__caption">
+        {/* The figures the bars stand for, in text. Nothing on this chart is coloured
+            without also being counted, so it survives greyscale (WCAG 1.4.1). */}
+        <span className="bars__legend">
+          <span className="bars__swatch" style={{ background: upTone }} aria-hidden="true" />
+          {upTotal.toLocaleString()} {upLabel}
+        </span>
+        <span className="bars__legend">
+          <span className="bars__swatch" style={{ background: downTone }} aria-hidden="true" />
+          {downTotal.toLocaleString()} {downLabel}
+        </span>
+        <span className="bars__span">
+          {up[0]?.label} — {up[up.length - 1]?.label}
+        </span>
+      </figcaption>
+    </figure>
+  );
+}
+
+/** A small line of readings over time, with its latest value beside it.
+ *
+ * For risk, which *is* a level — it held between assessments — so a line is honest here
+ * where it would not be for counts. A single reading draws a dot rather than a line,
+ * because one point is not a direction and a flat segment would claim it was.
+ */
+export function Sparkline({
+  points,
+  tone,
+  height = 40,
+}: {
+  points: SeriesPoint[];
+  tone: string;
+  height?: number;
+}) {
+  const real = points.filter((p): p is { label: string; value: number } => p.value !== null);
+
+  if (real.length === 0) {
+    return <p className="sparkline sparkline--empty">No readings yet.</p>;
+  }
+
+  const width = 220;
+  const highest = Math.max(...real.map((p) => p.value));
+  const lowest = Math.min(...real.map((p) => p.value));
+  // A flat series would otherwise divide by zero and vanish; drawn down the middle.
+  const span = highest - lowest || 1;
+  const step = real.length > 1 ? width / (real.length - 1) : 0;
+
+  const coords = real.map((point, index) => ({
+    x: real.length > 1 ? index * step : width / 2,
+    y: height - ((point.value - lowest) / span) * (height - 6) - 3,
+    point,
+  }));
+
+  const last = coords[coords.length - 1];
+
+  return (
+    <div className="sparkline">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        width="100%"
+        height={height}
+        preserveAspectRatio="none"
+        role="img"
+        aria-label={`${real.length} readings, most recent ${last?.point.value} on ${last?.point.label}.`}
+      >
+        {coords.length > 1 && (
+          <polyline
+            fill="none"
+            stroke={tone}
+            strokeWidth="2"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+            points={coords.map((c) => `${c.x},${c.y}`).join(' ')}
+          />
+        )}
+        {last && <circle cx={last.x} cy={last.y} r="3" fill={tone} />}
+      </svg>
+    </div>
+  );
+}
+
 /** One label/value row inside a panel. */
 export function Readout({
   label,

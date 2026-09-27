@@ -58,6 +58,23 @@ let recentJobs: { id: string; kind: string; status: string; created_at: string }
   { id: 'j1', kind: 'assessment', status: 'succeeded', created_at: '2026-09-20T10:00:00Z' },
 ];
 
+let trend: Record<string, unknown> = {
+  days: 90,
+  since: '2026-07-01',
+  points: [
+    { day: '2026-09-25', first_seen: 3, resolved: 0, first_seen_by_severity: {} },
+    { day: '2026-09-26', first_seen: 0, resolved: 0, first_seen_by_severity: {} },
+    { day: '2026-09-27', first_seen: 1, resolved: 4, first_seen_by_severity: {} },
+  ],
+  open_by_severity: { critical: 1, high: 2, medium: 0, low: 0, info: 0 },
+  reopened_now: 2,
+  median_days_to_resolve: 6.5,
+  mean_days_to_resolve: 40.2,
+  resolved_in_window: 4,
+  total_first_seen: 4,
+  total_resolved: 4,
+};
+
 function stubApi() {
   vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
     if (path === '/vulnerabilities/summary') {
@@ -69,6 +86,9 @@ function stubApi() {
         devices_affected: 3,
         devices_unassessed: 7,
       } as never;
+    }
+    if (path.startsWith('/findings/trend')) {
+      return trend as never;
     }
     if (path === '/audit-log/verify') {
       return { total: 120, valid: true } as never;
@@ -143,6 +163,22 @@ describe('DashboardPage', () => {
   beforeEach(() => {
     permissions = ALL;
     counts = { ...POPULATED };
+    trend = {
+      days: 90,
+      since: '2026-07-01',
+      points: [
+        { day: '2026-09-25', first_seen: 3, resolved: 0, first_seen_by_severity: {} },
+        { day: '2026-09-26', first_seen: 0, resolved: 0, first_seen_by_severity: {} },
+        { day: '2026-09-27', first_seen: 1, resolved: 4, first_seen_by_severity: {} },
+      ],
+      open_by_severity: { critical: 1, high: 2, medium: 0, low: 0, info: 0 },
+      reopened_now: 2,
+      median_days_to_resolve: 6.5,
+      mean_days_to_resolve: 40.2,
+      resolved_in_window: 4,
+      total_first_seen: 4,
+      total_resolved: 4,
+    };
     compliancePercent = 78.4;
     segmentationCells = [{ rule_id: 'r1' }];
     recentJobs = [
@@ -365,6 +401,104 @@ describe('DashboardPage', () => {
 
       await screen.findByRole('link', { name: /Critical findings/ });
       expect(screen.queryByRole('heading', { name: 'Start here' })).toBeNull();
+    });
+  });
+
+  describe('whether it is getting better (FR-FIND-05)', () => {
+    /** Every other figure on this page is a level. None of them can tell an estate
+     *  sitting at forty criticals for a year from one that was at four hundred in
+     *  January, and that is the difference anybody actually wants. */
+
+    it('reports the median time to resolve, not the mean', async () => {
+      // One finding open since March drags an average somewhere no finding has been.
+      renderPage();
+
+      expect(await screen.findByText('6.5 days')).toBeInTheDocument();
+      expect(screen.queryByText('40.2 days')).toBeNull();
+    });
+
+    it('shows a dash rather than zero when nothing has been resolved', async () => {
+      // Zero days reads as "fixed instantly", which is the opposite of "no data".
+      trend = { ...trend, median_days_to_resolve: null, resolved_in_window: 0 };
+      renderPage();
+
+      expect(await screen.findByText(/nothing resolved in this window/)).toBeInTheDocument();
+    });
+
+    it('says how many came back, because the resolved bars cannot see them', async () => {
+      // A reopened finding's earlier resolution is gone from the row, so the series
+      // under-reports. Saying so beats a quietly wrong chart.
+      renderPage();
+
+      const cameBack = await screen.findByText('Came back');
+      // `waitFor`: the panel renders its labels before the query resolves, so reading
+      // the value straight away catches the placeholder dash rather than the figure.
+      await waitFor(() => expect(cameBack.parentElement).toHaveTextContent('2'));
+      expect(cameBack.parentElement).toHaveTextContent(/not counted as resolved/);
+    });
+
+    it('draws no per-day open count, which the schema cannot support', async () => {
+      // Reopening clears `resolved_at`, so that curve would show every
+      // fixed-and-returned problem as open throughout.
+      renderPage();
+
+      await screen.findByText('6.5 days');
+      const chart = screen.getByRole('img', { name: /first seen and .* resolved/i });
+      expect(chart).not.toHaveAccessibleName(/open/i);
+    });
+
+    it('carries the totals in text, so the chart survives greyscale', async () => {
+      // WCAG 1.4.1 — nothing on this page is coloured without also being counted.
+      renderPage();
+
+      // Scoped to the chart's own caption: "4 resolved" also appears in the readout
+      // note below it ("median of 4 resolved"), which is the same fact said twice and
+      // would make an unscoped query ambiguous rather than wrong.
+      const caption = (await screen.findByText(/4 first seen/)).parentElement;
+      expect(caption).toHaveTextContent(/4 first seen/);
+      expect(caption).toHaveTextContent(/4 resolved/);
+    });
+
+    it('says an empty window means no assessments, not a clean estate', async () => {
+      trend = { ...trend, total_first_seen: 0, total_resolved: 0 };
+      renderPage();
+
+      expect(
+        await screen.findByText(/assessments have not run yet rather than that the estate is clean/),
+      ).toBeInTheDocument();
+    });
+
+    it('does not claim the window is empty while it is still loading', async () => {
+      // This page's rule is that a figure which could not be computed shows a dash,
+      // never a zero. The same applies to a sentence: "nothing was found or fixed" is
+      // a statement about the estate, and flashing it before the data arrives asserts
+      // something untrue for as long as the request takes.
+      let release: (value: unknown) => void = () => {};
+      const pending = new Promise((resolve) => {
+        release = resolve;
+      });
+      const get = vi.spyOn(api, 'get');
+      const passthrough = get.getMockImplementation();
+      get.mockImplementation(async (path: string) => {
+        if (path.startsWith('/findings/trend')) return (await pending) as never;
+        return passthrough!(path);
+      });
+
+      renderPage();
+      await screen.findByRole('heading', { name: 'Ninety days' });
+      expect(screen.queryByText(/Nothing was found or fixed/)).toBeNull();
+
+      release({ ...trend, total_first_seen: 0, total_resolved: 0, points: [] });
+      expect(await screen.findByText(/Nothing was found or fixed/)).toBeInTheDocument();
+    });
+
+    it('is not shown to someone who cannot read findings', async () => {
+      permissions = ['device:read'];
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.queryByRole('heading', { name: 'Ninety days' })).toBeNull();
+      });
     });
   });
 });

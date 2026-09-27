@@ -1,13 +1,21 @@
 # API reachability
 
-**156 operations are published. The console requests 144 of them. 12 it never requests.**
+**158 operations are published. The console requests 147 of them. 11 it never requests.**
 
-Re-measured 2026-09-27, after single sign-on. The published count has risen by fifteen
-since the last measure — estate-wide rulebase search, rule permissiveness, segmentation
-intent, the network map, `DELETE /segmentation/zones/{id}`, which existed nowhere until
-the console needed a way to undo a zone somebody created by mistake, `GET
-/findings/summary`, which replaced the five `limit=1` counts the dashboard was making to
-draw one bar, and the five `/auth/sso/*` operations.
+Re-measured 2026-09-27, after single sign-on and the trend work. The published count has
+risen by seventeen since the last measure — estate-wide rulebase search, rule
+permissiveness, segmentation intent, the network map, `DELETE /segmentation/zones/{id}`,
+which existed nowhere until the console needed a way to undo a zone somebody created by
+mistake, `GET /findings/summary`, which replaced the five `limit=1` counts the dashboard
+was making to draw one bar, the five `/auth/sso/*` operations, and `GET /findings/trend`
+with `GET /devices/{id}/risk/history`.
+
+**`GET /devices/{id}/risk` came off this list without being written**, which is the case
+the count exists to find. The endpoint had shipped in Phase 3 and the score behind it had
+been computed and stored on every assessment since — one row per computation, kept
+rather than overwritten *because*, as the model's own docstring says, a single current
+number cannot tell an operator whether things are improving. No page asked for it, so no
+operator ever saw either the number or the direction. A device's page now shows both.
 
 **One entry on the unreferenced list is there correctly, and it is a new kind.**
 `GET /auth/sso/callback` is where the identity provider returns the browser. Nothing in
@@ -17,8 +25,8 @@ referenced in console *code*, which is the right proxy for "can an operator get 
 everywhere except a redirect target. Read the number as eleven unreachable operations
 and one reached by the browser's address bar.
 
-The rest of the unreferenced count is eleven, down from the sixteen triaged below. Two
-clusters closed since that triage, both the same shape — capability with no surface,
+The rest of the unreferenced count is ten, down from the sixteen triaged below. Three
+clusters have closed since that triage, all the same shape — capability with no surface,
 which on a console-only deployment is indistinguishable from capability that does not
 exist.
 
@@ -31,8 +39,11 @@ created, tested and shown healthy while nothing was subscribed to it, and the pa
 said nothing about why no alert ever arrived. Closed; Settings now edits and removes a
 channel, lists subscriptions, and warns outright when an enabled channel has none.
 
+Risk and trend: the score was reachable by API and invisible in the console, described
+above.
+
 **Every area of the API now has a page.** The original finding — thirty-two operations in
-areas the console could not reach at all — is closed. What remains is nine operations on
+areas the console could not reach at all — is closed. What remains is eight operations on
 pages that exist but do not call them, plus `GET /metrics` and `GET /readyz`, which are
 correctly machine-only, and the SSO callback above.
 

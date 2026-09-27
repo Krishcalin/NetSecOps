@@ -380,6 +380,20 @@ Each phase below says what it delivers and, where relevant, what it still owes. 
   the check passing on a later assessment — the API refuses to set it by hand, so the
   status stays a measurement rather than a claim. A problem that returns reopens the
   original finding instead of appearing as a first sighting.
+- **Whether it is getting better** (FR-FIND-05, FR-CHK-09). Every other figure the
+  product shows is a level — how many are open now — and none of them can tell an
+  estate that has sat at forty criticals for a year from one that was at four hundred
+  in January. The dashboard draws first sightings against lasting resolutions over
+  ninety days with the median time to resolve beside them, and a device's page draws
+  its risk score as it has actually moved. That series was already there: `risk_scores`
+  has kept a row per assessment since Phase 3, *because* — as the model says in as many
+  words — a single current number cannot show a direction. Nothing had ever read it.
+  **What is deliberately absent is open findings by severity over time**, which
+  FR-FIND-05 also asks for and this schema cannot honestly supply: a finding is one row
+  carrying its current status, and reopening clears `resolved_at`, so that curve would
+  show every fixed-and-returned problem as open throughout — wrong in exactly the
+  estates worth charting. The page says how many came back instead, which is the size
+  of what the resolved series cannot see.
 - **A risk score that is documented and explainable.** Severity weights are widely
   spaced on purpose: under a linear scheme fourteen Low findings outrank one Critical.
   Device criticality multiplies rather than adds. *Not Evaluated* is reported as a

@@ -9,7 +9,7 @@ original configuration.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -297,6 +297,65 @@ class RiskRead(BaseModel):
     checks_not_evaluated: int
     components: dict[str, Any] = Field(default_factory=dict)
     assessed_at: datetime | None
+
+
+class TrendDay(BaseModel):
+    day: date
+    #: Findings first seen on this day. Exact for all time — `first_seen_at` is written
+    #: once and never cleared.
+    first_seen: int
+    #: Resolutions that still stand. A finding resolved on this day and since reopened
+    #: is not counted, because the row no longer records that it ever was: see
+    #: `reopened_now` for the size of what this cannot see.
+    resolved: int
+    first_seen_by_severity: dict[str, int]
+
+
+class FindingTrendRead(BaseModel):
+    """Whether the estate is getting better (FR-FIND-05).
+
+    **This does not include open findings by severity over time**, which the
+    requirement also asks for and which this schema cannot honestly supply. A finding
+    is stored as one row carrying its current status, and reopening clears
+    `resolved_at`, so a retrospective open-count would show every fixed-and-returned
+    problem as open throughout — wrong in exactly the estates worth charting.
+    `open_by_severity` below is today's count, which is a fact rather than a
+    reconstruction.
+    """
+
+    days: int
+    since: date
+    points: list[TrendDay]
+    open_by_severity: dict[str, int]
+    reopened_now: int
+    #: Days from first sighting to a resolution that still stands. Median first: one
+    #: finding left open for two years drags a mean somewhere no finding has been.
+    median_days_to_resolve: float | None
+    mean_days_to_resolve: float | None
+    resolved_in_window: int
+    total_first_seen: int
+    total_resolved: int
+
+
+class RiskPointRead(BaseModel):
+    at: datetime
+    score: int
+    checks_evaluated: int
+
+
+class RiskTrendRead(BaseModel):
+    """A device's risk score as recorded, oldest first (FR-CHK-09).
+
+    Exact history, unlike the findings trend: `risk_scores` keeps a row per computation
+    rather than overwriting one, which is what the model was built for and what nothing
+    has read until now.
+    """
+
+    device_id: uuid.UUID
+    points: list[RiskPointRead]
+    #: `improving`, `worsening`, `steady`, or `unknown` below two points. Named by the
+    #: server so a report and the console cannot disagree about the same two numbers.
+    direction: str
 
 
 class FrameworkControl(BaseModel):

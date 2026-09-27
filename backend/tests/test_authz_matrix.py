@@ -322,12 +322,17 @@ MATRIX: list[Case] = [
     # Device Group scoping. A summary visible to somebody who cannot see the rows it
     # counts would leak the shape of the estate.
     Case("GET", "/api/v1/findings/summary", _DEVICE_READERS),
+    # The trend is an aggregate over findings, so it is read by whoever may read
+    # findings — and narrowed to their device groups inside the service, because an
+    # unscoped aggregate leaks the shape of an estate a restricted operator cannot list.
+    Case("GET", "/api/v1/findings/trend", _DEVICE_READERS),
     Case("GET", "/api/v1/findings/{finding_id}", _DEVICE_READERS),
     # A Network Engineer sees findings for their devices but does not triage them;
     # SRS §2.3 makes accepting risk the Analyst's decision.
     Case("PATCH", "/api/v1/findings/{finding_id}", _FINDING_TRIAGERS, body={"status": "open"}),
     Case("GET", "/api/v1/devices/{device_id}/checks", _CHECK_READERS),
     Case("GET", "/api/v1/devices/{device_id}/risk", _DEVICE_READERS),
+    Case("GET", "/api/v1/devices/{device_id}/risk/history", _DEVICE_READERS),
     Case("GET", "/api/v1/compliance/frameworks", _DEVICE_READERS),
     Case("GET", "/api/v1/compliance/{framework}", _DEVICE_READERS),
     # ── Exceptions (FR-CHK-07) ──────────────────────────────────────────────

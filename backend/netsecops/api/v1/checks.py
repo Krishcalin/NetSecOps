@@ -38,6 +38,7 @@ from netsecops.schemas.checks import (
     FindingDetail,
     FindingRead,
     FindingSummary,
+    FindingTrendRead,
     FindingUpdate,
     FrameworkControl,
     FrameworkSummary,
@@ -48,13 +49,17 @@ from netsecops.schemas.checks import (
     PolicyCreate,
     PolicyDetail,
     PolicyRead,
+    RiskPointRead,
     RiskRead,
+    RiskTrendRead,
+    TrendDay,
 )
 from netsecops.services.assessment import AssessmentService
 from netsecops.services.audit import AuditService
 from netsecops.services.inventory import InventoryService
 from netsecops.services.policies import PolicyService
 from netsecops.services.snapshots import SnapshotService
+from netsecops.services.trends import DEFAULT_DAYS, MAX_DAYS, TrendService
 
 log = get_logger(__name__)
 router = APIRouter(tags=["checks"])
@@ -775,6 +780,82 @@ async def device_check_results(
     return [
         CheckResultRead.model_validate(r) for r in await assessments.results_for_snapshot(latest)
     ]
+
+
+@router.get(
+    "/findings/trend",
+    response_model=FindingTrendRead,
+    dependencies=[Depends(require(Permission.FINDING_READ))],
+    summary="Whether the estate is getting better (FR-FIND-05)",
+)
+async def findings_trend(
+    session: SessionDep,
+    principal: PrincipalDep,
+    days: Annotated[int, Query(ge=1, le=MAX_DAYS)] = DEFAULT_DAYS,
+    group_id: uuid.UUID | None = None,
+) -> FindingTrendRead:
+    """First sightings and lasting resolutions per day, plus time to resolve.
+
+    Deliberately not "open findings by severity over time", which FR-FIND-05 also asks
+    for: reopening a finding clears `resolved_at`, so that curve cannot be rebuilt from
+    these rows without asserting things the database does not know. `open_by_severity`
+    is the current count, and `reopened_now` shows how much the resolved series is
+    blind to.
+    """
+    trend = await TrendService(session).findings(
+        scope=principal.scope, days=days, group_id=group_id
+    )
+    return FindingTrendRead(
+        days=trend.days,
+        since=trend.since,
+        points=[
+            TrendDay(
+                day=p.day,
+                first_seen=p.first_seen,
+                resolved=p.resolved,
+                first_seen_by_severity=p.first_seen_by_severity,
+            )
+            for p in trend.points
+        ],
+        open_by_severity=trend.open_by_severity,
+        reopened_now=trend.reopened_now,
+        median_days_to_resolve=trend.median_days_to_resolve,
+        mean_days_to_resolve=trend.mean_days_to_resolve,
+        resolved_in_window=trend.resolved_in_window,
+        total_first_seen=trend.total_first_seen,
+        total_resolved=trend.total_resolved,
+    )
+
+
+@router.get(
+    "/devices/{device_id}/risk/history",
+    response_model=RiskTrendRead,
+    dependencies=[Depends(require(Permission.FINDING_READ))],
+    summary="A device's risk score over time (FR-CHK-09)",
+)
+async def device_risk_history(
+    device_id: uuid.UUID,
+    session: SessionDep,
+    principal: PrincipalDep,
+    days: Annotated[int, Query(ge=1, le=MAX_DAYS)] = DEFAULT_DAYS,
+) -> RiskTrendRead:
+    """The series `risk_scores` has been accumulating since Phase 3.
+
+    One row per computation, kept rather than overwritten because — as that model's
+    own docstring puts it — a single current number cannot tell an operator whether
+    things are getting better. Nothing read it until now.
+    """
+    device = await InventoryService(session).get_device(device_id, scope=principal.scope)
+    trend = await TrendService(session).risk(device.id, days=days)
+
+    return RiskTrendRead(
+        device_id=device.id,
+        points=[
+            RiskPointRead(at=p.at, score=p.score, checks_evaluated=p.checks_evaluated)
+            for p in trend.points
+        ],
+        direction=trend.direction,
+    )
 
 
 @router.get(

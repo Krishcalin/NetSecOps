@@ -16,6 +16,7 @@ import { DiffViewer } from '../features/snapshots/DiffViewer';
 import { EvidencePanel } from '../features/snapshots/EvidencePanel';
 import type { DeviceDetail, Paginated } from '../features/inventory/types';
 import { PageHeader } from '../components/PageHeader';
+import { RiskPanel } from '../features/findings/RiskPanel';
 import type {
   ConfigDiff,
   ConfigUploadResponse,
@@ -162,6 +163,8 @@ export function DeviceConfigPage() {
       />
 
       {drift.data && <DriftBanner drift={drift.data} />}
+
+      {can('finding:read') && <RiskPanel deviceId={deviceId} />}
 
       <section className="card">
         <div className="card__header">
