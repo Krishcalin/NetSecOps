@@ -228,6 +228,32 @@ class PaginatedFindings(BaseModel):
     meta: dict[str, int]
 
 
+class FindingSummary(BaseModel):
+    """Counts by facet, over everything the caller may see (FR-FIND-03).
+
+    Exists because a console drawing a severity distribution otherwise asks for one
+    `limit=1` page per severity and reads the totals off the envelopes — five round
+    trips to render one bar, and five chances for the figures to come from five
+    slightly different moments.
+
+    **Every facet is counted over the same set**, which is the set the list endpoint
+    returns under the same `active_only`. A summary computed over a different
+    population from the table beneath it is worse than no summary: the reader compares
+    them and one of the two is wrong.
+    """
+
+    total: int = 0
+    #: Severity → count. Severities with no findings are present and zero, so a client
+    #: can draw a five-band bar without inventing the missing keys.
+    by_severity: dict[str, int] = Field(default_factory=dict)
+    #: Lifecycle status → count. Only statuses actually present appear; unlike
+    #: severity, the set is open and a zero for every unused one would be noise.
+    by_status: dict[str, int] = Field(default_factory=dict)
+    #: Distinct devices carrying at least one. Not the size of the estate — a device
+    #: with nothing open is not in here, and neither is one nobody has assessed.
+    devices_affected: int = 0
+
+
 class ExceptionCreate(BaseModel):
     check_id: str
     scope: ExceptionScope = ExceptionScope.DEVICE

@@ -13,13 +13,24 @@ import { NavLink } from 'react-router-dom';
 
 import { api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
-import type { Finding, FindingDetail, FindingStatus, Severity } from '../features/findings/types';
+import type {
+  Finding,
+  FindingDetail,
+  FindingStatus,
+  FindingSummary,
+  Severity,
+} from '../features/findings/types';
 import { SETTABLE_STATUSES, STATUS_LABELS } from '../features/findings/types';
 import type { Paginated } from '../features/inventory/types';
 import { useUrlFilters } from './useUrlFilters';
 import { PageHeader } from '../components/PageHeader';
+import { StackBar, SummaryCell } from '../components/Graphics';
 
 const PAGE_SIZE = 25;
+
+/** Worst first, and every band drawn even at nought — the summary endpoint always
+ *  returns a key for each, so a missing band means a missing band. */
+const SEVERITY_BANDS = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
 const SEVERITIES: Severity[] = ['critical', 'high', 'medium', 'low', 'info'];
 
@@ -233,6 +244,17 @@ export function FindingsPage() {
 
   const total = findings.data?.meta.total ?? 0;
 
+  // The distribution across everything the reader may see, in one request rather than
+  // one per severity. Deliberately *not* narrowed by the severity filter: it is the
+  // shape of the whole set, which is what tells somebody which filter to pick next —
+  // and a bar that always showed one band because a band was selected would be a bar
+  // of no use at all. `active_only` is passed through, because that toggle changes
+  // which population is being talked about rather than which slice of it.
+  const summary = useQuery({
+    queryKey: ['findings-summary', activeOnly],
+    queryFn: () => api.get<FindingSummary>(`/findings/summary?active_only=${activeOnly}`),
+  });
+
   return (
     <div className="page">
       <PageHeader
@@ -240,6 +262,46 @@ export function FindingsPage() {
         title="Findings"
         subtitle="What the checks concluded, worst first. Every finding shows the configuration line behind it."
       />
+
+      {summary.data && summary.data.total > 0 && (
+        <>
+          <div className="summary">
+            <SummaryCell
+              icon="finding"
+              label={activeOnly ? 'Open findings' : 'Findings, all statuses'}
+              value={summary.data.total}
+              note={severity ? `Across every severity, not just ${severity}` : 'Across the estate'}
+            />
+            <SummaryCell
+              icon="alert"
+              label="Critical"
+              value={summary.data.by_severity.critical}
+              note="Worst first in the table below"
+              tone="var(--sev-critical)"
+            />
+            <SummaryCell
+              icon="device"
+              label="Devices affected"
+              value={summary.data.devices_affected}
+              note="Carrying at least one — not the size of the estate"
+              tone="var(--sev-high)"
+            />
+          </div>
+
+          <section className="card">
+            <div className="card__header">
+              <h2 className="card__title">By severity</h2>
+            </div>
+            <StackBar
+              parts={SEVERITY_BANDS.map((band) => ({
+                label: band,
+                value: summary.data.by_severity[band] ?? 0,
+                tone: `var(--sev-${band})`,
+              }))}
+            />
+          </section>
+        </>
+      )}
 
       <div className="toolbar">
         <select

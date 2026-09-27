@@ -920,6 +920,15 @@ does: the requirement stops being made and the estate does not change. Removing 
 refused while any intent names it — both foreign keys cascade, so the database would
 otherwise take a dozen requirements along with the tidy-up.
 
+The matrix is also a **report template**, which closes a promise the code had been
+making and not keeping: `services/segmentation.py` refuses to store a verdict, on the
+grounds that an estate changes and a saved "compliant" is a claim about one that no
+longer exists — and points at the report archive, which had nowhere to put one. The
+frozen version cites the snapshots it was computed from, counts unverified pairs apart
+from both verdicts, and deliberately publishes **no headline percentage**: nine upheld
+out of ten is not ninety per cent segmented, because the tenth may be the pair that
+matters and the reader is meant to look at it.
+
 **The acceptance criterion is met** ([`test_phase8_acceptance.py`](backend/tests/test_phase8_acceptance.py)):
 a five-device fixture estate, a path query crossing three of them with the right
 traversed-device list and rule verdicts, and a query whose next hop belongs to no
@@ -1270,8 +1279,8 @@ and deletes it afterwards, so it never alters the account it signs in with.
 The API documents itself: OpenAPI at `/api/v1/openapi.json`, interactive docs at
 `/api/v1/docs` outside production.
 
-**The console reaches every area of it.** 150 operations are published and the console
-requests 134; the 16 it does not are individual operations on pages that already exist,
+**The console reaches every area of it.** 151 operations are published and the console
+requests 135; the 16 it does not are individual operations on pages that already exist,
 plus the two probe endpoints, and each is named with what its absence costs. That is
 measured rather than estimated (`scripts/api_reachability.py`) and tracked in
 [docs/api-reachability.md](docs/api-reachability.md), because capability nobody can reach

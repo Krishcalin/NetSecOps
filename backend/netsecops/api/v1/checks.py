@@ -19,7 +19,7 @@ from netsecops.core.errors import NotFoundError, ValidationProblem
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
 from netsecops.db.models.audit import AuditAction
-from netsecops.db.models.collection import Finding, FindingStatus
+from netsecops.db.models.collection import Finding, FindingSeverity, FindingStatus
 from netsecops.db.models.policy import CheckResult, ExceptionScope
 from netsecops.schemas.checks import (
     AssessmentPreview,
@@ -37,6 +37,7 @@ from netsecops.schemas.checks import (
     ExceptionRead,
     FindingDetail,
     FindingRead,
+    FindingSummary,
     FindingUpdate,
     FrameworkControl,
     FrameworkSummary,
@@ -572,6 +573,76 @@ async def list_findings(
     return PaginatedFindings(
         data=[FindingRead.model_validate(f) for f in rows],
         meta={"total": total, "limit": limit, "offset": offset},
+    )
+
+
+#: Every severity a finding can carry, so the response has a key for each even where
+#: the count is nought. A client drawing a five-band bar should not have to know the
+#: vocabulary and fill in the gaps — that is how one band silently goes missing.
+_SEVERITIES: tuple[str, ...] = tuple(s.value for s in FindingSeverity)
+
+
+@router.get(
+    # Declared above `/findings/{finding_id}`, and it has to stay there: FastAPI
+    # matches in declaration order, so below it this path would bind `summary` as a
+    # finding id and answer 422 for a route that exists.
+    "/findings/summary",
+    response_model=FindingSummary,
+    dependencies=[Depends(require(Permission.FINDING_READ))],
+    summary="Finding counts by facet (FR-FIND-03)",
+)
+async def findings_summary(
+    session: SessionDep,
+    principal: PrincipalDep,
+    active_only: bool = True,
+) -> FindingSummary:
+    """One request for a distribution that used to cost one request per severity.
+
+    Scoped exactly as the list is — through the same Device Group visibility check —
+    so the strip above a table and the table itself count the same population. A
+    summary over a wider set than the rows beneath it invites the reader to compare
+    the two and conclude the product is broken, which on the occasion they are right
+    is the one time nobody believes it.
+
+    `active_only` matches the list's default for the same reason: the dashboard's
+    tiles link to `/findings?severity=…`, and a tile whose destination shows a
+    different figure is worse than no tile.
+    """
+    stmt = select(Finding.severity, Finding.status, func.count().label("n"))
+
+    if not principal.scope.unrestricted:
+        visible = await InventoryService(session).visible_device_ids(principal.scope)
+        stmt = stmt.where(Finding.device_id.in_(visible))
+    if active_only:
+        stmt = stmt.where(Finding.status.in_(FindingStatus.active_values()))
+
+    by_severity = dict.fromkeys(_SEVERITIES, 0)
+    by_status: dict[str, int] = {}
+    total = 0
+    # Not `status`: that is FastAPI's status-code module, imported at the top of this
+    # file and used by every `status_code=` above.
+    for severity, lifecycle, count in await session.execute(
+        stmt.group_by(Finding.severity, Finding.status)
+    ):
+        total += count
+        # A severity outside the enum should not be dropped on the floor: it is in the
+        # table, it is in `total`, and a band missing from the bar with no explanation
+        # is exactly the silent emptiness this codebase keeps finding.
+        by_severity[severity] = by_severity.get(severity, 0) + count
+        by_status[lifecycle] = by_status.get(lifecycle, 0) + count
+
+    devices = select(func.count(func.distinct(Finding.device_id)))
+    if not principal.scope.unrestricted:
+        visible = await InventoryService(session).visible_device_ids(principal.scope)
+        devices = devices.where(Finding.device_id.in_(visible))
+    if active_only:
+        devices = devices.where(Finding.status.in_(FindingStatus.active_values()))
+
+    return FindingSummary(
+        total=total,
+        by_severity=by_severity,
+        by_status=by_status,
+        devices_affected=int((await session.execute(devices)).scalar_one()),
     )
 
 

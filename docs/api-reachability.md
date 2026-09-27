@@ -1,11 +1,12 @@
 # API reachability
 
-**150 operations are published. The console requests 134 of them. 16 it never requests.**
+**151 operations are published. The console requests 135 of them. 16 it never requests.**
 
-Re-measured 2026-09-27. The published count has risen by nine since the last measure —
+Re-measured 2026-09-27. The published count has risen by ten since the last measure —
 estate-wide rulebase search, rule permissiveness, segmentation intent, the network map,
-and `DELETE /segmentation/zones/{id}`, which existed nowhere until the console needed a
-way to undo a zone somebody created by mistake.
+`DELETE /segmentation/zones/{id}`, which existed nowhere until the console needed a way
+to undo a zone somebody created by mistake, and `GET /findings/summary`, which replaced
+the five `limit=1` counts the dashboard was making to draw one bar.
 
 The unreferenced count is back to the sixteen triaged below. It briefly rose to
 twenty-one: segmentation's five zone and rule operations had no surface, so the page

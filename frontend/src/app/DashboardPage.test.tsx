@@ -73,6 +73,22 @@ function stubApi() {
     if (path === '/audit-log/verify') {
       return { total: 120, valid: true } as never;
     }
+    if (path === '/findings/summary') {
+      // Derived from the same `counts` the list stub serves, so the strip and the
+      // tiles cannot drift apart in the fixture the way they used to on the wire.
+      const bySeverity = Object.fromEntries(
+        (['critical', 'high', 'medium', 'low', 'info'] as const).map((severity) => [
+          severity,
+          counts[`/findings?severity=${severity}&limit=1`] ?? 0,
+        ]),
+      );
+      return {
+        total: Object.values(bySeverity).reduce((sum, n) => sum + n, 0),
+        by_severity: bySeverity,
+        by_status: { open: 0 },
+        devices_affected: 3,
+      } as never;
+    }
     if (path === '/compliance/cis') {
       return { framework: 'cis', device_count: 42, compliance_percent: compliancePercent } as never;
     }

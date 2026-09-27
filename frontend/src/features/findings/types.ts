@@ -21,6 +21,20 @@ export interface Evidence {
   lines: EvidenceLine[];
 }
 
+/** Counts by facet, from `GET /findings/summary`.
+ *
+ *  Scoped and filtered exactly as the list is, so a strip drawn from this and a table
+ *  drawn from the list are counting the same population. `by_severity` always carries
+ *  a key for every severity, including the empty ones, so a five-band bar needs no
+ *  knowledge of the vocabulary to render. */
+export interface FindingSummary {
+  total: number;
+  by_severity: Record<string, number>;
+  by_status: Record<string, number>;
+  /** Devices carrying at least one — not the size of the estate. */
+  devices_affected: number;
+}
+
 export interface Finding {
   id: string;
   device_id: string;

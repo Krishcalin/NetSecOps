@@ -36,6 +36,7 @@ import { Icon } from '../components/Icon';
 import { Dial, Panel, Readout, StackBar, StatTile } from '../components/Graphics';
 import { useAuth } from '../features/auth/useAuth';
 import { ROLE_LABELS } from '../features/auth/types';
+import type { FindingSummary } from '../features/findings/types';
 import type { TopologySummary } from '../features/topology/types';
 import type { Matrix } from '../features/segmentation/types';
 import type { VulnerabilitySummary } from '../features/vulnerabilities/types';
@@ -163,49 +164,17 @@ export function DashboardPage() {
     refetchInterval: 30_000,
   });
 
-  // One request per severity, which is five for the whole distribution. The findings
-  // API has no facet endpoint and inventing one for a dashboard would be the tail
-  // wagging the dog; each of these is a `limit=1` count, not a page of rows.
+  // One request for the whole distribution. This was five `limit=1` counts, one per
+  // severity, read off the pagination envelopes — five round trips to draw one bar,
+  // and five chances for the bands to come from five different moments.
   const severities = ['critical', 'high', 'medium', 'low', 'info'] as const;
-  const critical = useQuery({
-    queryKey: ['count', 'findings', 'critical'],
-    queryFn: countOf('/findings?severity=critical&limit=1'),
-    enabled: may('finding:read'),
-  });
-  const high = useQuery({
-    queryKey: ['count', 'findings', 'high'],
-    queryFn: countOf('/findings?severity=high&limit=1'),
-    enabled: may('finding:read'),
-  });
-  const medium = useQuery({
-    queryKey: ['count', 'findings', 'medium'],
-    queryFn: countOf('/findings?severity=medium&limit=1'),
-    enabled: may('finding:read'),
-  });
-  const low = useQuery({
-    queryKey: ['count', 'findings', 'low'],
-    queryFn: countOf('/findings?severity=low&limit=1'),
-    enabled: may('finding:read'),
-  });
-  const info = useQuery({
-    queryKey: ['count', 'findings', 'info'],
-    queryFn: countOf('/findings?severity=info&limit=1'),
-    enabled: may('finding:read'),
-  });
-  const bySeverity: Record<string, number | undefined> = {
-    critical: critical.data,
-    high: high.data,
-    medium: medium.data,
-    low: low.data,
-    info: info.data,
-  };
-  const findingsTotal = severities.reduce((sum, key) => sum + (bySeverity[key] ?? 0), 0);
-
   const findings = useQuery({
-    queryKey: ['count', 'findings', 'all'],
-    queryFn: countOf('/findings?limit=1'),
+    queryKey: ['findings-summary'],
+    queryFn: () => api.get<FindingSummary>('/findings/summary'),
     enabled: may('finding:read'),
   });
+  const bySeverity = findings.data?.by_severity;
+  const findingsTotal = findings.data?.total ?? 0;
 
   // One request covers the KEV count, the confidence split and the unassessed-device
   // count, so the vulnerability tiles cost a single round trip between them.
@@ -285,7 +254,7 @@ export function DashboardPage() {
             />
             <Step
               n={4}
-              done={findings.data !== undefined && findings.data > 0}
+              done={findings.data !== undefined && findings.data.total > 0}
               title="Read the findings"
               body="Worst first, each one carrying the configuration line it came from."
               to="/findings"
@@ -344,7 +313,7 @@ export function DashboardPage() {
             <StackBar
               parts={severities.map((key) => ({
                 label: key,
-                value: bySeverity[key] ?? 0,
+                value: bySeverity?.[key] ?? 0,
                 tone: SEVERITY_TONES[key]!,
               }))}
             />
@@ -359,7 +328,7 @@ export function DashboardPage() {
             <StatTile
               icon="alert"
               label="Critical findings"
-              value={critical.data}
+              value={bySeverity?.critical}
               to="/findings?severity=critical"
               hint="Open, worst first"
               tone="var(--sev-critical)"
@@ -367,7 +336,7 @@ export function DashboardPage() {
             <StatTile
               icon="finding"
               label="High findings"
-              value={high.data}
+              value={bySeverity?.high}
               to="/findings?severity=high"
               hint="Open"
               tone="var(--sev-high)"

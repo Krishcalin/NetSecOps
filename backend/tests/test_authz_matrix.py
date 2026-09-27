@@ -302,6 +302,10 @@ MATRIX: list[Case] = [
     Case("POST", "/api/v1/policies/{policy_id}/default", _POLICY_AUTHORS),
     # ── Findings (FR-FIND) ──────────────────────────────────────────────────
     Case("GET", "/api/v1/findings", _DEVICE_READERS),
+    # Counts by facet over the same rows, so it takes the same reader set and the same
+    # Device Group scoping. A summary visible to somebody who cannot see the rows it
+    # counts would leak the shape of the estate.
+    Case("GET", "/api/v1/findings/summary", _DEVICE_READERS),
     Case("GET", "/api/v1/findings/{finding_id}", _DEVICE_READERS),
     # A Network Engineer sees findings for their devices but does not triage them;
     # SRS §2.3 makes accepting risk the Analyst's decision.
