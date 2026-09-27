@@ -475,6 +475,35 @@ a {
   font-weight: 600;
 }
 
+/* Views of the page above them, indented and one step quieter, with a rule running
+   down the indent so the run reads as belonging to its parent rather than as four
+   more top-level entries. */
+.sidebar__children {
+  display: flex;
+  flex-direction: column;
+  margin-left: 19px;
+  padding-left: 10px;
+  border-left: 1px solid var(--border);
+}
+
+.sidebar__link--child {
+  padding-top: 5px;
+  padding-bottom: 5px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+}
+
+/* The parent's active spine is the gradient; a child's is its own left rule going
+   solid, so the two states are distinguishable when both are lit — which they are
+   whenever a child is open, because the parent's path matches too. */
+.sidebar__link--child.sidebar__link--active::before {
+  content: none;
+}
+
+.sidebar__link--child.sidebar__link--active {
+  font-weight: 600;
+}
+
 /* The brand spine on the current entry: the mark's own navy-to-cyan run, and the one
    place the gradient appears in the chrome. It is decoration on top of a background
    change and a weight change, not the thing that marks the page — `aria-current`

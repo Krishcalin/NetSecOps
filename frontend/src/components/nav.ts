@@ -18,7 +18,28 @@ export interface NavItem {
    *  somebody reads once and then hunts through; four named runs of four or five is
    *  one they navigate. The groups are the order the work happens in. */
   group?: string;
+  /** Entries nested under this one, indented beneath it.
+   *
+   *  For a view of the *same* page rather than a different page — the inventory
+   *  filtered to one kind of appliance is still the inventory, and giving each kind
+   *  its own top-level entry would say otherwise. They carry a query string, so the
+   *  filter they apply is the one the page's own control shows, not a second
+   *  mechanism that could disagree with it. */
+  children?: NavItem[];
 }
+
+/** The appliance types offered under Inventory.
+ *
+ * Three of the eight `DeviceClass` values, because these are the ones an operator
+ * navigates by. The rest — wireless controllers, managers, AAA servers, and anything
+ * still unclassified — are reachable from the page's own filter, which lists every
+ * one; a sidebar that named all eight would be a filter control wearing a navigation
+ * costume. */
+const APPLIANCE_TYPES: NavItem[] = [
+  { label: 'Routers', to: '/inventory?device_class=router', icon: 'path' },
+  { label: 'Switches', to: '/inventory?device_class=switch', icon: 'device' },
+  { label: 'Firewalls', to: '/inventory?device_class=firewall', icon: 'firewall' },
+];
 
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/', icon: 'dashboard' },
@@ -28,6 +49,7 @@ export const NAV_ITEMS: NavItem[] = [
     permission: 'device:read',
     icon: 'inventory',
     group: 'Estate',
+    children: APPLIANCE_TYPES,
   },
   // Directly below Inventory because it is the other half of reaching a device: an
   // inventory entry with no credential assigned to it fails its job before a single
@@ -104,3 +126,18 @@ export const NAV_ITEMS: NavItem[] = [
   { label: 'Settings', to: '/settings', permission: 'settings:read', icon: 'settings' },
   { label: 'Audit Log', to: '/audit', permission: 'audit:read', icon: 'audit' },
 ];
+
+/** Whether a nested entry describes the view currently on screen.
+ *
+ * The path has to match and every filter the entry carries has to be the one in force.
+ * Extra parameters are ignored, so paging through the switches or searching within
+ * them keeps "Switches" lit — the reader has not left that view, and unlighting it the
+ * moment they turn a page would make the sidebar disagree with the page.
+ */
+export function isChildActive(to: string, pathname: string, search: string): boolean {
+  const [path, query = ''] = to.split('?');
+  if (path !== pathname) return false;
+
+  const current = new URLSearchParams(search);
+  return [...new URLSearchParams(query)].every(([key, value]) => current.get(key) === value);
+}

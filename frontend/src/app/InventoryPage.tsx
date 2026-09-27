@@ -19,6 +19,7 @@ import { useAuth } from '../features/auth/useAuth';
 import type { Device, DeviceGroup, Paginated, PendingDevice } from '../features/inventory/types';
 import { VENDOR_LABELS } from '../features/inventory/types';
 import { PageHeader } from '../components/PageHeader';
+import { useUrlFilters } from './useUrlFilters';
 
 const PAGE_SIZE = 25;
 
@@ -123,12 +124,30 @@ function PendingReview() {
   );
 }
 
+/** The appliance types, and what to call them. Every `DeviceClass` the API accepts, so
+ *  the page's own control can reach the five the sidebar does not name. */
+const DEVICE_CLASSES: { value: string; label: string }[] = [
+  { value: 'router', label: 'Routers' },
+  { value: 'switch', label: 'Switches' },
+  { value: 'firewall', label: 'Firewalls' },
+  { value: 'wireless_controller', label: 'Wireless controllers' },
+  { value: 'wireless_ap', label: 'Wireless access points' },
+  { value: 'manager', label: 'Managers' },
+  { value: 'aaa_server', label: 'AAA servers' },
+  { value: 'unknown', label: 'Unclassified' },
+];
+
 export function InventoryPage() {
   const { can } = useAuth();
   const queryClient = useQueryClient();
   const [offset, setOffset] = useState(0);
   const [search, setSearch] = useState('');
   const [groupId, setGroupId] = useState('');
+  // In the URL rather than in component state, so the sidebar's "Switches" is a real
+  // link — and so a filtered inventory can be sent to somebody.
+  const filters = useUrlFilters({ device_class: '' });
+  const deviceClass = filters.read('device_class');
+  const className = DEVICE_CLASSES.find((entry) => entry.value === deviceClass)?.label;
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -148,7 +167,7 @@ export function InventoryPage() {
   });
 
   const devices = useQuery({
-    queryKey: ['devices', offset, search, groupId],
+    queryKey: ['devices', offset, search, groupId, deviceClass],
     queryFn: () => {
       const params = new URLSearchParams({
         limit: String(PAGE_SIZE),
@@ -156,6 +175,7 @@ export function InventoryPage() {
       });
       if (search) params.set('search', search);
       if (groupId) params.set('group_id', groupId);
+      if (deviceClass) params.set('device_class', deviceClass);
       return api.get<Paginated<Device>>(`/devices?${params}`);
     },
   });
@@ -164,10 +184,17 @@ export function InventoryPage() {
 
   return (
     <div className="page">
+      {/* The heading names the filtered view, so a reader arriving from the sidebar —
+          or from a link somebody sent them — is told what they are looking at rather
+          than being shown a short inventory with no explanation for its shortness. */}
       <PageHeader
         icon="inventory"
-        title="Inventory"
-        subtitle="Devices you have access to. NetSecOps reads from these and never writes to them."
+        title={className ?? 'Inventory'}
+        subtitle={
+          className
+            ? `${className} you have access to. NetSecOps reads from these and never writes to them.`
+            : 'Devices you have access to. NetSecOps reads from these and never writes to them.'
+        }
       />
 
       <div className="toolbar">
@@ -182,6 +209,28 @@ export function InventoryPage() {
               setOffset(0);
             }}
           />
+        </label>
+
+        {/* On the page as well as in the sidebar, and reading from the same URL
+            parameter — so the two cannot disagree, and the five classes the sidebar
+            does not name are still reachable. */}
+        <label className="field field--inline">
+          <span className="field__label">Type</span>
+          <select
+            className="field__input"
+            value={deviceClass}
+            onChange={(event) => {
+              filters.write({ device_class: event.target.value });
+              setOffset(0);
+            }}
+          >
+            <option value="">All types</option>
+            {DEVICE_CLASSES.map((entry) => (
+              <option key={entry.value} value={entry.value}>
+                {entry.label}
+              </option>
+            ))}
+          </select>
         </label>
 
         <label className="field field--inline">

@@ -10,13 +10,13 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../features/auth/useAuth';
 import { ROLE_LABELS } from '../features/auth/types';
 import { Icon } from './Icon';
-import { NAV_ITEMS } from './nav';
+import { isChildActive, NAV_ITEMS } from './nav';
 import { sectionTone } from './sections';
 
 export function AppLayout() {
   const { user, logout, can } = useAuth();
   const navigate = useNavigate();
-  const { pathname } = useLocation();
+  const { pathname, search } = useLocation();
 
   async function handleSignOut() {
     await logout();
@@ -105,6 +105,30 @@ export function AppLayout() {
                   {item.icon && <Icon name={item.icon} size={17} />}
                   {item.label}
                 </NavLink>
+
+                {/* Nested views of the same page. The active state is computed rather
+                    than left to `NavLink`, which matches on path alone — all three of
+                    these share `/inventory`, so it would light every one of them the
+                    moment any was open, and the sidebar would stop answering "which
+                    am I looking at". */}
+                {item.children && (
+                  <span className="sidebar__children">
+                    {item.children.map((child) => (
+                      <NavLink
+                        key={child.label}
+                        to={child.to!}
+                        className={
+                          isChildActive(child.to!, pathname, search)
+                            ? 'sidebar__link sidebar__link--child sidebar__link--active'
+                            : 'sidebar__link sidebar__link--child'
+                        }
+                      >
+                        {child.icon && <Icon name={child.icon} size={15} />}
+                        {child.label}
+                      </NavLink>
+                    ))}
+                  </span>
+                )}
               </span>
             );
           })}

@@ -73,11 +73,11 @@ function inventoryTable(): HTMLElement {
   return table;
 }
 
-function renderPage() {
+function renderPage(url = '/inventory') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter>
+      <MemoryRouter initialEntries={[url]}>
         <InventoryPage />
       </MemoryRouter>
     </QueryClientProvider>,
@@ -209,6 +209,76 @@ describe('InventoryPage', () => {
       await waitFor(() =>
         expect(screen.getByRole('alert')).toHaveTextContent(/collection is running/),
       );
+    });
+  });
+
+  describe('filtering by appliance type', () => {
+    /** The sidebar's Routers, Switches and Firewalls are links into this page, so the
+     *  filter has to live in the URL. In component state they would be a control the
+     *  navigation could not reach — and the links would land on an unfiltered list
+     *  that looks like the filter silently failed. */
+
+    it('asks the API for only that class', async () => {
+      const get = vi.spyOn(api, 'get');
+      renderPage('/inventory?device_class=router');
+
+      await waitFor(() => {
+        const asked = get.mock.calls.map((call) => String(call[0])).find((u) => u.startsWith('/devices?'));
+        expect(asked).toContain('device_class=router');
+      });
+    });
+
+    it('asks for everything when no class is chosen', async () => {
+      const get = vi.spyOn(api, 'get');
+      renderPage();
+
+      await waitFor(() => {
+        const asked = get.mock.calls.map((call) => String(call[0])).find((u) => u.startsWith('/devices?'));
+        expect(asked).toBeDefined();
+        expect(asked).not.toContain('device_class');
+      });
+    });
+
+    it('names the filtered view in the heading', async () => {
+      // Otherwise a reader arriving from the sidebar sees a short inventory with no
+      // explanation for its shortness.
+      renderPage('/inventory?device_class=firewall');
+
+      expect(await screen.findByRole('heading', { name: 'Firewalls', level: 1 })).toBeInTheDocument();
+    });
+
+    it('keeps the page control and the URL in agreement', async () => {
+      // Two ways in — the sidebar and this select — reading one parameter, so they
+      // cannot show different things.
+      renderPage('/inventory?device_class=switch');
+
+      const select = await screen.findByLabelText('Type');
+      expect(select).toHaveValue('switch');
+    });
+
+    it('offers every device class, not just the three the sidebar names', async () => {
+      // Five of the eight have no navigation entry, so this control is the only way to
+      // reach them — a class missing from both is one the product stores and nobody
+      // can list. Pinned as the whole set rather than a few spot checks, because a
+      // dropped entry is invisible: the option is simply not there.
+      renderPage();
+
+      const select = await screen.findByLabelText('Type');
+      const offered = within(select)
+        .getAllByRole<HTMLOptionElement>('option')
+        .map((option) => option.value);
+
+      expect(offered).toEqual([
+        '',
+        'router',
+        'switch',
+        'firewall',
+        'wireless_controller',
+        'wireless_ap',
+        'manager',
+        'aaa_server',
+        'unknown',
+      ]);
     });
   });
 });
