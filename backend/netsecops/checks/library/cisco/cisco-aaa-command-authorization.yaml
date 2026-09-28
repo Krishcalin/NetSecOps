@@ -16,7 +16,7 @@ severity: high
 
 applicability:
   vendors: [cisco]
-  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+  platforms: [cisco_ios, cisco_iosxe, cisco_c9800, cisco_nxos]
   # Only where central AAA is in use at all. A device with no AAA servers has a
   # different and larger problem, already reported by `cisco-aaa-new-model` — raising
   # this one as well would be two findings about one fact, and the second is the less

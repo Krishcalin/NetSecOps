@@ -18,7 +18,7 @@ severity: medium
 
 applicability:
   vendors: [cisco]
-  platforms: [cisco_ios, cisco_iosxe]
+  platforms: [cisco_ios, cisco_iosxe, cisco_c9800]
   # Only where v1/v2c communities exist at all. A device using v3 alone has nothing
   # here to restrict, and `snmp-v1v2c-disabled` is the check that has an opinion about
   # communities existing in the first place.

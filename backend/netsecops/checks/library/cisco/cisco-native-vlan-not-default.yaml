@@ -12,7 +12,7 @@ severity: medium
 
 applicability:
   vendors: [cisco]
-  platforms: [cisco_ios, cisco_iosxe]
+  platforms: [cisco_ios, cisco_iosxe, cisco_c9800]
   device_classes: [switch]
 
 logic:

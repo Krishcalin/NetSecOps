@@ -22,29 +22,60 @@ device. A misspelled key does not fail; it reads as "not configured" for ever.
 
 ## The finding that outranks the request
 
-**The Catalyst 9800 is already in scope, already allow-listed, and is asked nothing.**
+> ~~**The Catalyst 9800 is already in scope, already allow-listed, and is asked
+> nothing.** … produces a Normalised Config Model whose `wireless` section is empty.~~
+>
+> **Wrong, and it was wrong when written** — corrected the same day, before any code
+> was built on it. `CiscoIosParser._parse_wireless` has parsed 9800 WLANs out of the
+> running configuration since Phase 5, negated forms and all, with `_ninenine_security`
+> assembling WPA2/WPA3/SAE/OWE and `_ninenine_enabled` handling the inverted `no
+> shutdown` default. The `wireless` section is **not** empty on a 9800, and the four
+> WLAN checks do run.
+>
+> Recorded rather than deleted because the mistake is the one this page warns about,
+> made while writing the warning: a claim about our own code, asserted from a search
+> of one registry instead of read out of the parser. `vendor-research.md` records two
+> of these; this is a third.
 
-SRS §1.3 lists "Catalyst 9800 (IOS-XE)" under wireless controllers. SRS §8.2's approved
-Cisco command set includes `show wireless summary`, `show wlan summary`, `show wlan all`,
-`show ap summary`, `show ap config general` and `show wireless profile policy summary`.
-All six are on the `cisco_ios` allow-list today, at `adapters/policies.py:90-95`.
+**What is actually missing is narrower, and still worth fixing: a Catalyst 9800 reports
+no access points at all.**
 
-**`CISCO_IOS_PROFILE` issues none of them.**
+SRS §8.2's approved Cisco command set includes `show wireless summary`,
+`show wlan summary`, `show wlan all`, `show ap summary`, `show ap config general` and
+`show wireless profile policy summary`. All six are on the `cisco_ios` allow-list today,
+at `adapters/policies.py:90-95`, and **`CISCO_IOS_PROFILE` issues none of them.**
 
-So a Catalyst 9800 onboarded as `cisco_iosxe` — which is what the platform picker
-offers, and which is correct as far as configuration syntax goes — collects
-successfully, parses successfully, and produces a Normalised Config Model whose
-`wireless` section is empty. The five checks in `checks/library/wireless/` then report
-*Not evaluated* on the one device in the estate they were written for, and the device's
-page shows a clean-looking assessment of a switch that is actually a wireless
-controller.
+`show ap summary` is the one that costs something. An AP list cannot come from a running
+configuration — the controller learns it when APs join — so it is the one part of a
+controller's posture that only a show command carries. The AireOS parser reads exactly
+that command into `wireless.aps` (`parsers/cisco/wlc.py:313-324`); the IOS-XE path has
+no equivalent, and nothing asks for the output in the first place.
 
-This is the third instance of one pattern. `vendor-research.md` §2 records four approved
-Gaia commands never issued; §4a records three API platforms handed an artefact their
-parsers could not read. In all three the capability was built, the permission was
-granted, and nothing connected them. **Before building anything new here, wire up what
-is already approved** — it is the cheapest work on this page and it closes a real gap
-in the estate the request is about.
+So an estate with both generations produces **an AireOS controller listing its access
+points and a Catalyst 9800 beside it listing none** — not as an error, as an empty list.
+That is this codebase's named failure mode, and the two controllers are indistinguishable
+from one that genuinely has no APs joined.
+
+Three smaller gaps in the same area:
+
+- **The policy profile, AP join profile and tag bindings are consumed and discarded.**
+  `_parse_wireless` matches `ap <mac>` and `ap name <x>` blocks only to mark them read.
+  Peer-to-peer blocking, AP management access and whether a WLAN is bound to anything
+  live in those blocks.
+- **Rogue detection is recorded only when the configuration mentions it.** Cisco's
+  documentation says rogue AP detection is part of the default AP profile and enabled by
+  default; if that is right, a controller that has never touched the setting reports
+  *Not evaluated* where it should report a pass. **Unverified** — the source found says
+  this of per-AP rogue detection, and the parser reads the global `wireless wps rogue
+  detection` line, which may be a different control. Do not "fix" this without
+  establishing that they are the same setting.
+- **`Wlan.vlan` is passed `None` unconditionally** on the 9800 path. The client VLAN is
+  on the policy profile, which is not parsed, so it is honest — but it is honest by
+  accident rather than by decision.
+
+**Before building anything new here, issue the commands that are already approved.** It
+is the cheapest work on this page and it closes a real gap in the estate the request is
+about.
 
 ---
 
@@ -57,8 +88,8 @@ of one thing:
 
 | | Platform | Configuration surface | Status today |
 |---|---|---|---|
-| **AireOS controller** | 5520 / 8540 / vWLC | `show run-config commands` — a command *list*, not a config file | **Built.** `cisco_wlc_aireos`, full policy/profile/parser |
-| **Catalyst 9800** | IOS-XE 16.10+ | Ordinary IOS-XE running-config, with wireless sub-modes | **Approved, allow-listed, never asked** |
+| **AireOS controller** | 5520 / 8540 / vWLC | `show run-config commands` — a command *list*, not a config file | **Built.** `cisco_wlc_aireos`, full policy/profile/parser, WLANs **and** APs |
+| **Catalyst 9800** | IOS-XE 16.10+ | Ordinary IOS-XE running-config, with wireless sub-modes | **WLANs parsed.** No AP list, no profile or tag parsing; six approved show commands never issued |
 | **EWC on AP** | Catalyst AP acting as controller | Identical IOS-XE syntax to the 9800 | Same as the 9800 |
 | **Lightweight AP** | CAPWAP, joined to a controller | *None of its own* — the controller holds it | Not represented |
 | **Autonomous AP** | Aironet / Mobility Express, IOS | Its own running-config | Not represented |
@@ -174,10 +205,12 @@ protection" check would conflate.
 
 ### What the checks should be
 
-The `checks/library/wireless/` family has five checks written against the AireOS NCM.
-Because they read the NCM's `wireless` section rather than raw text, **they apply to the
-9800 unchanged the moment the parser fills that section** — which is the argument for
-completing the parser before writing anything new.
+The `checks/library/wireless/` family has five checks, all reading the NCM's `wireless`
+section by JMESPath rather than raw text, so they are already platform-neutral. Four of
+them — open networks, legacy encryption, PMF, client isolation — evaluate on a 9800
+today, because the WLAN parser fills what they read. The fifth,
+`wlan-rogue-detection-enabled`, reports *Not evaluated* unless the configuration
+mentions rogue detection explicitly.
 
 Worth adding, in order of what an assessment would actually turn up:
 
@@ -371,12 +404,27 @@ read) — and `tests/test_platform_keys.py` fails when they disagree.
 
 | Work | New platform keys | Registries | Parser | NCM | Checks | Device classes |
 |---|---|---|---|---|---|---|
-| Wire up the 9800's approved commands | — | profile only | extend IOS | — | — | — |
-| Catalyst 9800 / EWC wireless | `cisco_c9800` | 3 | new | `wireless` exists | reuse 5, add ~5 | exists |
+| Catalyst 9800 / EWC | `cisco_c9800` | 3, two of them aliases | extend IOS | `wireless.aps` exists | reuse 5, add ~4 | exists |
 | Autonomous AP | `cisco_ap_ios` | 3 | new | `wireless` exists | reuse | exists |
 | Lightweight AP inventory | — | — | — | — | — | exists |
 | Radware Alteon | `radware_alteon` | 3 + deny-list fix | new | reuse `management`/`snmp`/… | reuse `common/`, add TLS | **new: `load_balancer`** |
 | Barracuda WAF | `barracuda_waf` | 3 | new | **new: `waf`** | new family | **new: `waf`** |
+
+**The 9800 needs a platform key, and needs no new parser.** Those are separate
+questions and the registries already separate them — `cisco_iosxe` is the proof: it
+aliases `CISCO_IOS` in `POLICIES`, maps to `CiscoIosParser` in `PARSERS`, and shares
+`CISCO_IOS_PROFILE`. `cisco_c9800` does the first two the same way and differs only in
+the third.
+
+It has to differ in the third. The six wireless commands cannot simply be added to
+`CISCO_IOS_PROFILE`, because that profile is every switch and router in the estate: a
+Catalyst 2960 would be sent `show ap summary`, reject it, and record six failed
+artefacts per collection. FR-COL-08 means that degrades to a partial collection rather
+than an error — but it is six pointless commands per device against a whole estate, and
+an evidence trail full of failures nobody should be reading. A profile of its own costs
+one dictionary entry and sends the wireless commands only to wireless controllers.
+
+The EWC shares `cisco_c9800` outright: same image, same syntax, same commands.
 
 `devices.device_class` and `devices.vendor` are `String(32)` columns with no check
 constraint, so **new classes and vendors need no migration**. The enums in

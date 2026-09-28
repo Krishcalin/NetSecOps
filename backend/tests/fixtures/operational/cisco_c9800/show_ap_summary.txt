@@ -1,0 +1,11 @@
+Number of APs: 4
+
+CC = Country Code
+RD = Regulatory Domain
+
+AP Name    Slots  AP Model  Ethernet MAC    Radio MAC       CC  RD  IP Address    State       Location
+------------------------------------------------------------------------------------------------------------------
+AP-B2E0    4      CW9178I   c414.a26f.b2e0  c414.a26f.b2f0  --  -UN 20.20.20.52  Registered  default location
+AP-Floor1  2      9130AXI   aabb.ccdd.ee01  aabb.ccdd.ee10  IN  -D  10.20.30.41   Registered  Floor 1 East
+AP-Floor2  2      9120AXI   aabb.ccdd.ee02  aabb.ccdd.ee20  IN  -D  10.20.30.42   Registered  Floor 2 Plant Room
+AP-Yard    2      9105AXI   aabb.ccdd.ee03  aabb.ccdd.ee30  IN  -D  10.20.30.43   Registered  Switchyard

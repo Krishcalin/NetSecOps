@@ -491,6 +491,11 @@ ALIASES: Final[dict[str, PlatformPolicy]] = {
     # IOS-XE is IOS at the CLI. The differences are in platform features, not in which
     # commands exist or which of them write.
     "cisco_iosxe": CISCO_IOS,
+    # A Catalyst 9800, and an EWC on a Catalyst AP, run the same image and the same CLI.
+    # The six wireless commands its profile issues were already on this list — they were
+    # approved in SRS §8.2 and never sent. Sharing the policy is what makes that true
+    # rather than a second list somebody has to re-review.
+    "cisco_c9800": CISCO_IOS,
     # FreeRADIUS and tac_plus are different products but the same *access*: an SSH
     # session on an ordinary Linux host, reading configuration files with the same
     # restricted command set. They are separate platforms because their configuration

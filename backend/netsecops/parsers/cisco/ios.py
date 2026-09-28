@@ -29,6 +29,7 @@ from netsecops.ncm.models import (
     Aaa,
     AaaMethodList,
     AaaServer,
+    AccessPoint,
     Acl,
     AclEntry,
     AsyncLine,
@@ -932,6 +933,92 @@ class CiscoIosParser(CiscoStyleParser):
         if rogue := self.first(parse, r"^wireless\s+wps\s+rogue\s+detection"):
             wireless.rogue_detection["enabled"] = not rogue.text.strip().startswith("no ")
             result.record("wireless.rogue_detection", line=self.line_number(rogue))
+
+        self._parse_ap_summary(result)
+
+    #: One row of `show ap summary`. Anchored on the two tokens whose *shape* is
+    #: unambiguous rather than on column positions, because the columns are neither
+    #: stable across releases nor safely splittable: Cisco's own documented sample
+    #: prints `-UN 20.20.20.52`, one space between the regulatory domain and the IP, so
+    #: a split on runs of whitespace merges them and a split on two-or-more spaces
+    #: misses the boundary entirely.
+    _AP_MAC = re.compile(r"\b([0-9a-fA-F]{4}\.[0-9a-fA-F]{4}\.[0-9a-fA-F]{4})\b")
+    _AP_IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+    _AP_COUNT = re.compile(r"^\s*Number of APs\s*:\s*(\d+)", re.I | re.M)
+
+    def _parse_ap_summary(self, result: ParseResult) -> None:
+        """The access points joined to a Catalyst 9800, from `show ap summary`.
+
+        **This cannot come from the running configuration.** A controller learns its AP
+        list when APs join it, so the one part of a wireless controller's posture that
+        only a show command carries is the inventory of what it is actually carrying.
+        The AireOS parser has read it since Phase 5; the IOS-XE path had no equivalent
+        and `CISCO_IOS_PROFILE` did not ask for the output — so an estate running both
+        generations showed an AireOS controller listing its APs and a 9800 beside it
+        listing none, as an empty list rather than an error.
+
+        The row rule is structural, and deliberately not positional:
+
+            AP-B2E0   4   CW9178I   c414.a26f.b2e0   c414.a26f.b2f0   --  -UN 20.20.20.52 …
+
+        A row is accepted only if it carries a dotted MAC. The name is the first token —
+        an IOS-XE AP name cannot contain a space — the model is the token immediately
+        before the first MAC, and the address is the first IPv4-shaped token after it.
+        Nothing is read by column offset, so a release that reorders or adds a column
+        still parses.
+
+        **The count line is the guard.** `Number of APs: N` is compared against what was
+        read, and a shortfall is recorded rather than logged and forgotten: this parser
+        has never been run against a real controller, and a row rule that silently
+        matched nothing would produce exactly the empty list it was written to fix.
+        """
+        output = result.context.artifact("show ap summary")
+        if not output:
+            return
+
+        wireless = result.ncm.wireless
+        if match := self._AP_COUNT.search(output):
+            wireless.aps_declared = int(match.group(1))
+            result.record("wireless.aps_declared", line=1)
+
+        for line in output.splitlines():
+            mac = self._AP_MAC.search(line)
+            if mac is None:
+                continue
+
+            tokens = line.split()
+            # The MAC must be a token of its own; a substring match inside something
+            # longer is not a column.
+            if mac.group(1) not in tokens:
+                continue
+            position = tokens.index(mac.group(1))
+
+            # Name, slot count and model all sit ahead of the MAC, and the slot count is
+            # what makes this a summary row rather than any other line that mentions a
+            # MAC. `show ap config general` prints `MAC Address : c414.a26f.b2e0`, which
+            # clears a positional test and produced an access point named `MAC` with the
+            # model `:` until this required the second token to be a number.
+            if position < 3 or not tokens[1].isdigit():
+                continue
+
+            address = self._AP_IP.search(line[mac.end() :])
+            wireless.aps.append(
+                AccessPoint(
+                    name=tokens[0],
+                    model=tokens[position - 1],
+                    ip=address.group(1) if address else None,
+                )
+            )
+            result.record(f"wireless.aps.{len(wireless.aps) - 1}", line=1)
+
+        declared = wireless.aps_declared
+        if declared is not None and declared != len(wireless.aps):
+            log.warning(
+                "parser.ap_summary_shortfall",
+                platform=self.platform,
+                declared=declared,
+                parsed=len(wireless.aps),
+            )
 
     # ────────────────────────────── routing ─────────────────────────────
 

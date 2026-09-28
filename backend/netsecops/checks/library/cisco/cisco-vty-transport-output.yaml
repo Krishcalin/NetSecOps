@@ -22,7 +22,7 @@ severity: medium
 
 applicability:
   vendors: [cisco]
-  platforms: [cisco_ios, cisco_iosxe]
+  platforms: [cisco_ios, cisco_iosxe, cisco_c9800]
   # A configuration with no `line vty` block at all is a partial capture, not a device
   # without remote access — every real IOS device shows `line vty 0 4` even at
   # defaults. Guarded here rather than with `logic.requires`, because `requires` shares

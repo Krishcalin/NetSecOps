@@ -28,6 +28,12 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     # IOS-XE is IOS as far as configuration syntax goes; the differences are in
     # platform features, not in how the running-config is written.
     "cisco_iosxe": CiscoIosParser,
+    # A Catalyst 9800 writes its WLANs, policy profiles and AP blocks into an ordinary
+    # IOS-XE running configuration, which `CiscoIosParser._parse_wireless` has read
+    # since Phase 5. It is a separate platform because it is asked *more* — see
+    # `CISCO_C9800_PROFILE` — not because it reads differently. An Embedded Wireless
+    # Controller on a Catalyst AP is the same image and shares this key.
+    "cisco_c9800": CiscoIosParser,
     "cisco_nxos": CiscoNxosParser,
     "cisco_asa": CiscoAsaParser,
     # AireOS is a command-list format, not a configuration file — see the parser.

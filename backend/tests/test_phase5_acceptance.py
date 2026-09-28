@@ -111,7 +111,7 @@ LAB = [
         "wlc-9800-01",
         "10.100.0.31",
         "cisco_iosxe",
-        "cisco/ios/17.9/wlc_9800.cfg",
+        "cisco/c9800/17.9/wlc_9800.cfg",
         device_class=DeviceClass.WIRELESS_CONTROLLER,
     ),
     LabDevice(

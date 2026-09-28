@@ -33,7 +33,7 @@ from netsecops.parsers.base import ParseContext
 from netsecops.parsers.registry import get_parser
 
 FIXTURES = Path(__file__).parent / "fixtures"
-NINE_THOUSAND = FIXTURES / "cisco/ios/17.9/wlc_9800.cfg"
+NINE_THOUSAND = FIXTURES / "cisco/c9800/17.9/wlc_9800.cfg"
 FORTIGATE = FIXTURES / "fortinet/fortios/7.2/edge_fortigate.cfg"
 AIREOS = FIXTURES / "cisco/wlc/8.10/campus_wlc.txt"
 
@@ -46,7 +46,10 @@ def parse(platform: str, path: Path) -> dict[str, Any]:
 
 @pytest.fixture(scope="module")
 def ninenine() -> dict[str, Any]:
-    return parse("cisco_ios", NINE_THOUSAND)
+    # Parsed as the platform a 9800 is actually onboarded as. It resolves to the same
+    # parser as `cisco_ios` — that is the point of the alias — but naming the real one
+    # here means this suite would notice if that stopped being true.
+    return parse("cisco_c9800", NINE_THOUSAND)
 
 
 @pytest.fixture(scope="module")

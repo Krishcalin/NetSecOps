@@ -33,6 +33,11 @@ PLATFORM_DIRS: dict[str, str] = {
     "checkpoint/gaia": "checkpoint_gaia",
     "checkpoint/mgmt": "checkpoint_mgmt",
     "cisco/asa": "cisco_asa",
+    # A Catalyst 9800's configuration is IOS-XE and parses with the IOS parser, but it
+    # is not a switch configuration and it is not collected like one — its profile asks
+    # for the wireless show commands as well. Its own directory so the sweep exercises
+    # it as the platform a device would actually be onboarded as.
+    "cisco/c9800": "cisco_c9800",
     "cisco/ios": "cisco_ios",
     "cisco/ise": "cisco_ise",
     "cisco/nxos": "cisco_nxos",

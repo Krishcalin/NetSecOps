@@ -954,6 +954,12 @@ class AccessPoint(NcmBase):
 class Wireless(NcmBase):
     wlans: list[Wlan] = Field(default_factory=list)
     aps: list[AccessPoint] = Field(default_factory=list)
+    #: How many access points the *controller* said it had, from the count line above
+    #: the AP table. Kept beside the list rather than checked and discarded, because the
+    #: two disagreeing is the one thing that distinguishes "this controller has no APs
+    #: joined" from "we could not read the table" — and those look identical in a list
+    #: of length nought. `None` where the output carried no count.
+    aps_declared: int | None = None
     rogue_detection: dict[str, Any] = Field(default_factory=dict)
 
 

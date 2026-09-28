@@ -21,7 +21,7 @@ severity: medium
 
 applicability:
   vendors: [cisco]
-  platforms: [cisco_ios, cisco_iosxe]
+  platforms: [cisco_ios, cisco_iosxe, cisco_c9800]
   device_classes: [switch]
   # Source guard reads the DHCP snooping binding table, so without snooping there is
   # nothing for it to enforce against. A device with snooping off has one problem, and

@@ -187,6 +187,40 @@ CISCO_IOS_PROFILE: Final = CollectionProfile(
     ),
 )
 
+#: A Catalyst 9800 — and an Embedded Wireless Controller on a Catalyst AP, which runs
+#: the same image — is IOS-XE, so it shares the IOS allow-list and the IOS parser. It
+#: does not share the IOS *profile*, and that is the whole reason this exists.
+#:
+#: The six wireless commands below have been on the `cisco_ios` allow-list since SRS
+#: §8.2 was written and no profile has ever issued one. Adding them to
+#: `CISCO_IOS_PROFILE` would have been the smaller change and the wrong one: that
+#: profile is every switch and router in the estate, so a Catalyst 2960 would be sent
+#: `show ap summary`, reject it, and record six failed artefacts per collection —
+#: harmless under FR-COL-08, and six pointless commands per device against a whole
+#: estate plus an evidence trail of failures nobody should be reading.
+#:
+#: `show ap summary` is the one that matters. A controller learns its AP list when APs
+#: join, so it is the only part of a wireless controller's posture that no running
+#: configuration contains.
+CISCO_C9800_PROFILE: Final = CollectionProfile(
+    platform="cisco_c9800",
+    setup=CISCO_IOS_PROFILE.setup,
+    commands=(
+        *CISCO_IOS_PROFILE.commands,
+        CollectionCommand(
+            "show ap summary",
+            "The access points actually joined — absent from the configuration by nature",
+        ),
+        CollectionCommand("show wireless summary", "Controller-wide wireless state"),
+        CollectionCommand("show wlan summary", "WLAN inventory and which are up"),
+        CollectionCommand("show wlan all", "Per-WLAN security as the controller resolved it"),
+        CollectionCommand(
+            "show wireless profile policy summary",
+            "Policy profiles, and which WLANs are bound to one at all",
+        ),
+    ),
+)
+
 CISCO_NXOS_PROFILE: Final = CollectionProfile(
     platform="cisco_nxos",
     setup=("terminal length 0",),
@@ -546,6 +580,9 @@ CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
 PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ios": CISCO_IOS_PROFILE,
     "cisco_iosxe": CISCO_IOS_PROFILE,
+    # IOS-XE with the wireless commands added — see the profile for why it is not the
+    # same entry as `cisco_iosxe`.
+    "cisco_c9800": CISCO_C9800_PROFILE,
     "cisco_nxos": CISCO_NXOS_PROFILE,
     "cisco_asa": CISCO_ASA_PROFILE,
     "cisco_wlc_aireos": CISCO_WLC_PROFILE,

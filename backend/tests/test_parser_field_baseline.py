@@ -61,7 +61,7 @@ class Sample:
 SAMPLES: list[Sample] = [
     Sample("cisco_ios", FIXTURES / "cisco/ios/17.9/hardened_switch.cfg"),
     Sample("cisco_ios", FIXTURES / "cisco/ios/15.2/weak_switch.cfg"),
-    Sample("cisco_ios", FIXTURES / "cisco/ios/17.9/wlc_9800.cfg"),
+    Sample("cisco_c9800", FIXTURES / "cisco/c9800/17.9/wlc_9800.cfg"),
     Sample("cisco_nxos", FIXTURES / "cisco/nxos/10.3/dc_switch.cfg"),
     Sample("cisco_nxos", FIXTURES / "cisco/nxos/9.3/edge_n3k.cfg"),
     Sample("cisco_asa", FIXTURES / "cisco/asa/9.18/edge_firewall.cfg"),

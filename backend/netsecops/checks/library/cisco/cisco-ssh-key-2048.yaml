@@ -17,7 +17,7 @@ applicability:
   # the size comes from `show crypto key mypubkey rsa`, which the configuration does not
   # carry, so this check reports Not Evaluated there rather than a verdict. Listing only
   # IOS, as this did, left the check unable to evaluate on any platform it claimed.
-  platforms: [cisco_ios, cisco_iosxe, cisco_nxos]
+  platforms: [cisco_ios, cisco_iosxe, cisco_c9800, cisco_nxos]
 
 logic:
   type: ncm

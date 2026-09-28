@@ -223,3 +223,57 @@ class TestTheRegistriesAgreeWhereTheyMust:
             collectable = platform in PROFILES or platform in INTERPRETERS
             readable = platform in PARSERS or platform in INTERPRETERS
             assert collectable and readable, f"{platform} cannot be used end to end"
+
+
+class TestPlatformsThatShareAParserShareItsChecks:
+    """The fourth meaning of "platform", and the one that fails quietly.
+
+    A check's `platforms:` list is matched against `device.platform` exactly, and the
+    shipped library writes the IOS-XE family out longhand in 43 files. So adding
+    `cisco_c9800` — a Catalyst 9800, which is IOS-XE and parses with `CiscoIosParser`
+    — made it **less** assessed than the same controller onboarded as `cisco_iosxe`
+    until all 43 were amended: 43 checks reporting Not Applicable on a device that has
+    VTY lines, SSH, SNMP, AAA and an enable secret like any other IOS-XE box.
+
+    That is the regression this module's docstring describes for
+    `checkpoint_gaia_expert`, one meaning along, and it is silent in the worst way:
+    existing findings stay open because only a pass resolves one, nothing new is
+    evaluated, and a device nobody is assessing looks exactly like a device with
+    nothing wrong.
+
+    Platforms sharing a parser produce the same NCM shape, so a check written against
+    one of them reads on all of them. Enumerating the family in each file is the
+    convention and stays; this is what makes an omission fail the build.
+    """
+
+    @staticmethod
+    def _families() -> dict[type, list[str]]:
+        families: dict[type, list[str]] = {}
+        for platform, parser in PARSERS.items():
+            families.setdefault(parser, []).append(platform)
+        return {parser: sorted(names) for parser, names in families.items() if len(names) > 1}
+
+    def test_there_is_at_least_one_family_to_check(self) -> None:
+        # Without this the sweep below is vacuously true the moment the registry is
+        # rearranged, which is how a guard becomes decoration.
+        assert self._families(), "no platform shares a parser; this guard tests nothing"
+
+    def test_no_check_targets_some_of_a_family_and_not_the_rest(self) -> None:
+        registry = get_registry()
+        offences: list[str] = []
+
+        for siblings in self._families().values():
+            for check in registry.definitions():
+                targeted = {p.lower() for p in check.applicability.platforms}
+                if not targeted:
+                    # Platform-neutral: applies everywhere, so it cannot split a family.
+                    continue
+                named = [p for p in siblings if p in targeted]
+                missing = [p for p in siblings if p not in targeted]
+                if named and missing:
+                    offences.append(
+                        f"{check.id} targets {sorted(named)} but not {sorted(missing)}, "
+                        "which parse identically"
+                    )
+
+        assert offences == [], "\n  ".join(["checks split a parser family:", *offences])

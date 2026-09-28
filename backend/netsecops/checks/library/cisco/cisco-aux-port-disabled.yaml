@@ -10,17 +10,17 @@ rationale: >-
   no one is watching: it does not appear in a VTY access-class, it is frequently exempt
   from the session limits applied to VTY lines, and where something *is* cabled to it
   the path bypasses the network entirely. `no exec` is the setting that actually closes
-  it â€” an `exec-timeout` only bounds a session that was allowed to start, and a
+  it — an `exec-timeout` only bounds a session that was allowed to start, and a
   `transport input none` still leaves the port able to run EXEC from a directly attached
   cable.
 severity: medium
 
 applicability:
   vendors: [cisco]
-  platforms: [cisco_ios, cisco_iosxe]
+  platforms: [cisco_ios, cisco_iosxe, cisco_c9800]
   # Not Applicable, never a pass, when no AUX or TTY line was parsed. `requires` would
   # be wrong here: it tests for null, an empty list satisfies it, and the expression
-  # below would then yield nothing and assert clean â€” reporting "the auxiliary port has
+  # below would then yield nothing and assert clean — reporting "the auxiliary port has
   # EXEC disabled" about a device that never mentioned one. Many switches genuinely have
   # no AUX port, and a configuration that simply did not show the stanza is
   # indistinguishable from that, so neither may be rendered as a pass.
