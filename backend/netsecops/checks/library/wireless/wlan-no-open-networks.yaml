@@ -12,7 +12,7 @@ rationale: >-
 severity: high
 
 applicability:
-  device_classes: [wireless_controller, firewall, switch]
+  device_classes: [wireless_controller, wireless_ap, firewall, switch]
   requires_features: [wireless.wlans]
 
 logic:

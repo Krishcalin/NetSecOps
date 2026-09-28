@@ -12,7 +12,7 @@ rationale: >-
 severity: medium
 
 applicability:
-  device_classes: [wireless_controller, firewall]
+  device_classes: [wireless_controller, wireless_ap, firewall]
   requires_features: [wireless.rogue_detection]
 
 logic:

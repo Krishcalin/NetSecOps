@@ -225,6 +225,61 @@ class TestTheRegistriesAgreeWhereTheyMust:
             assert collectable and readable, f"{platform} cannot be used end to end"
 
 
+class TestAWirelessCheckReachesWirelessDevices:
+    """A fifth way to file a device out of its own checks, found the same day.
+
+    `device_classes` is matched against `device.device_class` exactly, like
+    `platforms` above. The five checks in `checks/library/wireless/` listed
+    `wireless_controller`, `firewall` and `switch` — every device class that can carry
+    an SSID *except an access point*, which was fine while the only APs in the product
+    were lightweight ones that hold no configuration.
+
+    `13ffce3` then added `dot11 ssid` parsing for standalone Aironets and said to
+    onboard them as `cisco_ios` with `device_class: wireless_ap`. Every one of those
+    checks reported Not Applicable on them: a parser filling `wireless.wlans` and
+    nothing reading it, shipped and committed.
+    """
+
+    @staticmethod
+    def _reads_wireless(check: object) -> bool:
+        logic = getattr(check, "logic", None)
+        expression = str(getattr(logic, "expression", "") or "")
+        requires = " ".join(getattr(check.applicability, "requires_features", ()))  # type: ignore[attr-defined]
+        return "wireless." in expression or "wireless." in requires
+
+    def test_there_are_wireless_checks_to_check(self) -> None:
+        checks = [c for c in get_registry().definitions() if self._reads_wireless(c)]
+
+        assert len(checks) >= 5, f"only {len(checks)} checks read the wireless NCM"
+
+    def test_every_check_reading_the_wireless_ncm_applies_to_access_points(self) -> None:
+        offences = [
+            check.id
+            for check in get_registry().definitions()
+            if self._reads_wireless(check)
+            and check.applicability.device_classes
+            and "wireless_ap" not in {c.lower() for c in check.applicability.device_classes}
+        ]
+
+        assert offences == [], (
+            "these checks read the wireless NCM but are filed away from access points, "
+            f"which fill it: {sorted(offences)}"
+        )
+
+    def test_and_to_controllers(self) -> None:
+        # The other half, so this cannot be satisfied by a check that reaches APs and
+        # has quietly stopped reaching the controllers.
+        offences = [
+            check.id
+            for check in get_registry().definitions()
+            if self._reads_wireless(check)
+            and check.applicability.device_classes
+            and "wireless_controller" not in {c.lower() for c in check.applicability.device_classes}
+        ]
+
+        assert offences == [], f"these checks no longer reach controllers: {sorted(offences)}"
+
+
 class TestPlatformsThatShareAParserShareItsChecks:
     """The fourth meaning of "platform", and the one that fails quietly.
 
