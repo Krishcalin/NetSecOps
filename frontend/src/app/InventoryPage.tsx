@@ -17,7 +17,12 @@ import { NavLink } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { Device, DeviceGroup, Paginated, PendingDevice } from '../features/inventory/types';
-import { DEVICE_CLASSES, VENDOR_LABELS, classLabel } from '../features/inventory/types';
+import {
+  DEVICE_CLASSES,
+  STATUS_PILLS,
+  VENDOR_LABELS,
+  classLabel,
+} from '../features/inventory/types';
 import { PageHeader } from '../components/PageHeader';
 import { useUrlFilters } from './useUrlFilters';
 
@@ -289,14 +294,20 @@ export function InventoryPage() {
                     {device.platform ?? <span className="muted">not classified</span>}
                   </td>
                   <td>
-                    {/* Stated rather than implied by an empty "last collected". A device
-                        awaiting approval is excluded from every job, so it will never
-                        have been collected from — and without this the two most
-                        important reasons for a blank row look identical. */}
-                    {device.status === 'pending_review' ? (
-                      <span className="pill pill--medium">awaiting approval</span>
-                    ) : device.status === 'archived' ? (
-                      <span className="pill pill--unknown">archived</span>
+                    {/* Stated rather than implied by an empty "last collected". Three
+                        of the four statuses mean the device is excluded from every
+                        job, so it will never have been collected from — and without
+                        this they all produce the same blank row.
+
+                        Read from a map rather than a ternary chain. The chain ended in
+                        an `else` that said "active", so a status it had not heard of
+                        rendered as the one thing it definitely was not: `inventory_only`
+                        arrived and every access point in the estate reported itself as
+                        a device under assessment. */}
+                    {STATUS_PILLS[device.status] ? (
+                      <span className={`pill pill--${STATUS_PILLS[device.status]!.tone}`}>
+                        {STATUS_PILLS[device.status]!.label}
+                      </span>
                     ) : (
                       <span className="muted">active</span>
                     )}
@@ -318,8 +329,15 @@ export function InventoryPage() {
                     >
                       Configuration
                     </NavLink>
+                    {/* Not offered for an access point derived from a controller.
+                        Archiving one would be undone by that controller's next
+                        collection, which re-derives the list — a control that looks
+                        like it worked and is reverted twenty minutes later is worse
+                        than no control. Removing the access point is done by taking
+                        it off the controller. */}
                     {can('device:write') &&
                       device.status !== 'archived' &&
+                      device.status !== 'inventory_only' &&
                       (confirmArchive === device.id ? (
                         <>
                           <button

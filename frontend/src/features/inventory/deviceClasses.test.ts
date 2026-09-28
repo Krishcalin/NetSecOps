@@ -21,6 +21,8 @@ import {
   CLASS_LABELS,
   CLASS_SINGULAR,
   DEVICE_CLASSES,
+  DEVICE_STATUSES,
+  STATUS_PILLS,
   VENDORS,
   VENDOR_LABELS,
   classLabel,
@@ -99,5 +101,40 @@ describe('the vendor vocabulary', () => {
   it('includes the two vendors added with the new device families', () => {
     expect(VENDOR_LABELS.radware).toBe('Radware');
     expect(VENDOR_LABELS.barracuda).toBe('Barracuda');
+  });
+});
+
+describe('the device-status vocabulary', () => {
+  /** The same failure a third time, and the worst of the three.
+   *
+   * The Inventory table read status through a ternary chain ending in `else →
+   * "active"`, so a status the console had not heard of rendered as the one thing it
+   * definitely was not. `inventory_only` arrived and every access point in the estate
+   * reported itself as a device under assessment — the exact opposite of what the
+   * status exists to say.
+   *
+   * A class or a vendor the console cannot name renders as a blank or a raw key,
+   * which looks wrong. A *status* it cannot name renders as a confident lie.
+   */
+
+  it('knows every status the server can set', () => {
+    expect([...DEVICE_STATUSES].sort()).toEqual(
+      backendEnum('DeviceStatus', 'CredentialType').sort(),
+    );
+  });
+
+  it('decides deliberately how each one is shown', () => {
+    // `null` is a decision — "no pill, this is the ordinary case" — and a missing key
+    // is not. Only `active` may be null.
+    for (const status of DEVICE_STATUSES) {
+      expect(status in STATUS_PILLS, `${status} has no display decision`).toBe(true);
+    }
+    expect(STATUS_PILLS.active).toBeNull();
+    expect(Object.values(STATUS_PILLS).filter((pill) => pill === null)).toHaveLength(1);
+  });
+
+  it('says an inventory-only device is not simply active', () => {
+    expect(STATUS_PILLS.inventory_only).not.toBeNull();
+    expect(STATUS_PILLS.inventory_only?.label).toBe('inventory only');
   });
 });

@@ -90,7 +90,36 @@ export function classLabel(value: string, form: 'plural' | 'singular' = 'singula
 }
 
 export type Criticality = 'critical' | 'high' | 'medium' | 'low';
-export type DeviceStatus = 'active' | 'archived' | 'pending_review';
+
+export const DEVICE_STATUSES = [
+  'active',
+  'pending_review',
+  'inventory_only',
+  'archived',
+] as const;
+
+export type DeviceStatus = (typeof DEVICE_STATUSES)[number];
+
+/** What a status means in the inventory, and how loudly to say it.
+ *
+ * Every one of these is a different reason a device has never been collected from, and
+ * the column exists because otherwise all four produce the same blank "last collected"
+ * cell. A status the console cannot name falls through to whatever the last branch is,
+ * which is how `inventory_only` briefly rendered as "active" — an access point that
+ * is deliberately never assessed, reported as a device under assessment.
+ *
+ * `null` for `active`, which needs no pill: it is the ordinary case and a badge on
+ * every row is a badge nobody reads.
+ */
+export const STATUS_PILLS: Record<DeviceStatus, { label: string; tone: string } | null> = {
+  active: null,
+  pending_review: { label: 'awaiting approval', tone: 'medium' },
+  // Not "not assessed", which reads as an omission. This is a deliberate exclusion:
+  // a CAPWAP access point holds no configuration, so there is nothing to collect and
+  // no approval that would change it.
+  inventory_only: { label: 'inventory only', tone: 'info' },
+  archived: { label: 'archived', tone: 'unknown' },
+};
 
 export interface Device {
   id: string;
