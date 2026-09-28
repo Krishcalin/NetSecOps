@@ -4219,6 +4219,33 @@ code {
   text-decoration: underline;
 }
 
+/* Where a derived device came from, or what was derived from it (FR-INV-04). Under
+   the name rather than in a column of its own: almost every row has nothing to say
+   here, and a mostly-empty column costs width on a table that has none to spare. */
+.origin {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+}
+
+/* A button, not a link: it changes a filter on this page rather than navigating, and
+   dressing it as an anchor would promise a destination and a middle-click that do not
+   exist. Styled as a link because that is what it does to a reader. */
+.origin__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.origin__link:hover,
+.origin__link:focus-visible {
+  text-decoration: underline;
+}
+
 .grades__sub {
   display: block;
   margin-top: 2px;

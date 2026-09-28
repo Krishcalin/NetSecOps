@@ -93,6 +93,19 @@ class DeviceRead(BaseModel):
     status: str
     site_id: uuid.UUID | None
     parent_device_id: uuid.UUID | None
+    #: What the parent is *called*. `parent_device_id` has shipped since Phase 1 and no
+    #: page ever rendered it, for the obvious reason: a UUID tells an operator nothing.
+    #: An access point that does not name its controller, and a firewall that does not
+    #: name the Panorama it came from, are both rows with an unexplained origin.
+    parent_hostname: str | None = None
+    #: So the console can say "via its controller" rather than "via its parent" — the
+    #: relationship means something different for a wireless controller, a Panorama and
+    #: a FortiManager, and only the class distinguishes them.
+    parent_device_class: str | None = None
+    #: How many devices name this one as their parent. Nought for almost everything;
+    #: it is what makes a controller's access points reachable from the controller,
+    #: rather than only from an access point that happens to be on screen.
+    child_count: int = 0
 
     serial_number: str | None
     os_version: str | None

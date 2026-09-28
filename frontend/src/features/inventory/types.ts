@@ -133,6 +133,14 @@ export interface Device {
   status: DeviceStatus;
   site_id: string | null;
   parent_device_id: string | null;
+  /** What the parent is called. The id alone is a UUID, which is why it shipped in
+   *  Phase 1 and nothing rendered it for three phases. */
+  parent_hostname: string | null;
+  /** So the console can say "served by" for a controller and "managed by" for a
+   *  Panorama — both are `parent_device_id` and they are different relationships. */
+  parent_device_class: string | null;
+  /** How many devices name this one as their parent. Nought for almost everything. */
+  child_count: number;
   serial_number: string | null;
   os_version: string | null;
   model: string | null;

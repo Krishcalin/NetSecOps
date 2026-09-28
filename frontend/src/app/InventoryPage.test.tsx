@@ -287,4 +287,130 @@ describe('InventoryPage', () => {
       ]);
     });
   });
+
+  describe('where a derived device came from', () => {
+    /** `parent_device_id` shipped in Phase 1 and nothing rendered it for three
+     *  phases, because a UUID tells an operator nothing. A firewall imported from a
+     *  Panorama and an access point derived from a controller both appeared as rows
+     *  with an unexplained origin — and one controller contributes hundreds at once.
+     *
+     *  Both directions are needed. A child that names its parent, with no way into
+     *  the parent's other children, leaves somebody filtering by hand; a count with
+     *  nothing to click is a number. */
+
+    const CONTROLLER = {
+      ...ACTIVE,
+      id: 'c1',
+      hostname: 'wlc-01',
+      device_class: 'wireless_controller',
+      parent_device_id: null,
+      parent_hostname: null,
+      parent_device_class: null,
+      child_count: 3,
+    };
+
+    const ACCESS_POINT = {
+      ...ACTIVE,
+      id: 'ap1',
+      hostname: 'AP-Floor1',
+      device_class: 'wireless_ap',
+      status: 'inventory_only',
+      parent_device_id: 'c1',
+      parent_hostname: 'wlc-01',
+      parent_device_class: 'wireless_controller',
+      child_count: 0,
+    };
+
+    const MANAGED_FIREWALL = {
+      ...ACTIVE,
+      id: 'fw1',
+      hostname: 'edge-fw-01',
+      parent_device_id: 'pano1',
+      parent_hostname: 'panorama-01',
+      parent_device_class: 'manager',
+      child_count: 0,
+    };
+
+    it('names the controller an access point was derived from', async () => {
+      devices = [CONTROLLER, ACCESS_POINT];
+      renderPage();
+
+      const row = (await screen.findByText('AP-Floor1')).closest('tr') as HTMLElement;
+      expect(within(row).getByRole('button', { name: 'wlc-01' })).toBeInTheDocument();
+      expect(row).toHaveTextContent('served by');
+    });
+
+    it('calls a manager relationship by its own name', async () => {
+      // A controller serves its access points and a Panorama manages its firewalls.
+      // Both are `parent_device_id`; they are not the same sentence, and only
+      // `parent_device_class` separates them.
+      devices = [MANAGED_FIREWALL];
+      renderPage();
+
+      const row = (await screen.findByText('edge-fw-01')).closest('tr') as HTMLElement;
+      expect(row).toHaveTextContent('managed by');
+      expect(row).not.toHaveTextContent('served by');
+    });
+
+    it('offers a way into a parent’s derived devices', async () => {
+      devices = [CONTROLLER, ACCESS_POINT];
+      renderPage();
+
+      // Found by the button rather than by the controller's name: "wlc-01" appears
+      // twice on this page, once as the controller's own row and once as the access
+      // point's origin, which is the whole point of the feature.
+      const link = await screen.findByRole('button', { name: '3 derived devices' });
+
+      expect(link.closest('tr')).toHaveTextContent('wlc-01');
+    });
+
+    it('says nothing at all for an ordinary device', async () => {
+      // Almost every row. A label on each one is a label nobody reads, and it is why
+      // this is a sub-line rather than a column.
+      devices = [{ ...ACTIVE, parent_device_id: null, parent_hostname: null, child_count: 0 }];
+      renderPage();
+
+      const row = (await screen.findByText('core-sw-01')).closest('tr') as HTMLElement;
+      expect(within(row).queryByRole('button', { name: /derived|wlc/ })).toBeNull();
+    });
+
+    it('asks the server for one parent’s devices when the link is used', async () => {
+      devices = [CONTROLLER, ACCESS_POINT];
+      renderPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: '3 derived devices' }));
+
+      await waitFor(() =>
+        expect(vi.mocked(api.get).mock.calls.map((call) => call[0])).toContainEqual(
+          expect.stringContaining('parent_id=c1'),
+        ),
+      );
+    });
+
+    it('explains a filtered view and offers the way out', async () => {
+      // Otherwise it is a short inventory with no explanation for its shortness, and
+      // nothing in the toolbar shows a parent filter is in force.
+      devices = [ACCESS_POINT];
+      renderPage('/inventory?parent_id=c1');
+
+      // `findBy`, not `getBy`: the banner renders on the URL parameter alone, before
+      // the rows it takes the name from have arrived.
+      expect(await screen.findByText('wlc-01', { selector: 'strong' })).toBeInTheDocument();
+      expect(screen.getByText(/Showing only devices derived from/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Show all devices' })).toBeInTheDocument();
+    });
+
+    it('does not put a raw id in the banner when the name is unknown', async () => {
+      // The banner names the parent from the rows themselves. With none to read it
+      // says so in words — a banner reading "derived from 8f3c-…" is the UUID problem
+      // this whole change is about.
+      devices = [];
+      renderPage('/inventory?parent_id=c1');
+
+      expect(
+        await screen.findByText(/one controller or manager/),
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/c1/)).toBeNull();
+    });
+  });
 });

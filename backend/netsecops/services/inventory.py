@@ -135,6 +135,7 @@ class InventoryService:
         site_id: uuid.UUID | None = None,
         group_id: uuid.UUID | None = None,
         tag: str | None = None,
+        parent_id: uuid.UUID | None = None,
         limit: int = 50,
         offset: int = 0,
         org_id: int = 1,
@@ -163,6 +164,12 @@ class InventoryService:
             stmt = stmt.where(Device.status == status.value)
         if site_id is not None:
             stmt = stmt.where(Device.site_id == site_id)
+        if parent_id is not None:
+            # What makes the relationship navigable rather than merely visible: a
+            # controller's access points, or a manager's firewalls, as a list somebody
+            # can reach. Scope still applies below, so this cannot be used to see a
+            # child of a device the caller may not see.
+            stmt = stmt.where(Device.parent_device_id == parent_id)
 
         if group_id is not None:
             stmt = stmt.where(Device.id.in_(await self._device_ids_in_subtree(group_id)))
@@ -708,6 +715,29 @@ class InventoryService:
                 )
             )
         )
+
+    async def child_counts(self, devices: Sequence[Device]) -> dict[uuid.UUID, int]:
+        """How many devices name each of these as their parent (FR-INV-04).
+
+        One grouped query for a whole page, rather than a `children` relationship. The
+        relationship would be tidier and would load every row: a wireless controller
+        with three hundred access points would fetch three hundred devices to render
+        the number 300, on every page that happens to include it.
+
+        Devices with no children are absent from the result rather than present as
+        nought — the caller defaults, and a dictionary of mostly zeroes is a page of
+        noise for the one row that has any.
+        """
+        ids = [device.id for device in devices]
+        if not ids:
+            return {}
+
+        rows = await self.session.execute(
+            select(Device.parent_device_id, func.count())
+            .where(Device.parent_device_id.in_(ids))
+            .group_by(Device.parent_device_id)
+        )
+        return {parent_id: int(count) for parent_id, count in rows if parent_id is not None}
 
     async def scoped(self, stmt: _ScopedSelect, scope: Scope) -> _ScopedSelect:
         """Restrict any statement that already joins `devices` (FR-AUTH-05).

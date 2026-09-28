@@ -127,6 +127,10 @@ async def list_devices(
     site_id: uuid.UUID | None = None,
     group_id: uuid.UUID | None = None,
     tag: str | None = None,
+    parent_id: Annotated[
+        uuid.UUID | None,
+        Query(description="Only devices derived from this controller or manager"),
+    ] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> PaginatedDevices:
@@ -141,11 +145,21 @@ async def list_devices(
         site_id=site_id,
         group_id=group_id,
         tag=tag,
+        parent_id=parent_id,
         limit=limit,
         offset=offset,
     )
+
+    # One grouped query for the page. `child_count` is what makes the relationship
+    # reachable from the parent's side — without it a controller's access points can
+    # only be found from an access point that happens to already be on screen.
+    counts = await inventory.child_counts(rows)
+
     return PaginatedDevices(
-        data=[DeviceRead.model_validate(d) for d in rows],
+        data=[
+            DeviceRead.model_validate(row).model_copy(update={"child_count": counts.get(row.id, 0)})
+            for row in rows
+        ],
         meta={"total": total, "limit": limit, "offset": offset},
     )
 

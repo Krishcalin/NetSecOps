@@ -129,6 +129,60 @@ function PendingReview() {
   );
 }
 
+/** What a device was derived from, and what was derived from it (FR-INV-04).
+ *
+ * `parent_device_id` shipped in Phase 1 and nothing ever rendered it, because a UUID
+ * tells an operator nothing. A firewall imported from a Panorama and an access point
+ * derived from a wireless controller both appeared as rows with an unexplained origin
+ * — and the access points made it acute, because one controller contributes hundreds
+ * at a time.
+ *
+ * Both directions, because one without the other is not worth much: the child names
+ * its parent, and the parent offers a way into its children. A count with nothing to
+ * click is a number, and a filter nobody knows to ask for is not a feature.
+ */
+function DeviceOrigin({
+  device,
+  onFilter,
+}: {
+  device: Device;
+  onFilter: (id: string) => void;
+}) {
+  if (device.parent_device_id && device.parent_hostname) {
+    // Named by relationship rather than by the word "parent". A controller serves its
+    // access points and a manager manages its firewalls; both are `parent_device_id`
+    // and they are not the same sentence.
+    const relation =
+      device.parent_device_class === 'wireless_controller' ? 'served by' : 'managed by';
+
+    return (
+      <span className="origin">
+        {relation}{' '}
+        <button
+          type="button"
+          className="origin__link"
+          onClick={() => onFilter(device.parent_device_id!)}
+        >
+          {device.parent_hostname}
+        </button>
+      </span>
+    );
+  }
+
+  if (device.child_count > 0) {
+    return (
+      <span className="origin">
+        <button type="button" className="origin__link" onClick={() => onFilter(device.id)}>
+          {device.child_count.toLocaleString()}{' '}
+          {device.child_count === 1 ? 'derived device' : 'derived devices'}
+        </button>
+      </span>
+    );
+  }
+
+  return null;
+}
+
 export function InventoryPage() {
   const { can } = useAuth();
   const queryClient = useQueryClient();
@@ -137,9 +191,13 @@ export function InventoryPage() {
   const [groupId, setGroupId] = useState('');
   // In the URL rather than in component state, so the sidebar's "Switches" is a real
   // link — and so a filtered inventory can be sent to somebody.
-  const filters = useUrlFilters({ device_class: '' });
+  const filters = useUrlFilters({ device_class: '', parent_id: '' });
   const deviceClass = filters.read('device_class');
   const className = deviceClass ? classLabel(deviceClass, 'plural') : undefined;
+  // In the URL like the type filter, and for the same two reasons: a controller's
+  // access points are a view worth sending to somebody, and the back button should
+  // leave it rather than leave the page.
+  const parentId = filters.read('parent_id');
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -159,7 +217,7 @@ export function InventoryPage() {
   });
 
   const devices = useQuery({
-    queryKey: ['devices', offset, search, groupId, deviceClass],
+    queryKey: ['devices', offset, search, groupId, deviceClass, parentId],
     queryFn: () => {
       const params = new URLSearchParams({
         limit: String(PAGE_SIZE),
@@ -168,11 +226,25 @@ export function InventoryPage() {
       if (search) params.set('search', search);
       if (groupId) params.set('group_id', groupId);
       if (deviceClass) params.set('device_class', deviceClass);
+      if (parentId) params.set('parent_id', parentId);
       return api.get<Paginated<Device>>(`/devices?${params}`);
     },
   });
 
   const total = devices.data?.meta.total ?? 0;
+
+  const setParentFilter = (id: string) => {
+    filters.write({ parent_id: id });
+    setOffset(0);
+  };
+
+  // The name of the device being filtered on, taken from the rows themselves: a child
+  // carries its parent's name, and a parent filtered to its own children is not on the
+  // page. Falls back to nothing rather than to the id — a banner reading "derived from
+  // 8f3c-…" is the UUID problem this whole change is about.
+  const parentName = parentId
+    ? devices.data?.data.find((d) => d.parent_device_id === parentId)?.parent_hostname
+    : undefined;
 
   return (
     <div className="page">
@@ -188,6 +260,24 @@ export function InventoryPage() {
             : 'Devices you have access to. NetSecOps reads from these and never writes to them.'
         }
       />
+
+      {/* A filtered view says so and offers the way out. Without this the page is a
+          short inventory with no explanation for its shortness — the same failure the
+          heading above avoids for the type filter, and worse here because nothing in
+          the toolbar shows a parent filter is in force. */}
+      {parentId && (
+        <div className="alert alert--info" role="status">
+          Showing only devices derived from{' '}
+          <strong>{parentName ?? 'one controller or manager'}</strong>.{' '}
+          <button
+            type="button"
+            className="button button--ghost button--small"
+            onClick={() => setParentFilter('')}
+          >
+            Show all devices
+          </button>
+        </div>
+      )}
 
       <div className="toolbar">
         <label className="field field--inline">
@@ -287,7 +377,14 @@ export function InventoryPage() {
                   key={device.id}
                   className={device.status === 'active' ? undefined : 'row--muted'}
                 >
-                  <td>{device.hostname ?? <span className="muted">unnamed</span>}</td>
+                  {/* The origin goes under the name rather than in a column of its
+                      own. Almost every row has nothing to say here, so a column would
+                      be mostly empty and would cost width on a table that already has
+                      more than it can spend. */}
+                  <td>
+                    {device.hostname ?? <span className="muted">unnamed</span>}
+                    <DeviceOrigin device={device} onFilter={setParentFilter} />
+                  </td>
                   <td className="mono">{device.mgmt_ip}</td>
                   <td>{VENDOR_LABELS[device.vendor]}</td>
                   <td className="mono">

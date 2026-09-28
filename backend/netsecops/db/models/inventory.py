@@ -219,6 +219,39 @@ class Device(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     parent_device_id: Mapped[uuid.UUID | None] = mapped_column(
         PGUUID(as_uuid=True), ForeignKey("devices.id", ondelete="SET NULL"), index=True
     )
+    #: The manager or controller this device was derived from (FR-INV-04).
+    #:
+    #: Loaded eagerly because the column on its own is a UUID, and a UUID is not
+    #: something a console can render — which is why `parent_device_id` shipped in
+    #: `DeviceRead` and no page had ever displayed it. `selectin` is one extra query
+    #: per page rather than one per row.
+    #:
+    #: `remote_side` names the far end of a self-referential join, exactly as
+    #: `DeviceGroup.parent` does above: without it SQLAlchemy cannot tell which side of
+    #: `devices.parent_device_id → devices.id` is the parent.
+    parent: Mapped[Device | None] = relationship(
+        remote_side="Device.id", foreign_keys=[parent_device_id], lazy="selectin"
+    )
+
+    @property
+    def parent_hostname(self) -> str | None:
+        """What the parent is called, for `DeviceRead` to read by attribute name.
+
+        A property rather than a serialiser in the API layer: every route returning a
+        device gets it, so a detail page cannot end up knowing something a list page
+        does not.
+        """
+        return self.parent.hostname if self.parent else None
+
+    @property
+    def parent_device_class(self) -> str | None:
+        """What *kind* of parent it is.
+
+        A wireless controller, a Panorama and a FortiManager are all parents and the
+        relationship means something different in each case — "via its controller" and
+        "managed by" are not the same sentence, and only the class tells them apart.
+        """
+        return self.parent.device_class if self.parent else None
 
     #: Facts refreshed after each successful collection (FR-INV-05).
     facts: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
