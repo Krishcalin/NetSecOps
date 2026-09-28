@@ -16,7 +16,14 @@
  * or green, so a page header is never mistaken for a verdict about what is on the page.
  */
 
-export type Section = 'dashboard' | 'estate' | 'risk' | 'network' | 'policy' | 'admin';
+export type Section =
+  | 'dashboard'
+  | 'estate'
+  | 'risk'
+  | 'trends'
+  | 'network'
+  | 'policy'
+  | 'admin';
 
 /** Longest prefix wins. The groups are the sidebar's, not a second opinion about them:
  *  `sections.test.ts` walks `NAV_ITEMS` and fails if the two ever disagree, which they
@@ -31,6 +38,13 @@ const ROUTES: [string, Section][] = [
   ['/findings', 'risk'],
   ['/vulnerabilities', 'risk'],
   ['/discovery', 'risk'],
+
+  // Its own section rather than a fourth entry under Risk, and a section of one is
+  // the right size for it: every other page in the product is a list of objects as
+  // they are now, and this is the only one about change over time and standing. A
+  // grade and a P1 count are read in a different frame of mind from a findings table,
+  // and filing them together invited the letter to be skimmed as another column.
+  ['/risk-trends', 'trends'],
 
   ['/firewall', 'network'],
   ['/topology', 'network'],
@@ -78,6 +92,7 @@ export const SECTION_LABELS: Record<Section, string> = {
   dashboard: 'Dashboard',
   estate: 'Estate',
   risk: 'Risk',
+  trends: 'Risk Trends',
   network: 'Network',
   policy: 'Policy',
   admin: 'Administration',

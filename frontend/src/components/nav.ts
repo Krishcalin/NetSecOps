@@ -28,18 +28,34 @@ export interface NavItem {
   children?: NavItem[];
 }
 
-/** The appliance types offered under Inventory.
+/** The appliance types offered under Inventory, and under Risk Trends.
  *
  * Three of the eight `DeviceClass` values, because these are the ones an operator
  * navigates by. The rest — wireless controllers, managers, AAA servers, and anything
  * still unclassified — are reachable from the page's own filter, which lists every
  * one; a sidebar that named all eight would be a filter control wearing a navigation
- * costume. */
-const APPLIANCE_TYPES: NavItem[] = [
-  { label: 'Routers', to: '/inventory?device_class=router', icon: 'path' },
-  { label: 'Switches', to: '/inventory?device_class=switch', icon: 'device' },
-  { label: 'Firewalls', to: '/inventory?device_class=firewall', icon: 'firewall' },
+ * costume.
+ *
+ * Shared between the two groups rather than written twice: both pages take the same
+ * `device_class` parameter and both offer the same three, and a second copy would be
+ * free to offer a fourth on one page only. */
+const APPLIANCE_TYPES: { label: string; value: string; icon: IconName }[] = [
+  { label: 'Routers', value: 'router', icon: 'path' },
+  { label: 'Switches', value: 'switch', icon: 'device' },
+  { label: 'Firewalls', value: 'firewall', icon: 'firewall' },
 ];
+
+/** The three, pointed at whichever page is asking. The class is the data and the path
+ *  is the caller's, rather than a full URL written once and string-replaced — which is
+ *  how `/inventory` would have ended up inside a Risk Trends link the first time
+ *  somebody renamed a route. */
+function applianceEntries(path: string): NavItem[] {
+  return APPLIANCE_TYPES.map(({ label, value, icon }) => ({
+    label,
+    icon,
+    to: `${path}?device_class=${value}`,
+  }));
+}
 
 export const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard', to: '/', icon: 'dashboard' },
@@ -49,7 +65,7 @@ export const NAV_ITEMS: NavItem[] = [
     permission: 'device:read',
     icon: 'inventory',
     group: 'Estate',
-    children: APPLIANCE_TYPES,
+    children: applianceEntries('/inventory'),
   },
   // Directly below Inventory because it is the other half of reaching a device: an
   // inventory entry with no credential assigned to it fails its job before a single
@@ -76,6 +92,20 @@ export const NAV_ITEMS: NavItem[] = [
   // put there" — but after Findings in the list, because until a scope is defined it has
   // nothing to show and should not be the second thing anyone sees.
   { label: 'Discovery', to: '/discovery', permission: 'discovery:read', icon: 'discovery' },
+  // Its own group, and a group of one. Every other page in the product lists objects as
+  // they stand; this is the only one about direction and standing — whether the estate
+  // is improving, what gets fixed first, and what letter each appliance has earned.
+  // Filed under Risk it would have read as a fourth findings view, which is the one
+  // thing a grade must not be skimmed as. Behind the findings permission for the same
+  // reason the trend endpoints are: it is those rows, aggregated.
+  {
+    label: 'Risk Trends',
+    to: '/risk-trends',
+    permission: 'finding:read',
+    icon: 'trend',
+    group: 'Risk Trends',
+    children: applianceEntries('/risk-trends'),
+  },
   // A rulebase is configuration, so this sits behind the same permission as the config
   // viewer rather than behind a findings permission.
   {

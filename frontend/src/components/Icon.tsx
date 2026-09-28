@@ -47,7 +47,9 @@ export type IconName =
   | 'tick'
   | 'cross'
   | 'device'
-  | 'link';
+  | 'link'
+  | 'trend'
+  | 'grade';
 
 /** The path data for each glyph, on a 24×24 grid. */
 const PATHS: Record<IconName, string> = {
@@ -85,6 +87,11 @@ const PATHS: Record<IconName, string> = {
   cross: 'M6 6l12 12M18 6L6 18',
   device: 'M3 6h18v10H3zM8 20h8M12 16v4',
   link: 'M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1',
+  // A plotted line against two axes. Deliberately drawn falling to the right: on this
+  // product's scale a descending risk line is the good news, and an icon rising into
+  // the top corner would say the opposite of what the page it heads usually shows.
+  trend: 'M4 4v16h16M7 9l4 4 3-3 4 5',
+  grade: 'M12 3l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8L3.5 9.2l5.9-.9z',
 };
 
 interface Props {

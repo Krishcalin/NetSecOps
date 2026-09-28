@@ -24,6 +24,7 @@ import { AaaPage } from './AaaPage';
 import { FindingsPage } from './FindingsPage';
 import { VulnerabilitiesPage } from './VulnerabilitiesPage';
 import { DiscoveryPage } from './DiscoveryPage';
+import { RiskTrendsPage } from './RiskTrendsPage';
 import { ChecksPage } from './ChecksPage';
 import { PoliciesPage } from './PoliciesPage';
 import { ExceptionsPage } from './ExceptionsPage';
@@ -127,6 +128,12 @@ export function App() {
                   is usually on many devices, so the question is rarely per-device. */}
               <Route path="vulnerabilities" element={<VulnerabilitiesPage />} />
               <Route path="discovery" element={<DiscoveryPage />} />
+              {/* Direction and standing, as opposed to the lists above: whether the
+                  estate is improving, what to fix first, and a letter per appliance.
+                  One route with a `device_class` parameter rather than three, because
+                  the sidebar's Routers/Switches/Firewalls are views of this page and
+                  not separate ones — the same arrangement Inventory uses. */}
+              <Route path="risk-trends" element={<RiskTrendsPage />} />
               {/* The rules, where they apply, and where they were deliberately not
                   applied. Three pages rather than one because they are edited by
                   different people at different times, but they read as a sequence. */}

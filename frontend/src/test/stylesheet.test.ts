@@ -14,6 +14,8 @@ import { readFileSync } from 'fs';
 
 import { describe, expect, it } from 'vitest';
 
+import { SECTION_LABELS } from '../components/sections';
+
 const CSS = readFileSync('src/styles/index.css', 'utf8');
 
 /** Strip comments the way a parser does, so the checks below look at real CSS. */
@@ -42,7 +44,13 @@ describe('the stylesheet', () => {
   it('defines every section colour in both themes', () => {
     // A missing token falls back to `--border`, which renders as a grey hairline and
     // reads as a deliberate choice rather than a mistake.
-    const sections = ['dashboard', 'estate', 'risk', 'network', 'policy', 'admin'];
+    //
+    // Derived from `SECTION_LABELS` rather than listed here. It was listed, and a
+    // seventh section was added without this line changing — so the test went on
+    // green while checking six of seven, which is the failure mode it exists to catch
+    // one level down. `sections.test.ts` checks the light value the same way; this
+    // adds the dark one.
+    const sections = Object.keys(SECTION_LABELS);
     const dark = CSS.slice(CSS.indexOf('prefers-color-scheme: dark'));
 
     for (const section of sections) {

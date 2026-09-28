@@ -398,6 +398,18 @@ Each phase below says what it delivers and, where relevant, what it still owes. 
   spaced on purpose: under a linear scheme fourteen Low findings outrank one Critical.
   Device criticality multiplies rather than adds. *Not Evaluated* is reported as a
   separate coverage figure instead of being quietly counted as a pass.
+- **A letter per appliance, and a closure priority — both derived, neither invented.**
+  A Risk Trends page grades every firewall, switch and router A to F, buckets the open
+  findings P1 to P4, and draws the estate's score day by day. Nothing on it is a new
+  measurement, which is the whole design: the letter is the stored risk score in a
+  band, and the priority is the severity weight times the criticality multiplier that
+  the score is already summed from — so the grid the page shows a reader is computed
+  by the function that assigned their buckets rather than written out beside it. The
+  estate series carries each device's last reading forward, because a risk score is a
+  level that held until the next assessment replaced it, and it takes a baseline from
+  before the window so an estate assessed quarterly does not chart as a flat nothing.
+  **A device nobody has assessed has no letter at all** — not A, which would call it
+  clean, and not F, which would call it broken.
 - **Compliance pivoted by framework control**, with the percentage computed over what
   was actually decided — *Not Applicable* and *Not Evaluated* are in neither half.
 

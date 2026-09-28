@@ -12,6 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { isChildActive, NAV_ITEMS } from './nav';
 
 const inventory = NAV_ITEMS.find((item) => item.label === 'Inventory')!;
+const riskTrends = NAV_ITEMS.find((item) => item.label === 'Risk Trends')!;
 
 describe('the appliance types under Inventory', () => {
   it('are nested rather than being entries of their own', () => {
@@ -39,6 +40,33 @@ describe('the appliance types under Inventory', () => {
       (child) => new URLSearchParams(child.to!.split('?')[1]).get('device_class'),
     );
     expect(classes).toEqual(['router', 'switch', 'firewall']);
+  });
+});
+
+describe('the same three under Risk Trends', () => {
+  /** Two groups now share `applianceEntries`, and the thing that goes wrong when one
+   *  helper serves two pages is that both sets end up pointing at the same one. A
+   *  "Firewalls" under Risk Trends that opened the inventory would look like a
+   *  navigation quirk rather than a bug, and nothing else here would notice. */
+
+  it('point at Risk Trends, not at the page the helper was written for', () => {
+    expect(riskTrends.children?.map((child) => child.to)).toEqual([
+      '/risk-trends?device_class=router',
+      '/risk-trends?device_class=switch',
+      '/risk-trends?device_class=firewall',
+    ]);
+  });
+
+  it('offer exactly what the inventory offers', () => {
+    // The two lists are the same three because they are the same constant. If one
+    // group ever gains a fourth, this says so rather than letting the sidebar offer
+    // a filter on one page and not the other.
+    const classes = (item: typeof inventory) =>
+      (item.children ?? []).map(
+        (child) => new URLSearchParams(child.to!.split('?')[1]).get('device_class'),
+      );
+
+    expect(classes(riskTrends)).toEqual(classes(inventory));
   });
 });
 

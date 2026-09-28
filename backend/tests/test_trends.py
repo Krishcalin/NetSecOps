@@ -27,7 +27,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netsecops.core.rbac import Scope
 from netsecops.db.models import Device
 from netsecops.db.models.collection import Finding, FindingKind, FindingSeverity, FindingStatus
-from netsecops.db.models.inventory import DeviceClass, DeviceGroupMember, Vendor
+from netsecops.db.models.inventory import DeviceClass, DeviceGroupMember, DeviceStatus, Vendor
 from netsecops.db.models.policy import RiskScore
 from netsecops.services.trends import MAX_DAYS, TrendService
 from tests.conftest import make_group
@@ -479,3 +479,245 @@ class TestRiskOverTime:
         trend = await trends.risk(device.id, days=30, now=NOW)
 
         assert [p.score for p in trend.points] == [80, 10]
+
+
+class TestTheEstateSeries:
+    """The same question as `risk()`, asked of everything at once.
+
+    Two things make it a different query rather than a loop. A risk score is a *level*
+    that held until the next assessment replaced it, so the estate figure has to carry
+    each device's last reading forward; and a ninety-day window that opens after the
+    last assessment needs a baseline from before it, or the chart starts at nothing and
+    the line appears to climb out of a clean estate that never existed.
+    """
+
+    @pytest.mark.anyio
+    async def test_a_score_holds_until_it_is_replaced(self, trends, device, session) -> None:
+        session.add(
+            RiskScore(
+                org_id=1,
+                device_id=device.id,
+                score=60,
+                checks_evaluated=10,
+                created_at=NOW - timedelta(days=5),
+            )
+        )
+        await session.flush()
+
+        trend = await trends.estate_risk(scope=Scope.all(), days=7, now=NOW)
+
+        # One assessment, seven days: the six after it carry it, and the day before it
+        # has nothing to carry.
+        assert [p.score for p in trend.points] == [None, 60, 60, 60, 60, 60, 60]
+        assert [p.assessed for p in trend.points] == [0, 1, 0, 0, 0, 0, 0]
+
+    @pytest.mark.anyio
+    async def test_a_window_that_opens_after_the_last_assessment_is_not_empty(
+        self, trends, device, session
+    ) -> None:
+        """The failure this baseline query exists for. An estate assessed quarterly,
+        charted over thirty days, would otherwise draw a flat nothing and read as a
+        product that had stopped working."""
+        session.add(
+            RiskScore(
+                org_id=1,
+                device_id=device.id,
+                score=45,
+                checks_evaluated=10,
+                created_at=NOW - timedelta(days=120),
+            )
+        )
+        await session.flush()
+
+        trend = await trends.estate_risk(scope=Scope.all(), days=30, now=NOW)
+
+        assert all(point.score == 45 for point in trend.points)
+        assert all(point.assessed == 0 for point in trend.points)
+
+    @pytest.mark.anyio
+    async def test_before_anything_was_assessed_the_score_is_absent_not_nought(
+        self, trends, device
+    ) -> None:
+        # Nought is a clean estate. Absent is no estate yet, and the line has to break
+        # rather than start along the floor.
+        trend = await trends.estate_risk(scope=Scope.all(), days=5, now=NOW)
+
+        assert [p.score for p in trend.points] == [None] * 5
+        assert trend.direction == "unknown"
+
+    @pytest.mark.anyio
+    async def test_several_assessments_in_one_day_count_once(self, trends, device, session) -> None:
+        """A retry storm must not pull the estate figure around. The last reading of
+        the day is the day's reading, which is also what the device page shows."""
+        for hour, score in [(9, 90), (11, 80), (14, 20)]:
+            session.add(
+                RiskScore(
+                    org_id=1,
+                    device_id=device.id,
+                    score=score,
+                    checks_evaluated=10,
+                    created_at=NOW.replace(hour=hour),
+                )
+            )
+        await session.flush()
+
+        trend = await trends.estate_risk(scope=Scope.all(), days=2, now=NOW)
+
+        assert trend.points[-1].score == 20
+        assert trend.points[-1].assessed == 1
+
+    @pytest.mark.anyio
+    async def test_the_daily_figure_is_the_roll_up_and_not_a_mean(self, trends, session) -> None:
+        """`roll_up` is weighted towards the worst device on purpose: a mean lets a
+        hundred clean switches hide one catastrophic firewall."""
+        for index, score in enumerate([100, 0, 0, 0]):
+            other = await make_device(session, name=f"r{index}", ip=f"203.0.113.{index}")
+            session.add(
+                RiskScore(
+                    org_id=1,
+                    device_id=other.id,
+                    score=score,
+                    checks_evaluated=10,
+                    created_at=NOW,
+                )
+            )
+        await session.flush()
+
+        trend = await trends.estate_risk(scope=Scope.all(), days=1, now=NOW)
+
+        assert trend.points[-1].score == 70
+        assert trend.points[-1].devices == 4
+
+    @pytest.mark.anyio
+    async def test_it_carries_the_population_each_figure_was_computed_from(
+        self, trends, session
+    ) -> None:
+        """A score from one device and a score from fifty are not comparable, and a
+        line that does not say so invites the comparison as an estate is onboarded."""
+        first = await make_device(session, name="first", ip="203.0.113.11")
+        second = await make_device(session, name="second", ip="203.0.113.12")
+        session.add(
+            RiskScore(
+                org_id=1,
+                device_id=first.id,
+                score=50,
+                checks_evaluated=10,
+                created_at=NOW - timedelta(days=2),
+            )
+        )
+        session.add(
+            RiskScore(org_id=1, device_id=second.id, score=50, checks_evaluated=10, created_at=NOW)
+        )
+        await session.flush()
+
+        trend = await trends.estate_risk(scope=Scope.all(), days=4, now=NOW)
+
+        # Nothing, then one, then that one carried forward, then two.
+        assert [p.devices for p in trend.points] == [0, 1, 1, 2]
+
+    @pytest.mark.anyio
+    async def test_the_direction_is_read_between_readings_not_between_window_edges(
+        self, trends, device, session
+    ) -> None:
+        """A window that opens before the first assessment begins with nulls. Reading a
+        direction off those would call every new deployment "worsening" on the day it
+        starts collecting data."""
+        for days_ago, score in [(3, 80), (1, 20)]:
+            session.add(
+                RiskScore(
+                    org_id=1,
+                    device_id=device.id,
+                    score=score,
+                    checks_evaluated=10,
+                    created_at=NOW - timedelta(days=days_ago),
+                )
+            )
+        await session.flush()
+
+        trend = await trends.estate_risk(scope=Scope.all(), days=30, now=NOW)
+
+        assert trend.points[0].score is None
+        assert trend.direction == "improving"
+
+    @pytest.mark.anyio
+    async def test_one_reading_has_no_direction(self, trends, device, session) -> None:
+        session.add(
+            RiskScore(org_id=1, device_id=device.id, score=50, checks_evaluated=10, created_at=NOW)
+        )
+        await session.flush()
+
+        assert (await trends.estate_risk(scope=Scope.all(), days=1, now=NOW)).direction == "unknown"
+
+    @pytest.mark.anyio
+    async def test_a_restricted_principal_gets_their_own_estate(self, trends, session) -> None:
+        mine = await make_device(session, name="mine3", ip="203.0.113.21")
+        theirs = await make_device(session, name="theirs3", ip="203.0.113.22")
+
+        group = await make_group(session)
+        session.add(DeviceGroupMember(org_id=1, group_id=group.id, device_id=mine.id))
+        for target, score in [(mine, 10), (theirs, 100)]:
+            session.add(
+                RiskScore(
+                    org_id=1,
+                    device_id=target.id,
+                    score=score,
+                    checks_evaluated=10,
+                    created_at=NOW,
+                )
+            )
+        await session.flush()
+
+        scoped = await trends.estate_risk(
+            scope=Scope(device_group_ids=frozenset({group.id})), days=1, now=NOW
+        )
+
+        assert scoped.points[-1].score == 10
+        assert scoped.points[-1].devices == 1
+
+    @pytest.mark.anyio
+    async def test_a_group_scope_reaches_its_child_groups(self, trends, session) -> None:
+        """The scope walk is `InventoryService`'s. It used to be a local one that
+        matched a principal's groups exactly, so an operator scoped to a parent group
+        saw devices on every list page whose findings were missing from every trend."""
+        parent = await make_group(session, name="region")
+        child = await make_group(session, name="site", parent=parent)
+
+        nested = await make_device(session, name="nested", ip="203.0.113.31")
+        session.add(DeviceGroupMember(org_id=1, group_id=child.id, device_id=nested.id))
+        await make_finding(session, nested, fingerprint="a", first_seen=NOW)
+        await session.flush()
+
+        scope = Scope(device_group_ids=frozenset({parent.id}))
+
+        assert (await trends.findings(scope=scope, days=2, now=NOW)).total_first_seen == 1
+
+    @pytest.mark.anyio
+    async def test_archived_devices_are_left_out(self, trends, session) -> None:
+        """A decommissioned device's last score was whatever it was on the day it was
+        retired, and carrying it forward for ever would peg the estate figure to a box
+        nobody can fix."""
+        retired = await make_device(session, name="retired", ip="203.0.113.41")
+        retired.status = DeviceStatus.ARCHIVED.value
+        live = await make_device(session, name="live", ip="203.0.113.42")
+        for target, score in [(retired, 100), (live, 10)]:
+            session.add(
+                RiskScore(
+                    org_id=1,
+                    device_id=target.id,
+                    score=score,
+                    checks_evaluated=10,
+                    created_at=NOW,
+                )
+            )
+        await session.flush()
+
+        trend = await trends.estate_risk(scope=Scope.all(), days=1, now=NOW)
+
+        assert trend.points[-1].devices == 1
+        assert trend.points[-1].score == 10
+
+    @pytest.mark.anyio
+    async def test_the_window_is_capped(self, trends) -> None:
+        trend = await trends.estate_risk(scope=Scope.all(), days=100_000, now=NOW)
+
+        assert trend.days == MAX_DAYS

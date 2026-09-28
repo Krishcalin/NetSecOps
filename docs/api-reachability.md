@@ -1,14 +1,25 @@
 # API reachability
 
-**158 operations are published. The console requests 147 of them. 11 it never requests.**
+**163 operations are published. The console requests 152 of them. 11 it never requests.**
 
-Re-measured 2026-09-27, after single sign-on and the trend work. The published count has
-risen by seventeen since the last measure — estate-wide rulebase search, rule
-permissiveness, segmentation intent, the network map, `DELETE /segmentation/zones/{id}`,
-which existed nowhere until the console needed a way to undo a zone somebody created by
-mistake, `GET /findings/summary`, which replaced the five `limit=1` counts the dashboard
-was making to draw one bar, the five `/auth/sso/*` operations, and `GET /findings/trend`
-with `GET /devices/{id}/risk/history`.
+Re-measured 2026-09-28, after the Risk Trends page. Five more are published and five
+more are reached, so the unreferenced count has not moved: `GET /risk/trend`,
+`GET /risk/priorities` and `GET /risk/grades`, plus `GET /compliance/posture` and the
+`GET /auth/mfa` that reports how many recovery codes are left.
+
+All three `/risk/*` operations were written with a caller. That is now the second slice
+in a row to be built this way, and it is the cheapest way to avoid the pattern this
+document exists to catch — the grades in particular would have been a textbook case, a
+letter computed for every device in the estate and visible only to whoever could curl
+the API.
+
+Measured 2026-09-27 before that, after single sign-on and the trend work. The published
+count had risen by seventeen since the measure before — estate-wide rulebase search,
+rule permissiveness, segmentation intent, the network map,
+`DELETE /segmentation/zones/{id}`, which existed nowhere until the console needed a way
+to undo a zone somebody created by mistake, `GET /findings/summary`, which replaced the
+five `limit=1` counts the dashboard was making to draw one bar, the five `/auth/sso/*`
+operations, and `GET /findings/trend` with `GET /devices/{id}/risk/history`.
 
 **`GET /devices/{id}/risk` came off this list without being written**, which is the case
 the count exists to find. The endpoint had shipped in Phase 3 and the score behind it had
@@ -25,7 +36,7 @@ referenced in console *code*, which is the right proxy for "can an operator get 
 everywhere except a redirect target. Read the number as eleven unreachable operations
 and one reached by the browser's address bar.
 
-The rest of the unreferenced count is ten, down from the sixteen triaged below. Three
+The rest of the unreferenced count is ten, down from the sixteen triaged below. Four
 clusters have closed since that triage, all the same shape — capability with no surface,
 which on a console-only deployment is indistinguishable from capability that does not
 exist.
@@ -41,6 +52,13 @@ channel, lists subscriptions, and warns outright when an enabled channel has non
 
 Risk and trend: the score was reachable by API and invisible in the console, described
 above.
+
+`GET /devices/{id}/risk` came off the unreferenced list twice over. The device page
+reads it, and the Risk Trends page now reads the same stored scores across the estate —
+as a daily series, as an A–F band, and as the P1–P4 buckets that come out of the
+severity and criticality the score is already built from. None of those is a new
+measurement; all of them were unaskable questions over data three phases had been
+writing.
 
 **Every area of the API now has a page.** The original finding — thirty-two operations in
 areas the console could not reach at all — is closed. What remains is eight operations on
@@ -181,7 +199,7 @@ Closed. Every area of the API has a page.
 | `DELETE /discovery/scopes/{id}` | Remove on each scope row, asked for twice. A scope is the permission to probe a range; deleting one is how you stop probing what turned out not to be yours, and doing it by accident destroys the record of what was agreed. |
 | `GET /discovery/pending/{host_id}` | The review panel re-reads the host as it opens rather than trusting the row the list was built from. The list is a snapshot of whenever it loaded, and what is decided here is the device's *platform* — which selects the collection profile and with it the command allow-list. |
 
-### A page exists but does not use the operation — 6 rows, 9 operations · `surface`
+### A page exists but does not use the operation — 6 rows, 8 operations · `surface`
 
 Ordered by how much the absence costs. Rows, not operations: several cover a group.
 The totals at the top of this document count operations.
@@ -189,7 +207,7 @@ The totals at the top of this document count operations.
 | Operation | Page | Cost of the gap |
 |---|---|---|
 | `GET /jobs/{id}/progress` | Jobs | Live progress. Low value while the list already refreshes every five seconds. |
-| `GET /devices/{id}/checks`, `/risk` | Device config | Per-device check results and risk score. |
+| `GET /devices/{id}/checks` | Device config | Per-device check results. `/risk` beside it is now read by the Risk panel. |
 | `POST /devices/{id}/children/preview`, `/import` | Inventory | Managed-device import from a manager. |
 | `GET /audit-log/export` | Audit log | Export button. |
 | `GET /settings/{key}`, `PUT /settings/{key}` | Settings | Per-key read and write; the page uses the collection endpoint only. |

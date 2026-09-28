@@ -20,7 +20,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, TypeVar
 
 from sqlalchemy import Select, false, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +44,10 @@ from netsecops.db.models.inventory import (
 from netsecops.services.audit import AuditService
 
 log = get_logger(__name__)
+
+#: Any `SELECT` the group-scope restriction can be added to. Bound to the statement's
+#: own type so applying scope never widens what a caller knows it is selecting.
+_ScopedSelect = TypeVar("_ScopedSelect", bound=Select[Any])
 
 
 @dataclass(slots=True)
@@ -669,10 +673,12 @@ class InventoryService:
 
     # ────────────────────────────── helpers ─────────────────────────────
 
-    async def _apply_scope(
-        self, stmt: Select[tuple[Device]], scope: Scope
-    ) -> Select[tuple[Device]]:
-        """Restrict a device query to the groups a principal may see (FR-AUTH-05)."""
+    async def _apply_scope(self, stmt: _ScopedSelect, scope: Scope) -> _ScopedSelect:
+        """Restrict a device query to the groups a principal may see (FR-AUTH-05).
+
+        Generic over the statement rather than fixed to `Select[tuple[Device]]`, so the
+        same walk serves aggregates over devices as well as device rows — see `scoped`.
+        """
         if scope.unrestricted:
             return stmt
         if not scope.device_group_ids:
@@ -702,6 +708,20 @@ class InventoryService:
                 )
             )
         )
+
+    async def scoped(self, stmt: _ScopedSelect, scope: Scope) -> _ScopedSelect:
+        """Restrict any statement that already joins `devices` (FR-AUTH-05).
+
+        The public form of `_apply_scope`, for services that select aggregates rather
+        than device rows — a grade distribution, a count per priority band. Those need
+        exactly this restriction and would otherwise each grow their own, which is how
+        two pages come to disagree about how many devices a group-scoped operator has.
+
+        The caller must already have `devices` in the FROM: the restriction is a
+        predicate on `Device.id`, and a statement without that join would be rejected
+        by the database rather than silently return everything.
+        """
+        return await self._apply_scope(stmt, scope)
 
     async def visible_device_ids(self, scope: Scope) -> list[uuid.UUID]:
         """Every device id a principal may see (FR-AUTH-05).

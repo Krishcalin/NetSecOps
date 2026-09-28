@@ -75,6 +75,7 @@
   --sec-dashboard: #1d4ed8;
   --sec-estate: #4338ca;
   --sec-risk: #6d28d9;
+  --sec-trends: #7c3aed;
   --sec-network: #0e7490;
   --sec-policy: #a21caf;
   --sec-admin: #475569;
@@ -148,6 +149,7 @@
     --sec-dashboard: #6d9bff;
     --sec-estate: #8da2fb;
     --sec-risk: #b195f8;
+    --sec-trends: #c4a6fb;
     --sec-network: #4bc0d9;
     --sec-policy: #e879f9;
     --sec-admin: #9aa6b6;
@@ -3854,4 +3856,365 @@ code {
 .checkbox input {
   flex: none;
   margin: 0;
+}
+
+/* ── Risk Trends ───────────────────────────────────────────────────────────────
+   Direction, closure priority and a letter per appliance.
+
+   Colour here is a verdict, which it is almost nowhere else in this stylesheet. The
+   section hues above deliberately sit outside the severity ramp so a page header can
+   never be read as a judgement; a grade is the opposite case and takes the ramp, so an
+   F and a Critical finding are the same red. Every letter, code and count is also
+   printed, so nothing on this page is carried by colour alone (WCAG 1.4.1).
+
+   `--grade` and `--ptag` are set inline on each element from the tone maps in
+   `features/risk/types.ts`, which is the one place the letter-to-colour mapping
+   lives.
+
+   The tints are mixed from that one colour with `color-mix(... transparent)` rather
+   than taken from the `--sev-*-soft` tokens. Those are opaque, which is why each one
+   has to be redefined for the dark theme; a translucent mix composites over whatever
+   ground is behind it and is therefore correct in both without a second definition.
+   It also reaches P4, whose `--sev-info` has no soft counterpart at all. */
+
+/* The estate's score over time. 0-100 is a fixed axis rather than a fitted one: an
+   auto range magnifies a quiet month into a dramatic slope. */
+.riskline {
+  margin: 0;
+}
+
+.riskline__plot {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+.riskline__rule,
+.riskline__edge {
+  stroke: var(--border);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.riskline__edge {
+  stroke: var(--border-strong);
+}
+
+.riskline__line {
+  stroke: var(--sec-trends);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.riskline__head {
+  fill: var(--sec-trends);
+}
+
+.riskline__caption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.riskline__arrow {
+  display: inline-flex;
+  color: var(--text-faint);
+}
+
+.riskline__pop {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+
+/* ── The letter itself ────────────────────────────────────────────────────── */
+.grade {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-weight: 750;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--grade);
+  background: color-mix(in srgb, var(--grade) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--grade) 40%, transparent);
+}
+
+.grade--lg {
+  width: 42px;
+  height: 42px;
+  font-size: 21px;
+  border-radius: 10px;
+}
+
+/* Never assessed. A dash and the muted neutral, never a faint letter - a faint A is
+   still an A to anybody skimming the column. */
+.grade--none {
+  color: var(--text-faint);
+  background: var(--surface-muted);
+  border-color: var(--border);
+  font-weight: 500;
+}
+
+.ptag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: var(--ptag);
+  background: color-mix(in srgb, var(--ptag) 13%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ptag) 38%, transparent);
+}
+
+/* ── The four closure bands ───────────────────────────────────────────────── */
+.pbands {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+
+/* A left rail rather than a full tint: four saturated blocks side by side is a traffic
+   light, and these are four bands of one scale.
+
+   No hover or focus state, because these are not links. The findings list has no
+   priority filter to send them to, and a tile that looks clickable and is not is a
+   worse answer than one that plainly is not. */
+.pband {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--ptag);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.pband__head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+
+.pband__code {
+  font-weight: 750;
+  font-size: 13px;
+  color: var(--ptag);
+}
+
+.pband__label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.pband__count {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.pband__meaning {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.pband__facts {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+
+/* ── The grid that assigns a band ─────────────────────────────────────────── */
+.explain {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.explain > summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.explain > summary:hover {
+  color: var(--text);
+}
+
+/* Five columns of short cells still outgrow a phone. The table scrolls inside this
+   rather than the page scrolling sideways, which is the one exception the layout
+   rules make. */
+.matrix-wrap {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+
+.matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.matrix__caption {
+  caption-side: bottom;
+  margin-top: 8px;
+  text-align: left;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.5;
+}
+
+.matrix th,
+.matrix td {
+  border: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.matrix thead th,
+.matrix tbody th {
+  background: var(--panel-tint);
+  font-weight: 600;
+  text-transform: capitalize;
+  color: var(--text-muted);
+}
+
+.matrix__cell {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.matrix__cell strong {
+  color: var(--ptag);
+  font-weight: 700;
+}
+
+/* The weight the band was read off. Present so the grid is checkable rather than
+   merely asserted - the reader can multiply the two numbers themselves. */
+.matrix__cell em {
+  font-style: normal;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── The grade distribution ───────────────────────────────────────────────── */
+.spread {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.spread__band {
+  display: grid;
+  grid-template-rows: auto auto auto 1fr;
+  gap: 3px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--grade);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.spread__band--none {
+  border-top-color: var(--border-strong);
+}
+
+.spread__letter {
+  font-size: 15px;
+  font-weight: 750;
+  color: var(--grade);
+  line-height: 1;
+}
+
+.spread__band--none .spread__letter {
+  color: var(--text-faint);
+}
+
+.spread__count {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.spread__range {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.spread__meaning {
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.45;
+}
+
+/* ── The per-device table ─────────────────────────────────────────────────── */
+.table__caption {
+  caption-side: top;
+  text-align: left;
+  padding: 9px 14px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  line-height: 1.5;
+  border-bottom: 1px solid var(--border);
+}
+
+.grades__grade {
+  width: 1%;
+}
+
+.grades__name {
+  display: block;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.grades__name:hover {
+  text-decoration: underline;
+}
+
+.grades__sub {
+  display: block;
+  margin-top: 2px;
+  font-size: 11.5px;
+  color: var(--text-faint);
+  text-transform: capitalize;
+}
+
+.grades__when {
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.readout__grade {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.readout__grade em {
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
 }

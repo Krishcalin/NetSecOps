@@ -124,7 +124,13 @@ def _value(field_value: Any) -> str:
     return field_value.value if hasattr(field_value, "value") else str(field_value)
 
 
-def _weight_of(severity: str) -> float:
+def severity_weight(severity: str) -> float:
+    """What one finding of this severity contributes, before any multiplier.
+
+    Public because it is the authority for more than the score: closure priority bands
+    are read off this same number (see `grading.py`), and a second copy of the ladder
+    would be free to drift from this one while both looked right.
+    """
     try:
         return float(Severity(severity).weight)
     except ValueError:
@@ -169,7 +175,7 @@ def score_device(
         severity = _value(result.severity)
         by_severity[severity] = by_severity.get(severity, 0) + 1
 
-        weight = _weight_of(severity)
+        weight = severity_weight(severity)
         if outcome == Outcome.WARNING.value:
             weight *= WARNING_FACTOR
         weighted += weight
@@ -179,7 +185,7 @@ def score_device(
         by_severity[severity] = by_severity.get(severity, 0) + 1
         kind = _value(getattr(finding, "kind", "unknown"))
         findings_by_kind[kind] = findings_by_kind.get(kind, 0) + 1
-        weighted += _weight_of(severity)
+        weighted += severity_weight(severity)
 
     multiplier = CRITICALITY_MULTIPLIER.get(_value(criticality), 1.0)
     total = weighted * multiplier
@@ -217,4 +223,5 @@ __all__ = [
     "RiskBreakdown",
     "roll_up",
     "score_device",
+    "severity_weight",
 ]

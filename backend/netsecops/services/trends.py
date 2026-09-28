@@ -25,7 +25,10 @@ offered. What is offered is the part that is exact:
   later undone is not in it, and `reopened` alongside says how much that is.
 * **Time to resolve** — from first sighting to the resolution that still stands, so a
   problem fixed twice is measured over the whole saga rather than the second attempt.
-* **Risk over time** — exact, because `risk_scores` is append-only.
+* **Risk over time** — exact, because `risk_scores` is append-only. Per device, and
+  for the whole estate: a score is a *level* that held until the next assessment
+  replaced it, so the estate series carries each device's last reading forward rather
+  than drawing a gap on the six days a week nobody assessed it.
 
 Making the open-count answerable needs an append-only transition log written wherever a
 finding changes state. That is a schema change and a write-path change across six
@@ -46,8 +49,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Scope
 from netsecops.db.models.collection import Finding, FindingSeverity, FindingStatus
-from netsecops.db.models.inventory import Device, DeviceGroupMember
+from netsecops.db.models.inventory import Device, DeviceGroupMember, DeviceStatus
 from netsecops.db.models.policy import RiskScore
+from netsecops.services.inventory import InventoryService
+from netsecops.services.risk import roll_up
 
 log = get_logger(__name__)
 
@@ -129,12 +134,56 @@ class RiskTrend:
         return "steady"
 
 
+@dataclass(frozen=True, slots=True)
+class EstateRiskPoint:
+    """The estate's risk as at the end of one day."""
+
+    day: date
+    #: `risk.roll_up` over every device's most recent score as at this day, or `None`
+    #: before any device in scope had ever been assessed. `None` rather than nought,
+    #: which would draw a clean estate where there was no estate yet.
+    score: int | None
+    #: How many devices the score is a roll-up of. A figure from three devices and one
+    #: from three hundred are not comparable, and a line that does not carry the
+    #: population invites exactly that comparison as the estate grows.
+    devices: int
+    #: Assessments recorded on this day. Nought means the score was carried forward
+    #: from an earlier reading, which is what a risk score does between assessments.
+    assessed: int
+
+
+@dataclass(frozen=True, slots=True)
+class EstateRiskTrend:
+    days: int
+    since: date
+    points: list[EstateRiskPoint]
+
+    @property
+    def direction(self) -> str:
+        """`improving`, `worsening`, `steady`, or `unknown` below two readings.
+
+        Measured between the first and last day that *have* a reading, not between the
+        ends of the window: a window that opens before the estate was first assessed
+        begins with nulls, and reading a direction off those would call every new
+        deployment "worsening" on the day it starts collecting data.
+        """
+        real = [p.score for p in self.points if p.score is not None]
+        if len(real) < 2:
+            return "unknown"
+        if real[-1] < real[0]:
+            return "improving"
+        if real[-1] > real[0]:
+            return "worsening"
+        return "steady"
+
+
 class TrendService:
     def __init__(self, session: AsyncSession, *, org_id: int = 1) -> None:
         self.session = session
         self.org_id = org_id
+        self.inventory = InventoryService(session)
 
-    def _scoped(
+    async def _restrict(
         self, statement: Select[Any], scope: Scope, group_id: uuid.UUID | None
     ) -> Select[Any]:
         """Narrow to the devices this caller may see, and to one group if asked.
@@ -142,24 +191,19 @@ class TrendService:
         Both are applied here rather than by the caller, because a trend is an aggregate
         — an unscoped one leaks the *shape* of devices a group-restricted operator
         cannot list, which is a slower version of leaking the devices.
-        """
-        # `select_from` explicitly: every statement here selects aggregates rather than
-        # entities, so SQLAlchemy has no column to infer the left side of the join from
-        # and refuses rather than guessing.
-        statement = (
-            statement.select_from(Finding)
-            .join(Device, Finding.device_id == Device.id)
-            .where(Device.org_id == self.org_id)
-        )
 
-        if not scope.unrestricted:
-            statement = statement.where(
-                Device.id.in_(
-                    select(DeviceGroupMember.device_id).where(
-                        DeviceGroupMember.group_id.in_(scope.device_group_ids)
-                    )
-                )
-            )
+        The scope half is `InventoryService`'s, not a local reimplementation. It was a
+        local one, and it differed: it matched a principal's groups exactly while the
+        inventory walks the `ltree` path and includes their descendants. An operator
+        scoped to a parent group therefore saw devices on every list page whose findings
+        were missing from every trend — and on a page that shows a trend beside a
+        per-device table, that is the same estate answered two ways.
+
+        The caller must have `devices` in the FROM; the restriction is a predicate on
+        `Device.id`.
+        """
+        statement = statement.where(Device.org_id == self.org_id)
+        statement = await self.inventory.scoped(statement, scope)
 
         if group_id is not None:
             statement = statement.where(
@@ -171,6 +215,19 @@ class TrendService:
             )
 
         return statement
+
+    async def _scoped(
+        self, statement: Select[Any], scope: Scope, group_id: uuid.UUID | None
+    ) -> Select[Any]:
+        """`_restrict` for the finding queries, which reach devices through a join."""
+        # `select_from` explicitly: every statement here selects aggregates rather than
+        # entities, so SQLAlchemy has no column to infer the left side of the join from
+        # and refuses rather than guessing.
+        return await self._restrict(
+            statement.select_from(Finding).join(Device, Finding.device_id == Device.id),
+            scope,
+            group_id,
+        )
 
     async def findings(
         self,
@@ -186,41 +243,41 @@ class TrendService:
         since_at = datetime.combine(since, datetime.min.time(), tzinfo=UTC)
 
         first_seen_day = func.date(Finding.first_seen_at)
+        seen_stmt = await self._scoped(
+            select(first_seen_day, Finding.severity, func.count()), scope, group_id
+        )
         seen_rows = (
             await self.session.execute(
-                self._scoped(
-                    select(first_seen_day, Finding.severity, func.count()), scope, group_id
+                seen_stmt.where(Finding.first_seen_at >= since_at).group_by(
+                    first_seen_day, Finding.severity
                 )
-                .where(Finding.first_seen_at >= since_at)
-                .group_by(first_seen_day, Finding.severity)
             )
         ).all()
 
         resolved_day = func.date(Finding.resolved_at)
+        resolved_stmt = await self._scoped(select(resolved_day, func.count()), scope, group_id)
         resolved_rows = (
             await self.session.execute(
-                self._scoped(select(resolved_day, func.count()), scope, group_id)
-                .where(
+                resolved_stmt.where(
                     Finding.resolved_at >= since_at,
                     Finding.status == FindingStatus.RESOLVED.value,
-                )
-                .group_by(resolved_day)
+                ).group_by(resolved_day)
             )
         ).all()
 
+        open_stmt = await self._scoped(select(Finding.severity, func.count()), scope, group_id)
         open_rows = (
             await self.session.execute(
-                self._scoped(select(Finding.severity, func.count()), scope, group_id)
-                .where(Finding.status.in_(FindingStatus.active_values()))
-                .group_by(Finding.severity)
+                open_stmt.where(Finding.status.in_(FindingStatus.active_values())).group_by(
+                    Finding.severity
+                )
             )
         ).all()
 
+        reopened_stmt = await self._scoped(select(func.count()), scope, group_id)
         reopened = (
             await self.session.execute(
-                self._scoped(select(func.count()), scope, group_id).where(
-                    Finding.status == FindingStatus.REOPENED.value
-                )
+                reopened_stmt.where(Finding.status == FindingStatus.REOPENED.value)
             )
         ).scalar_one()
 
@@ -278,17 +335,19 @@ class TrendService:
             / 86400.0
         )
 
+        stmt = await self._scoped(
+            select(
+                func.percentile_cont(0.5).within_group(elapsed),
+                func.avg(elapsed),
+                func.count(),
+            ),
+            scope,
+            group_id,
+        )
+
         row = (
             await self.session.execute(
-                self._scoped(
-                    select(
-                        func.percentile_cont(0.5).within_group(elapsed),
-                        func.avg(elapsed),
-                        func.count(),
-                    ),
-                    scope,
-                    group_id,
-                ).where(
+                stmt.where(
                     Finding.resolved_at >= since_at,
                     Finding.status == FindingStatus.RESOLVED.value,
                 )
@@ -342,6 +401,100 @@ class TrendService:
             ],
         )
 
+    async def estate_risk(
+        self,
+        *,
+        scope: Scope,
+        days: int = DEFAULT_DAYS,
+        group_id: uuid.UUID | None = None,
+        now: datetime | None = None,
+    ) -> EstateRiskTrend:
+        """The estate's risk score, day by day (FR-CHK-09).
+
+        `risk()` above answers this for one device. This is the same series for
+        everything in scope, and it needs two things that one does not.
+
+        **Carrying forward.** A risk score is a level, not an event: it held from the
+        assessment that produced it until the next one replaced it. So each day's
+        figure is a roll-up of every device's *most recent* score as at that day, which
+        means a device assessed once in January still counts in March. Without that,
+        a weekly-assessed estate would draw six empty days out of every seven and the
+        line would say the risk went away in between.
+
+        **A baseline.** The window's first day needs the last reading from *before* the
+        window, or a ninety-day chart of an estate assessed quarterly opens at nothing.
+        That is the second query, and it is why this cannot be one `GROUP BY`.
+
+        Scores are collapsed to one per device per day before the fold, so a device
+        reassessed five times on Tuesday contributes Tuesday's last reading rather than
+        five, and a burst of retries cannot pull the estate figure around.
+        """
+        days = max(1, min(days, MAX_DAYS))
+        now = now or datetime.now(UTC)
+        since = (now - timedelta(days=days - 1)).date()
+        since_at = datetime.combine(since, datetime.min.time(), tzinfo=UTC)
+
+        # The bare expression in DISTINCT ON and ORDER BY, its label only in the select
+        # list: Postgres matches DISTINCT ON against the leading ORDER BY terms, and a
+        # label on one side and not the other is not a match.
+        day_of = func.date(RiskScore.created_at)
+
+        def over_devices(*columns: Any) -> Select[Any]:
+            return (
+                select(*columns)
+                .select_from(RiskScore)
+                .join(Device, RiskScore.device_id == Device.id)
+                .where(Device.status == DeviceStatus.ACTIVE.value)
+            )
+
+        window_stmt = await self._restrict(
+            over_devices(RiskScore.device_id, day_of.label("day"), RiskScore.score),
+            scope,
+            group_id,
+        )
+        window_rows = (
+            await self.session.execute(
+                window_stmt.where(RiskScore.created_at >= since_at)
+                .distinct(RiskScore.device_id, day_of)
+                .order_by(RiskScore.device_id, day_of, RiskScore.created_at.desc())
+            )
+        ).all()
+
+        baseline_stmt = await self._restrict(
+            over_devices(RiskScore.device_id, RiskScore.score), scope, group_id
+        )
+        baseline_rows = (
+            await self.session.execute(
+                baseline_stmt.where(RiskScore.created_at < since_at)
+                .distinct(RiskScore.device_id)
+                .order_by(RiskScore.device_id, RiskScore.created_at.desc())
+            )
+        ).all()
+
+        by_day: dict[date, dict[uuid.UUID, int]] = {}
+        for device_id, day, score in window_rows:
+            by_day.setdefault(_as_date(day), {})[device_id] = int(score)
+
+        standing: dict[uuid.UUID, int] = {
+            device_id: int(score) for device_id, score in baseline_rows
+        }
+
+        points = []
+        for offset in range(days):
+            day = since + timedelta(days=offset)
+            todays = by_day.get(day, {})
+            standing.update(todays)
+            points.append(
+                EstateRiskPoint(
+                    day=day,
+                    score=roll_up(list(standing.values())) if standing else None,
+                    devices=len(standing),
+                    assessed=len(todays),
+                )
+            )
+
+        return EstateRiskTrend(days=days, since=since, points=points)
+
 
 def _as_date(value: object) -> date:
     """`func.date()` gives a `date` on asyncpg and a string on some drivers."""
@@ -357,6 +510,8 @@ __all__ = [
     "MAX_DAYS",
     "SEVERITIES",
     "DayPoint",
+    "EstateRiskPoint",
+    "EstateRiskTrend",
     "FindingTrend",
     "RiskPoint",
     "RiskTrend",

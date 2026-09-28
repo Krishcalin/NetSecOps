@@ -334,6 +334,14 @@ MATRIX: list[Case] = [
     Case("GET", "/api/v1/devices/{device_id}/checks", _CHECK_READERS),
     Case("GET", "/api/v1/devices/{device_id}/risk", _DEVICE_READERS),
     Case("GET", "/api/v1/devices/{device_id}/risk/history", _DEVICE_READERS),
+    # ── Estate risk: trend, closure priority, grades (FR-CHK-09, FR-FIND-03) ─
+    # The same reader set as the per-device risk endpoints above, because these are the
+    # same rows aggregated. All three are scoped to the caller's Device Groups inside
+    # `GradingService`/`TrendService`: a grade distribution or a P1 count over an estate
+    # a restricted operator cannot list is the shape of that estate, delivered slowly.
+    Case("GET", "/api/v1/risk/trend", _DEVICE_READERS),
+    Case("GET", "/api/v1/risk/priorities", _DEVICE_READERS),
+    Case("GET", "/api/v1/risk/grades", _DEVICE_READERS),
     Case("GET", "/api/v1/compliance/frameworks", _DEVICE_READERS),
     # Declared before "/compliance/{framework}" in the router for the same reason the
     # frameworks list is: otherwise "posture" is matched as a framework name.

@@ -17,6 +17,7 @@ from netsecops.api.v1 import (
     managers,
     notifications,
     reports,
+    risk,
     segmentation,
     settings,
     snapshots,
@@ -49,6 +50,14 @@ api_v1_router.include_router(snapshots.router)
 
 # Phase 3 — check library, policies, findings, exceptions, risk, compliance
 api_v1_router.include_router(checks.router)
+
+# Estate risk — the trend, the P1–P4 buckets and the A–F grades, all read off data
+# Phase 3 has been writing. Registered after checks because it reads the same rows from
+# the other end: that router answers "how is this device", this one "where does the
+# estate stand". Every path under `/risk/` is literal, so there is no UUID sibling to
+# shadow — and the per-device risk routes stay in checks.py under `/devices/{id}/`,
+# where they cannot collide with these.
+api_v1_router.include_router(risk.router)
 
 # Phase 4 — rulebase viewer and rule query. The manager-enumeration router is also
 # Phase 4 but is registered above, for the routing reason noted there.
