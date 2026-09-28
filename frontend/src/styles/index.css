@@ -2427,6 +2427,87 @@ code {
   margin-bottom: var(--gap);
 }
 
+/* ── the overview row ──────────────────────────────────────────────────────
+   The stat tiles beside the estate's direction rather than stacked above it.
+
+   The tile grid wraps, and its last row is part-empty at almost every width —
+   six tiles into four tracks leaves two of nothing, which was the largest dead
+   area on the front page. Narrowing the tiles' column to roughly three tracks
+   makes six of them two complete rows, and the space that freed is where the
+   trend chart now lives. Both problems are the same problem. */
+
+.overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr);
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+  /* Not `stretch`: the chart is shorter than two rows of tiles, and stretching it
+     puts a band of empty card under the line — trading one dead area for another. */
+  align-items: start;
+}
+
+.overview > .tiles,
+.overview > .card {
+  margin-bottom: 0;
+}
+
+/* One column below this. The breakpoint is where the left track can no longer hold
+   two tiles abreast: a single file of tiles beside a chart reads as two unrelated
+   pages rather than one row. */
+@media (max-width: 1080px) {
+  .overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.estaterisk__now {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.estaterisk__figure {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.estaterisk__score {
+  font-size: 28px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.estaterisk__of {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* The word, not a tint alone. Risk counts down here, so neither a colour nor an
+   arrow says which way is good without being read (WCAG 1.4.1). */
+.estaterisk__direction {
+  margin-left: auto;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--text-muted);
+}
+
+.estaterisk__direction--improving {
+  color: var(--sev-low);
+}
+
+.estaterisk__direction--worsening {
+  color: var(--sev-critical);
+}
+
 /* ── first-run checklist ──────────────────────────────────────────────────
    Shown instead of six zeroes on an empty estate. Each step ticks itself off
    from a real count, never from an assumption about what the operator did. */

@@ -37,6 +37,8 @@ import { Dial, DualBars, Panel, Readout, StackBar, StatTile } from '../component
 import { useAuth } from '../features/auth/useAuth';
 import { ROLE_LABELS } from '../features/auth/types';
 import type { FindingSummary, FindingTrend } from '../features/findings/types';
+import { GradePill, RiskLine } from '../features/risk/graphics';
+import { DIRECTION_LABELS, type EstateRiskTrend } from '../features/risk/types';
 import type { TopologySummary } from '../features/topology/types';
 import type { Matrix } from '../features/segmentation/types';
 import type { VulnerabilitySummary } from '../features/vulnerabilities/types';
@@ -120,6 +122,67 @@ function Step({ n, done, title, body, to, cta }: StepProps) {
         </NavLink>
       </div>
     </li>
+  );
+}
+
+/** Where the estate's risk has been, beside the counts rather than under them.
+ *
+ * The tile grid wraps, and on most widths the last row is part-empty — six tiles into
+ * four columns leaves two tracks of nothing, which is the largest dead area on the page.
+ * This sits in that space, so the layout is paid for by the one thing the tiles beside
+ * it cannot say: every figure in that grid is a level, and none of them distinguishes an
+ * estate that has been at forty criticals all year from one that was at four hundred in
+ * January.
+ *
+ * It draws the **same** line as the Risk Trends page, from the same component and the
+ * same endpoint. A dashboard that summarised the trend its own way would eventually
+ * disagree with the page it links to, and the reader would have no way to tell which
+ * was wrong.
+ *
+ * Kept deliberately shorter than the full page's chart: this is a glance that earns a
+ * click, not a replacement for the page, so the grade, the direction and the link out
+ * are what carry it.
+ */
+function EstateRiskPanel() {
+  const risk = useQuery({
+    queryKey: ['estate-risk', 90],
+    queryFn: () => api.get<EstateRiskTrend>('/risk/trend?days=90'),
+  });
+
+  if (risk.isError) return null;
+
+  const trend = risk.data;
+
+  return (
+    <section className="card">
+      <div className="card__header">
+        <h2 className="card__title">Estate risk</h2>
+        <NavLink className="button button--ghost button--small" to="/risk-trends">
+          Risk trends
+        </NavLink>
+      </div>
+
+      {trend ? (
+        <>
+          <div className="estaterisk__now">
+            <GradePill grade={trend.latest_grade} size="lg" />
+            <div className="estaterisk__figure">
+              {/* A dash, never a nought: zero on this scale is a clean estate, and an
+                  unassessed one must not borrow that. */}
+              <strong className="estaterisk__score">{trend.latest_score ?? '—'}</strong>
+              <span className="estaterisk__of">out of 100 · 0 is clean</span>
+            </div>
+            <span className={`estaterisk__direction estaterisk__direction--${trend.direction}`}>
+              {DIRECTION_LABELS[trend.direction] ?? DIRECTION_LABELS.unknown}
+            </span>
+          </div>
+
+          <RiskLine trend={trend} height={96} />
+        </>
+      ) : (
+        <p className="page-loading">Loading…</p>
+      )}
+    </section>
   );
 }
 
@@ -403,72 +466,80 @@ export function DashboardPage() {
         )}
       </div>
 
-      {/* ── the counts, each a link to the list that produced it ────────────── */}
-      <div className="tiles">
-        {may('finding:read') && (
-          <>
-            <StatTile
-              icon="alert"
-              label="Critical findings"
-              value={bySeverity?.critical}
-              to="/findings?severity=critical"
-              hint="Open, worst first"
-              tone="var(--sev-critical)"
-            />
-            <StatTile
-              icon="finding"
-              label="High findings"
-              value={bySeverity?.high}
-              to="/findings?severity=high"
-              hint="Open"
-              tone="var(--sev-high)"
-            />
-          </>
-        )}
+      {/* ── the counts, each a link to the list that produced it, beside the one
+             thing none of them can say: which way it is going ─────────────────
+             Two columns rather than two stacked full-width rows. The tile grid
+             wraps to a part-empty last row at almost every width, and that gap was
+             the largest dead area on the page; the trend now occupies it. */}
+      <div className="overview">
+        <div className="tiles">
+          {may('finding:read') && (
+            <>
+              <StatTile
+                icon="alert"
+                label="Critical findings"
+                value={bySeverity?.critical}
+                to="/findings?severity=critical"
+                hint="Open, worst first"
+                tone="var(--sev-critical)"
+              />
+              <StatTile
+                icon="finding"
+                label="High findings"
+                value={bySeverity?.high}
+                to="/findings?severity=high"
+                hint="Open"
+                tone="var(--sev-high)"
+              />
+            </>
+          )}
 
-        {may('vuln:read') && (
-          <>
-            <StatTile
-              icon="vulnerability"
-              label="Known exploited"
-              value={vulns.data?.kev_count}
-              to="/vulnerabilities?kev=true"
-              hint="In the CISA KEV catalogue"
-              tone="var(--sev-critical)"
-            />
-            <StatTile
-              icon="shield"
-              label="Confirmed matches"
-              value={vulns.data?.by_confidence?.confirmed}
-              to="/vulnerabilities?confidence=confirmed"
-              hint="Version and conditions both matched"
-              tone="var(--sev-high)"
-            />
-            {/* Beside the counts rather than under them: an empty vulnerability
+          {may('vuln:read') && (
+            <>
+              <StatTile
+                icon="vulnerability"
+                label="Known exploited"
+                value={vulns.data?.kev_count}
+                to="/vulnerabilities?kev=true"
+                hint="In the CISA KEV catalogue"
+                tone="var(--sev-critical)"
+              />
+              <StatTile
+                icon="shield"
+                label="Confirmed matches"
+                value={vulns.data?.by_confidence?.confirmed}
+                to="/vulnerabilities?confidence=confirmed"
+                hint="Version and conditions both matched"
+                tone="var(--sev-high)"
+              />
+              {/* Beside the counts rather than under them: an empty vulnerability
                 table and a fleet nobody assessed look identical from here. */}
-            <StatTile
-              icon="clock"
-              label="Never assessed"
-              value={vulns.data?.devices_unassessed}
-              to="/vulnerabilities"
-              hint="Devices with no assessment on record"
-              tone="var(--sev-medium)"
-            />
-          </>
-        )}
+              <StatTile
+                icon="clock"
+                label="Never assessed"
+                value={vulns.data?.devices_unassessed}
+                to="/vulnerabilities"
+                hint="Devices with no assessment on record"
+                tone="var(--sev-medium)"
+              />
+            </>
+          )}
 
-        {may('device:read') && (
-          <StatTile
-            icon="device"
-            label="Devices"
-            value={devices.data}
-            to="/inventory"
-            hint="In inventory"
-          />
-        )}
+          {may('device:read') && (
+            <StatTile
+              icon="device"
+              label="Devices"
+              value={devices.data}
+              to="/inventory"
+              hint="In inventory"
+            />
+          )}
+        </div>
+
+        {may('finding:read') && <EstateRiskPanel />}
       </div>
 
-      {/* ── the direction, which every count above is silent about ─────────── */}
+      {/* ── what was found and fixed, which a level cannot show ─────────────── */}
       {may('finding:read') && <TrendPanel />}
 
       {/* ── the panels: what the estate looks like, and what just happened ──── */}

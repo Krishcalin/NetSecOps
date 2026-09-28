@@ -16,7 +16,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -75,8 +75,32 @@ let trend: Record<string, unknown> = {
   total_resolved: 4,
 };
 
+/** The estate risk roll-up the front page now draws beside the tiles.
+ *
+ * Declared here rather than left to the catch-all at the bottom of `stubApi`, which
+ * answers `{data, meta}` to anything it does not recognise. That stub satisfied
+ * `trend !== undefined` and carried no `points`, and the chart threw on it — taking
+ * every other panel on the page down with it, which is how a missing branch here turned
+ * into nineteen unrelated failures.
+ */
+let estateRisk: Record<string, unknown> = {
+  days: 90,
+  since: '2026-07-01',
+  points: [
+    { day: '2026-09-25', score: 41, grade: 'D', devices: 42, assessed: 3 },
+    { day: '2026-09-26', score: 38, grade: 'D', devices: 42, assessed: 0 },
+    { day: '2026-09-27', score: 26, grade: 'C', devices: 42, assessed: 5 },
+  ],
+  direction: 'improving',
+  latest_score: 26,
+  latest_grade: 'C',
+};
+
 function stubApi() {
   vi.spyOn(api, 'get').mockImplementation(async (path: string) => {
+    if (path.startsWith('/risk/trend')) {
+      return estateRisk as never;
+    }
     if (path === '/vulnerabilities/summary') {
       return {
         total: 9,
@@ -178,6 +202,18 @@ describe('DashboardPage', () => {
       resolved_in_window: 4,
       total_first_seen: 4,
       total_resolved: 4,
+    };
+    estateRisk = {
+      days: 90,
+      since: '2026-07-01',
+      points: [
+        { day: '2026-09-25', score: 41, grade: 'D', devices: 42, assessed: 3 },
+        { day: '2026-09-26', score: 38, grade: 'D', devices: 42, assessed: 0 },
+        { day: '2026-09-27', score: 26, grade: 'C', devices: 42, assessed: 5 },
+      ],
+      direction: 'improving',
+      latest_score: 26,
+      latest_grade: 'C',
     };
     compliancePercent = 78.4;
     segmentationCells = [{ rule_id: 'r1' }];
@@ -464,7 +500,9 @@ describe('DashboardPage', () => {
       renderPage();
 
       expect(
-        await screen.findByText(/assessments have not run yet rather than that the estate is clean/),
+        await screen.findByText(
+          /assessments have not run yet rather than that the estate is clean/,
+        ),
       ).toBeInTheDocument();
     });
 
@@ -498,6 +536,83 @@ describe('DashboardPage', () => {
 
       await waitFor(() => {
         expect(screen.queryByRole('heading', { name: 'Ninety days' })).toBeNull();
+      });
+    });
+  });
+
+  describe('estate risk beside the counts', () => {
+    it('draws the line and names both ends in text', async () => {
+      renderPage();
+
+      // Awaited on the *content*, not on the heading: the card renders its header while
+      // the query is still in flight, so finding the heading proves only that the panel
+      // mounted.
+      //
+      // The figures are printed as well as plotted, so the chart survives greyscale
+      // and nobody reads a score off the slope (WCAG 1.4.1).
+      expect(await screen.findByText(/41 on/)).toBeInTheDocument();
+      expect(screen.getByText(/26 on/)).toBeInTheDocument();
+      expect(screen.getByRole('img', { name: /Estate risk from 41/ })).toBeInTheDocument();
+    });
+
+    it('shows the grade and the direction in words', async () => {
+      renderPage();
+
+      // Risk counts down, so a falling line is good news and neither a colour nor an
+      // arrow says which way is which without being read.
+      expect(await screen.findByText('improving')).toBeInTheDocument();
+      expect(screen.getByText('C')).toBeInTheDocument();
+    });
+
+    it('links to the page it is a summary of', async () => {
+      renderPage();
+      await screen.findByRole('heading', { name: 'Estate risk' });
+
+      expect(screen.getByRole('link', { name: 'Risk trends' })).toHaveAttribute(
+        'href',
+        '/risk-trends',
+      );
+    });
+
+    it('shows a dash for an unassessed estate, never a nought', async () => {
+      // Zero on this scale is a clean estate. A fleet nobody has looked at must not
+      // borrow the best score in the product.
+      estateRisk = {
+        days: 90,
+        since: '2026-07-01',
+        points: [{ day: '2026-09-27', score: null, grade: null, devices: 0, assessed: 0 }],
+        direction: 'unknown',
+        latest_score: null,
+        latest_grade: null,
+      };
+      renderPage();
+
+      expect(await screen.findByText(/nothing has looked/)).toBeInTheDocument();
+
+      // Scoped to this panel. A bare `queryByText('0')` also catches the severity bar's
+      // empty bands elsewhere on the page, which are real zeroes and entirely correct.
+      const panel = screen.getByRole('heading', { name: 'Estate risk' }).closest('.card')!;
+      expect(within(panel as HTMLElement).queryByText('0')).toBeNull();
+      expect(within(panel as HTMLElement).getAllByText('—').length).toBeGreaterThan(0);
+    });
+
+    it('survives a response with no points rather than taking the page with it', async () => {
+      // One chart throwing unmounts every panel beside it. The catch-all API stub
+      // produced exactly this shape and did precisely that, so the guard is real.
+      estateRisk = {};
+      renderPage();
+
+      expect(await screen.findByRole('heading', { name: 'Estate risk' })).toBeInTheDocument();
+      // The rest of the page is still there, which is the actual assertion.
+      expect(screen.getByRole('link', { name: /Critical findings/ })).toBeInTheDocument();
+    });
+
+    it('is not shown to someone who cannot read findings', async () => {
+      permissions = ['device:read'];
+      renderPage();
+
+      await waitFor(() => {
+        expect(screen.queryByRole('heading', { name: 'Estate risk' })).toBeNull();
       });
     });
   });

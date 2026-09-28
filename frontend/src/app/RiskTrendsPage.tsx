@@ -31,19 +31,14 @@ import { NavLink } from 'react-router-dom';
 import { api } from '../api/client';
 import { PageHeader } from '../components/PageHeader';
 import { DualBars, Panel, Readout, SummaryCell } from '../components/Graphics';
-import { Icon } from '../components/Icon';
-import {
-  CLASS_LABELS,
-  CLASS_SINGULAR,
-  DEVICE_CLASSES,
-} from '../features/inventory/types';
+import { CLASS_LABELS, CLASS_SINGULAR, DEVICE_CLASSES } from '../features/inventory/types';
+import { GradePill, RiskLine } from '../features/risk/graphics';
 import {
   DIRECTION_LABELS,
   GRADE_TONES,
   PRIORITY_TONES,
   type DeviceGrade,
   type EstateRiskTrend,
-  type Grade,
   type GradeReport,
   type MatrixCell,
   type Priority,
@@ -53,24 +48,6 @@ import type { FindingTrend } from '../features/findings/types';
 import { useUrlFilters } from './useUrlFilters';
 
 const WINDOW_DAYS = 90;
-
-/** The letter, at the size a letter deserves. */
-function GradePill({ grade, size = 'md' }: { grade: Grade | null; size?: 'md' | 'lg' }) {
-  if (grade === null) {
-    // Never assessed. A dash rather than a greyed-out letter, because a faint `A` is
-    // still an `A` to anybody skimming.
-    return (
-      <span className={`grade grade--${size} grade--none`} title="Never assessed">
-        —
-      </span>
-    );
-  }
-  return (
-    <span className={`grade grade--${size}`} style={{ '--grade': GRADE_TONES[grade] } as React.CSSProperties}>
-      {grade}
-    </span>
-  );
-}
 
 function PriorityTag({ code }: { code: Priority | null }) {
   if (code === null) return <span className="muted">—</span>;
@@ -86,112 +63,6 @@ function days(value: number | null): string {
   return value === 1 ? '1 day' : `${value.toLocaleString()} days`;
 }
 
-/** The estate's score over time, drawn as a line of daily readings.
- *
- * A line rather than bars, and that is the honest shape here: a risk score is a level
- * that held between assessments, so the space between two readings really was at that
- * value. Days before anything was assessed are a break in the line, never a nought —
- * a clean estate and no estate are opposite facts.
- */
-function RiskLine({ trend }: { trend: EstateRiskTrend }) {
-  const points = trend.points;
-  const real = points.filter((p) => p.score !== null);
-
-  if (real.length === 0) {
-    return (
-      <p className="empty">
-        No device in scope has been assessed yet, so there is no score to plot. That is not a
-        score of zero — nothing has looked.
-      </p>
-    );
-  }
-
-  const width = 640;
-  const height = 130;
-  const pad = 6;
-  const step = points.length > 1 ? width / (points.length - 1) : 0;
-  // The axis is the scale, not the data: 0–100 fixed, so a quiet month does not get
-  // magnified into a dramatic slope by an auto-fitted range.
-  const y = (score: number) => pad + ((100 - score) / 100) * (height - pad * 2);
-
-  // Each unbroken run is its own polyline, so a gap in the readings renders as a gap
-  // rather than as a straight line drawn across the days nobody measured.
-  const runs: { x: number; y: number }[][] = [];
-  let run: { x: number; y: number }[] = [];
-  points.forEach((point, index) => {
-    if (point.score === null) {
-      if (run.length) runs.push(run);
-      run = [];
-      return;
-    }
-    run.push({ x: index * step, y: y(point.score) });
-  });
-  if (run.length) runs.push(run);
-
-  const last = real[real.length - 1]!;
-  const first = real[0]!;
-
-  return (
-    <figure className="riskline">
-      <svg
-        className="riskline__plot"
-        viewBox={`0 0 ${width} ${height}`}
-        width="100%"
-        height={height}
-        preserveAspectRatio="none"
-        role="img"
-        aria-label={`Estate risk from ${first.score} on ${first.day} to ${last.score} on ${last.day}, ${DIRECTION_LABELS[trend.direction]}.`}
-      >
-        {/* Quarter lines, so a reader can place a value without a printed axis. */}
-        {[0, 25, 50, 75, 100].map((mark) => (
-          <line
-            key={mark}
-            x1={0}
-            x2={width}
-            y1={y(mark)}
-            y2={y(mark)}
-            className={mark === 0 || mark === 100 ? 'riskline__edge' : 'riskline__rule'}
-          />
-        ))}
-        {runs.map((coords, index) => (
-          <polyline
-            key={index}
-            className="riskline__line"
-            fill="none"
-            points={coords.map((c) => `${c.x},${c.y}`).join(' ')}
-          />
-        ))}
-        {runs.length > 0 && (
-          <circle
-            className="riskline__head"
-            cx={runs[runs.length - 1]!.at(-1)!.x}
-            cy={runs[runs.length - 1]!.at(-1)!.y}
-            r={4}
-          />
-        )}
-      </svg>
-      <figcaption className="riskline__caption">
-        {/* Both ends in text, so the figure is never estimated off the line, and the
-            population with them — a score from three devices and one from three
-            hundred are not comparable. */}
-        <span>
-          {first.score} on {new Date(first.day).toLocaleDateString()}
-        </span>
-        <span className="riskline__arrow" aria-hidden="true">
-          <Icon name="arrow-right" size={13} />
-        </span>
-        <span>
-          {last.score} on {new Date(last.day).toLocaleDateString()}
-        </span>
-        <span className="riskline__pop">
-          across {last.devices.toLocaleString()} assessed{' '}
-          {last.devices === 1 ? 'device' : 'devices'}
-        </span>
-      </figcaption>
-    </figure>
-  );
-}
-
 /** The grid the priorities were bucketed with, exactly as the server computed it. */
 function PriorityMatrix({ cells }: { cells: MatrixCell[] }) {
   const severities = [...new Set(cells.map((c) => c.severity))];
@@ -205,9 +76,9 @@ function PriorityMatrix({ cells }: { cells: MatrixCell[] }) {
     <div className="matrix-wrap">
       <table className="matrix">
         <caption className="matrix__caption">
-          Finding severity down, device criticality across. Each cell is the severity
-          weight times the criticality multiplier — the same product the risk score is
-          summed from — and the band it reaches.
+          Finding severity down, device criticality across. Each cell is the severity weight times
+          the criticality multiplier — the same product the risk score is summed from — and the band
+          it reaches.
         </caption>
         <thead>
           <tr>
@@ -230,9 +101,7 @@ function PriorityMatrix({ cells }: { cells: MatrixCell[] }) {
                     {cell && (
                       <span
                         className="matrix__cell"
-                        style={
-                          { '--ptag': PRIORITY_TONES[cell.priority] } as React.CSSProperties
-                        }
+                        style={{ '--ptag': PRIORITY_TONES[cell.priority] } as React.CSSProperties}
                       >
                         <strong>{cell.priority}</strong>
                         <em>{cell.weight}</em>
@@ -260,8 +129,8 @@ function GradeRow({ device }: { device: DeviceGrade }) {
           {device.hostname ?? device.mgmt_ip}
         </NavLink>
         <span className="grades__sub">
-          {CLASS_SINGULAR[device.device_class] ?? device.device_class} ·{' '}
-          {device.criticality} criticality
+          {CLASS_SINGULAR[device.device_class] ?? device.device_class} · {device.criticality}{' '}
+          criticality
         </span>
       </td>
       <td className="num">{device.score ?? <span className="muted">not assessed</span>}</td>
@@ -389,11 +258,10 @@ export function RiskTrendsPage() {
           <p className="empty">Loading the risk history…</p>
         )}
         <p className="panel__note">
-          One point per day, carrying each device&rsquo;s most recent reading forward — a
-          risk score is a level that held until the next assessment replaced it, not an
-          event on the day it was computed. The estate figure is weighted towards the
-          worst device, so one bad firewall is not averaged away by a hundred clean
-          switches.
+          One point per day, carrying each device&rsquo;s most recent reading forward — a risk score
+          is a level that held until the next assessment replaced it, not an event on the day it was
+          computed. The estate figure is weighted towards the worst device, so one bad firewall is
+          not averaged away by a hundred clean switches.
         </p>
       </Panel>
 
@@ -421,15 +289,14 @@ export function RiskTrendsPage() {
               downTone="var(--sev-low)"
             />
             <p className="panel__note">
-              Bars, not a line: these are events on a day rather than a level that
-              persisted through it. &ldquo;Closed for good&rdquo; counts only resolutions
-              that still stand — reopening a finding clears its resolution date, so a fix
-              later undone is not in it.{' '}
+              Bars, not a line: these are events on a day rather than a level that persisted through
+              it. &ldquo;Closed for good&rdquo; counts only resolutions that still stand — reopening
+              a finding clears its resolution date, so a fix later undone is not in it.{' '}
               {findings.data.reopened_now > 0 && (
                 <strong>
                   {findings.data.reopened_now.toLocaleString()}{' '}
-                  {findings.data.reopened_now === 1 ? 'finding has' : 'findings have'} come
-                  back, which is the size of what this series cannot see.
+                  {findings.data.reopened_now === 1 ? 'finding has' : 'findings have'} come back,
+                  which is the size of what this series cannot see.
                 </strong>
               )}
             </p>
@@ -565,8 +432,8 @@ export function RiskTrendsPage() {
               <div className="table-wrap">
                 <table className="table grades">
                   <caption className="table__caption">
-                    Worst first. A device with no score has no letter — the only true
-                    statement about it is that nobody has looked.
+                    Worst first. A device with no score has no letter — the only true statement
+                    about it is that nobody has looked.
                   </caption>
                   <thead>
                     <tr>
@@ -595,8 +462,8 @@ export function RiskTrendsPage() {
               // that looks like the estate and is the top of it.
               <p className="panel__note">
                 Showing the worst {report.devices.length.toLocaleString()} of{' '}
-                {report.total_devices.toLocaleString()} devices. The distribution and the
-                estate grade above cover all of them.
+                {report.total_devices.toLocaleString()} devices. The distribution and the estate
+                grade above cover all of them.
               </p>
             )}
           </>
