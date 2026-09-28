@@ -39,6 +39,7 @@ import type {
 } from '../features/checks/types';
 import { SEVERITY_ORDER, OUTCOME_LABELS } from '../features/checks/types';
 import type { Device, Paginated } from '../features/inventory/types';
+import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 
 /** Seeded into the draft editor. Deliberately a complete, runnable check rather than an
@@ -232,6 +233,9 @@ function CheckLibrary({ devices }: { devices: Device[] }) {
   const [platform, setPlatform] = useState('');
   const [framework, setFramework] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+  // `expanded` is the id, not the row: the dialog outlives a filter change that would
+  // drop the row from `rows`, and holding the object would leave it rendering a check
+  // the table no longer lists.
 
   const checks = useQuery({
     queryKey: ['checks', platform, framework],
@@ -359,9 +363,15 @@ function CheckLibrary({ devices }: { devices: Device[] }) {
                   <td className="table__actions">
                     <button
                       className="button button--ghost button--small"
-                      onClick={() => setExpanded(expanded === check.id ? null : check.id)}
+                      // No longer a toggle. The detail opens over the table instead of
+                      // below it, so there is nothing left on screen for a second press
+                      // to hide — the dialog's own Close is the way out, and a button
+                      // that says "Hide" while a dialog covers it names the wrong
+                      // control.
+                      onClick={() => setExpanded(check.id)}
+                      aria-haspopup="dialog"
                     >
-                      {expanded === check.id ? 'Hide' : 'Details'}
+                      Details
                     </button>
                   </td>
                 </tr>
@@ -378,13 +388,25 @@ function CheckLibrary({ devices }: { devices: Device[] }) {
         </div>
       )}
 
+      {/* Over the table rather than under it.
+
+          The detail used to render as a card below a list that is hundreds of rows
+          long, so pressing Details on a row near the bottom appended a panel further
+          down still — off screen, with nothing to say it had opened. A dialog puts the
+          answer where the question was asked.
+
+          `wide`, because this panel is a table of devices and their results. The
+          default measure is capped for prose and would squeeze those columns into the
+          truncation the dialog exists to escape. */}
       {expanded && (
-        <section className="card">
-          <div className="card__header">
-            <h2 className="card__title">{rows.find((c) => c.id === expanded)?.title}</h2>
-          </div>
+        <Modal
+          label={rows.find((c) => c.id === expanded)?.title ?? 'Check detail'}
+          size="wide"
+          onClose={() => setExpanded(null)}
+        >
+          <CheckHeading check={rows.find((c) => c.id === expanded)} />
           <CheckDetailPanel key={expanded} checkId={expanded} devices={devices} />
-        </section>
+        </Modal>
       )}
     </section>
   );
@@ -611,8 +633,8 @@ function DraftCheck({ devices }: { devices: Device[] }) {
         </select>
         <span className="field__help">
           An expression check asks one question of the parsed configuration. A golden config
-          compares the device against blocks of lines that must be present or absent — the shape
-          to use for a build standard, which no shipped check can express. Choosing one replaces
+          compares the device against blocks of lines that must be present or absent — the shape to
+          use for a build standard, which no shipped check can express. Choosing one replaces
           everything in the editor.
         </span>
       </label>
@@ -674,6 +696,50 @@ function DraftCheck({ devices }: { devices: Device[] }) {
 }
 
 // ─────────────────────────────── page ────────────────────────────────────────
+
+/** What the row said, repeated inside the dialog that covers it.
+ *
+ * The dialog sits over the table, so without this the reader has the check's results
+ * and not the check — its id, how bad it is, and what it applies to are all on the row
+ * now hidden behind the panel.
+ *
+ * Deliberately *not* the description, rationale or remediation: `CheckDetailPanel`
+ * already renders all three, and a heading that repeated the description put the same
+ * sentence on screen twice.
+ */
+function CheckHeading({ check }: { check: CheckSummary | undefined }) {
+  if (!check) return null;
+
+  const appliesTo =
+    check.platforms.length > 0
+      ? check.platforms.join(', ')
+      : check.vendors.length > 0
+        ? check.vendors.join(', ')
+        : 'any device';
+
+  const frameworks = Object.entries(check.frameworks).filter(([, ids]) => ids.length > 0);
+
+  return (
+    <header className="dialog__head">
+      <h2 className="dialog__title">{check.title}</h2>
+      <p className="dialog__sub">
+        <span className="mono">{check.id}</span> · <span>{check.severity}</span> · applies to{' '}
+        {appliesTo}
+      </p>
+      {frameworks.length > 0 && (
+        <p className="dialog__sub">
+          {/* The mapping is the reason a check exists on a lot of estates, and it was
+              reachable only from the compliance page. */}
+          {frameworks.map(([framework, ids]) => (
+            <span key={framework} className="pill">
+              {framework}: {ids.join(', ')}
+            </span>
+          ))}
+        </p>
+      )}
+    </header>
+  );
+}
 
 export function ChecksPage() {
   const { can } = useAuth();

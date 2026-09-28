@@ -315,4 +315,73 @@ describe('ChecksPage', () => {
       );
     });
   });
+
+  describe('the detail dialog', () => {
+    /** It used to render as a card *below* a table hundreds of rows long, so pressing
+     *  Details near the bottom appended a panel further down still — off screen, with
+     *  nothing to say it had opened. */
+    it('opens over the table rather than below it', async () => {
+      renderPage();
+      await userEvent.click(await firstDetailsButton());
+
+      const dialog = await screen.findByRole('dialog', {
+        name: 'SSH is restricted to version 2',
+      });
+      expect(dialog).toBeInTheDocument();
+    });
+
+    it('repeats what the row said, because the row is now covered', async () => {
+      renderPage();
+      await userEvent.click(await firstDetailsButton());
+
+      const dialog = await screen.findByRole('dialog');
+      // The id, the severity and what it applies to are all on the row the dialog now
+      // covers. The description is deliberately not repeated here — CheckDetailPanel
+      // renders it, and the first draft put the same sentence on screen twice.
+      expect(within(dialog).getByText(CHECK.id)).toBeInTheDocument();
+      expect(within(dialog).getByText(/applies to cisco_ios/)).toBeInTheDocument();
+      expect(within(dialog).getAllByText(new RegExp(CHECK.description))).toHaveLength(1);
+    });
+
+    it('closes on the Close button', async () => {
+      renderPage();
+      await userEvent.click(await firstDetailsButton());
+      await screen.findByRole('dialog');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    });
+
+    it('closes on Escape, so it is not a trap without a mouse', async () => {
+      renderPage();
+      await userEvent.click(await firstDetailsButton());
+      await screen.findByRole('dialog');
+
+      await userEvent.keyboard('{Escape}');
+
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    });
+
+    it('gives focus back to the row that opened it', async () => {
+      // Closing unmounts whatever was focused, which drops focus to <body> and
+      // restarts a keyboard user at the top of a very long table.
+      renderPage();
+      const trigger = await firstDetailsButton();
+      await userEvent.click(trigger);
+      await screen.findByRole('dialog');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+      await waitFor(() => expect(document.activeElement).toBe(trigger));
+    });
+
+    it('no longer offers Hide, which would name a control the dialog covers', async () => {
+      renderPage();
+      await userEvent.click(await firstDetailsButton());
+      await screen.findByRole('dialog');
+
+      expect(screen.queryByRole('button', { name: 'Hide' })).toBeNull();
+    });
+  });
 });
