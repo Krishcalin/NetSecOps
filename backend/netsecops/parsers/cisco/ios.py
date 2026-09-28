@@ -934,7 +934,135 @@ class CiscoIosParser(CiscoStyleParser):
             wireless.rogue_detection["enabled"] = not rogue.text.strip().startswith("no ")
             result.record("wireless.rogue_detection", line=self.line_number(rogue))
 
+        self._parse_autonomous_ssids(parse, result)
         self._parse_ap_summary(result)
+
+    def _parse_autonomous_ssids(self, parse: CiscoConfParse, result: ParseResult) -> None:
+        """SSIDs on a standalone Aironet or Mobility Express AP (SRS §1.3.1).
+
+        A *lightweight* AP holds no configuration — its controller does — but an
+        autonomous one holds all of it, and nothing else in the estate knows what is on
+        it. It runs IOS, so it is onboarded as `cisco_ios` with the `wireless_ap` device
+        class; only the WLAN syntax is different, and it is different in a way that
+        matters:
+
+        ```
+        dot11 ssid Guest
+         vlan 20
+         authentication open
+         guest-mode
+        !
+        interface Dot11Radio0
+         encryption vlan 20 mode ciphers tkip
+         ssid Guest
+        ```
+
+        **The cipher is not on the SSID.** It is on the radio interface, keyed by VLAN,
+        so classifying an SSID means joining two blocks through a number that appears in
+        neither as a label. That is the AireOS trap — "assembles it from three separate
+        lines joined by a numeric id" — in a second place, and a parser that read only
+        the `dot11 ssid` block would call a WEP network open.
+
+        **An SSID is broadcast only if it says so**, which is the opposite of the 9800.
+        `guest-mode`, or `mbssid guest-mode` where MBSSID is on, puts the SSID in the
+        beacon; without either it is hidden. Absence is a fact here rather than silence,
+        because the whole block was parsed.
+
+        **An SSID bound to no radio is not on the air.** `enabled` reflects the binding,
+        so a leftover definition reads as configured-and-off rather than as a live
+        network somebody should be told about.
+
+        Known limit, stated rather than guessed at: **WPA2 with TKIP is reported as
+        plain WPA2.** `Wlan` carries no cipher field, and filling one here alone would
+        leave it null on the 9800 and on AireOS — where null would read as "no TKIP" on
+        a controller that has it. Representing it properly means all three parsers.
+        """
+        blocks = parse.find_objects(r"^dot11\s+ssid\s+\S")
+        if not blocks:
+            return
+
+        wireless = result.ncm.wireless
+        vlan_ciphers, radio_cipher, bound = self._radio_encryption(parse, result)
+
+        for obj in blocks:
+            match = re.match(r"^dot11\s+ssid\s+(\S+)", obj.text.strip())
+            if match is None:
+                continue
+
+            start, end = self.family_range(obj)
+            children = [child.text.strip() for child in obj.all_children]
+            name = match.group(1)
+            vlan = self._first_int(children, r"^vlan\s+(\d+)")
+            cipher = vlan_ciphers.get(vlan, radio_cipher) if vlan is not None else radio_cipher
+
+            wireless.wlans.append(
+                Wlan(
+                    ssid=name,
+                    enabled=name in bound,
+                    security=_autonomous_security(children, cipher),
+                    # Autonomous IOS has no PMF and no 802.11r on these releases. None,
+                    # not False: the AP cannot answer the question, and False would say
+                    # it answered no.
+                    pmf=None,
+                    fast_transition=None,
+                    radius_group=_first_capture(children, r"^authentication network-eap\s+(\S+)"),
+                    broadcast=any(line in {"guest-mode", "mbssid guest-mode"} for line in children),
+                    # Client isolation is `bridge-group <n> port-protected` on the radio
+                    # interface, not on the SSID, and a radio carries several SSIDs — so
+                    # there is no honest per-SSID answer to read.
+                    client_isolation=None,
+                    vlan=vlan,
+                )
+            )
+            result.record(f"wireless.wlans.{len(wireless.wlans) - 1}", line=start, line_end=end)
+            result.consume(start, end)
+
+    def _radio_encryption(
+        self, parse: CiscoConfParse, result: ParseResult
+    ) -> tuple[dict[int, str], str | None, set[str]]:
+        """Ciphers and SSID bindings from the `Dot11Radio` interfaces.
+
+        Returns the per-VLAN cipher, the radio-wide one, and the set of SSIDs bound to
+        any radio. The interface blocks themselves are left for `_parse_interfaces`;
+        this only reads across them.
+        """
+        vlan_ciphers: dict[int, str] = {}
+        radio_cipher: str | None = None
+        bound: set[str] = set()
+
+        for obj in parse.find_objects(r"^interface\s+Dot11Radio"):
+            for child in obj.all_children:
+                line = child.text.strip()
+
+                if ssid := re.match(r"^ssid\s+(\S+)", line):
+                    bound.add(ssid.group(1))
+                    continue
+
+                # `encryption [vlan <id>] mode {ciphers <list> | wep <mode>}`. The two
+                # spellings are one command, and WEP is the one that must not be missed.
+                encryption = re.match(
+                    r"^encryption(?:\s+vlan\s+(\d+))?\s+mode\s+(ciphers|wep)\s+(.+)$", line
+                )
+                if encryption is None:
+                    continue
+
+                kind = "wep" if encryption.group(2) == "wep" else encryption.group(3).strip()
+                if encryption.group(1) is None:
+                    radio_cipher = kind
+                else:
+                    vlan_ciphers[int(encryption.group(1))] = kind
+
+        if vlan_ciphers or radio_cipher:
+            result.record("wireless.wlans", line=1)
+        return vlan_ciphers, radio_cipher, bound
+
+    @staticmethod
+    def _first_int(children: list[str], pattern: str) -> int | None:
+        compiled = re.compile(pattern)
+        for line in children:
+            if match := compiled.match(line):
+                return int(match.group(1))
+        return None
 
     #: One row of `show ap summary`. Anchored on the two tokens whose *shape* is
     #: unambiguous rather than on column positions, because the columns are neither
@@ -1283,6 +1411,50 @@ class CiscoIosParser(CiscoStyleParser):
 # All five read the negated form explicitly. On a 9800 the interesting states are
 # usually the negated ones — `no security wpa` is what makes a WLAN open — so a rule
 # that only matched the positive form would leave exactly the finding unrecorded.
+
+
+def _first_capture(children: list[str], pattern: str) -> str | None:
+    compiled = re.compile(pattern)
+    for line in children:
+        if match := compiled.match(line):
+            return match.group(1)
+    return None
+
+
+def _autonomous_security(children: list[str], cipher: str | None) -> str | None:
+    """Classify a `dot11 ssid` block, using the cipher its radio assigns to its VLAN.
+
+    Ordered by what is worst. WEP first, because an SSID can carry
+    `authentication open` *and* WEP — open authentication is WEP's normal pairing, and
+    reading the authentication line alone would call it an open network when it is a
+    broken encrypted one. Both are findings; they are not the same finding.
+
+    WPA1 collapses regardless of how it is keyed, matching the AireOS classifier and
+    for the reason stated there: it is broken either way, so the distinction is not
+    worth a second vocabulary entry. `wlan-no-legacy-encryption` matches the exact
+    strings `wep` and `wpa1`, so anything finer here would pass a check it should fail.
+
+    Returns None on incomplete evidence rather than guessing. An SSID reported as
+    protected when it is open is the one outcome nobody looks at twice.
+    """
+    if cipher == "wep" or (cipher and "wep" in cipher):
+        return "wep"
+
+    version = _first_capture(children, r"^authentication key-management wpa(?:\s+version\s+(\d))?")
+    keyed = any(line.startswith("authentication key-management wpa") for line in children)
+
+    if not keyed:
+        # No key management at all. `authentication open` then means exactly that.
+        return "open" if any(line.startswith("authentication open") for line in children) else None
+
+    # A bare `authentication key-management wpa` with no version is WPA1.
+    if version == "2":
+        if any(line.startswith("wpa-psk") for line in children):
+            return "wpa2-psk"
+        if any(line.startswith("authentication network-eap") for line in children):
+            return "wpa2-ent"
+        return "wpa2"
+    return "wpa1"
 
 
 def _ninenine_flag(children: list[str], pattern: str) -> bool | None:

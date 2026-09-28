@@ -453,7 +453,14 @@
     "users.name",
     "users.privilege",
     "users.secret_type",
-    "users.weak_hash"
+    "users.weak_hash",
+    "wireless.wlans",
+    "wireless.wlans.broadcast",
+    "wireless.wlans.enabled",
+    "wireless.wlans.radius_group",
+    "wireless.wlans.security",
+    "wireless.wlans.ssid",
+    "wireless.wlans.vlan"
   ],
   "cisco_ise": [
     "aaa_server.admin_mfa_enabled",

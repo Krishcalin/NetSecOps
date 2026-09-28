@@ -91,8 +91,8 @@ of one thing:
 | **AireOS controller** | 5520 / 8540 / vWLC | `show run-config commands` — a command *list*, not a config file | **Built.** `cisco_wlc_aireos`, full policy/profile/parser, WLANs **and** APs |
 | **Catalyst 9800** | IOS-XE 16.10+ | Ordinary IOS-XE running-config, with wireless sub-modes | **WLANs parsed.** No AP list, no profile or tag parsing; six approved show commands never issued |
 | **EWC on AP** | Catalyst AP acting as controller | Identical IOS-XE syntax to the 9800 | Same as the 9800 |
-| **Lightweight AP** | CAPWAP, joined to a controller | *None of its own* — the controller holds it | Not represented |
-| **Autonomous AP** | Aironet / Mobility Express, IOS | Its own running-config | Not represented |
+| **Lightweight AP** | CAPWAP, joined to a controller | *None of its own* — the controller holds it | Listed in the controller's NCM; no inventory row of its own |
+| **Autonomous AP** | Aironet / Mobility Express, IOS | Its own running-config | **Built.** `dot11 ssid` parsing on `cisco_ios`; no platform key needed |
 
 Two consequences fall straight out of that table.
 
@@ -404,8 +404,8 @@ read) — and `tests/test_platform_keys.py` fails when they disagree.
 
 | Work | New platform keys | Registries | Parser | NCM | Checks | Device classes |
 |---|---|---|---|---|---|---|
-| Catalyst 9800 / EWC | `cisco_c9800` | 3, two of them aliases | extend IOS | `wireless.aps` exists | reuse 5, add ~4 | exists |
-| Autonomous AP | `cisco_ap_ios` | 3 | new | `wireless` exists | reuse | exists |
+| ~~Catalyst 9800 / EWC~~ **done** | `cisco_c9800` | 3, two of them aliases | extend IOS | `wireless.aps` exists | reuse 5, add ~4 | exists |
+| ~~Autonomous AP~~ **done** | none needed | — | extend IOS | `wireless` exists | reuse 5 | exists |
 | Lightweight AP inventory | — | — | — | — | — | exists |
 | Radware Alteon | `radware_alteon` | 3 + deny-list fix | new | reuse `management`/`snmp`/… | reuse `common/`, add TLS | **new: `load_balancer`** |
 | Barracuda WAF | `barracuda_waf` | 3 | new | **new: `waf`** | new family | **new: `waf`** |
@@ -441,6 +441,8 @@ Recorded because the reasoning is the valuable part, and each of these looks rea
 |---|---|
 | Collect from lightweight APs over SSH | They hold no configuration of their own. Device contact that returns the controller's settings second-hand, or nothing. |
 | A separate `cisco_ewc` platform | Same image, same syntax as the 9800. Two parsers that must stay identical is a divergence waiting to happen. |
+| A `cisco_ap_ios` platform for autonomous APs | Proposed on this page and dropped while building it. A standalone Aironet *is* an IOS device — same allow-list, same parser, same 43 checks, and its SSIDs are in the running configuration the IOS profile already collects. It needs no command that is not already approved, so a platform key would buy a name and cost a fourth registry entry to keep in step. It is `cisco_ios` with `device_class: wireless_ap`. |
+| A `cipher` field on `Wlan`, for WPA2-with-TKIP | Real weakness, and filling it for the autonomous parser alone would leave it null on the 9800 and AireOS — where null reads as "no TKIP" on a controller that has it. Representing it means all three parsers or none. |
 | Model WAF services as `SecurityRule` | The rulebase analyser would then report shadowing and permissiveness on them. Every one of those conclusions would be meaningless, and they would look exactly like the real ones. |
 | Build the Alteon REST adapter first | Not one endpoint path is publicly documented; the CLI's are. Building the REST path from the on-device catalogue means the allow-list cannot be reviewed before somebody has an appliance. |
 | An `/cfg/<subtree>` allow-list entry for Alteon | The placeholder charset includes `/`, so one entry would admit the whole configuration tree. |

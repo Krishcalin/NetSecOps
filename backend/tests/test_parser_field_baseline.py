@@ -61,6 +61,10 @@ class Sample:
 SAMPLES: list[Sample] = [
     Sample("cisco_ios", FIXTURES / "cisco/ios/17.9/hardened_switch.cfg"),
     Sample("cisco_ios", FIXTURES / "cisco/ios/15.2/weak_switch.cfg"),
+    # A standalone Aironet is an IOS device with `dot11 ssid` blocks, so it is the only
+    # `cisco_ios` sample that fills the `wireless` section — and the only one that
+    # exercises the join between an SSID's VLAN and its radio's cipher.
+    Sample("cisco_ios", FIXTURES / "cisco/ios/15.3/autonomous_ap.cfg"),
     Sample("cisco_c9800", FIXTURES / "cisco/c9800/17.9/wlc_9800.cfg"),
     Sample("cisco_nxos", FIXTURES / "cisco/nxos/10.3/dc_switch.cfg"),
     Sample("cisco_nxos", FIXTURES / "cisco/nxos/9.3/edge_n3k.cfg"),
