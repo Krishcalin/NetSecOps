@@ -43,12 +43,19 @@ const FOCUSABLE =
 export function Modal({
   label,
   onClose,
+  size = 'default',
   children,
 }: {
   /** What a screen reader announces on arrival. The dialog has no visible title of
    *  its own — the content supplies that — so this is the only name it gets. */
   label: string;
   onClose: () => void;
+  /** `wide` for a dialog holding a table rather than prose.
+   *
+   *  The default is capped at a comfortable reading measure, which is right for a
+   *  finding's description and wrong for five columns of figures — those get narrower
+   *  as the cap bites, which is the truncation the dialog was opened to escape. */
+  size?: 'default' | 'wide';
   children: ReactNode;
 }) {
   const panel = useRef<HTMLDivElement>(null);
@@ -124,7 +131,7 @@ export function Modal({
       }}
     >
       <div
-        className="modal__panel"
+        className={size === 'wide' ? 'modal__panel modal__panel--wide' : 'modal__panel'}
         role="dialog"
         aria-modal="true"
         aria-label={label}

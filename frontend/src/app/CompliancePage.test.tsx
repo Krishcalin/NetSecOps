@@ -218,6 +218,98 @@ describe('CompliancePage', () => {
     });
   });
 
+  describe('the breakdown opens in a dialog', () => {
+    /** It expanded inside the card, and the cards are a grid — so a five-column table
+     *  got a third of the page, the control names wrapped to four lines and the check
+     *  ids truncated. The three figures the table exists for were the ones squeezed. */
+
+    it('is a dialog rather than a region below the card', async () => {
+      renderPage();
+      const trigger = await screen.findByRole('button', { name: /Show the 61 controls/ });
+
+      // `aria-haspopup`, and deliberately not `aria-expanded`: this reveals content
+      // somewhere else, and `aria-expanded` would send a screen-reader user looking
+      // underneath the button for a region that is not there.
+      expect(trigger).toHaveAttribute('aria-haspopup', 'dialog');
+      expect(trigger).not.toHaveAttribute('aria-expanded');
+
+      await userEvent.click(trigger);
+
+      expect(await screen.findByRole('dialog', { name: 'CIS Benchmarks controls' })).toBeInTheDocument();
+    });
+
+    it('repeats the card’s figures, because it covers the card', async () => {
+      // Opening the breakdown must not cost the reader the number it breaks down.
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Show the 61 controls/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByRole('heading', { name: 'CIS Benchmarks' })).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(/70 checks mapped to 61 controls, assessed on 650 devices/),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText('49%')).toBeInTheDocument();
+    });
+
+    it('says nothing has been decided rather than showing a percentage of nothing', async () => {
+      // The same distinction the card makes. A framework with no verdicts has no
+      // figure, and `0%` would report it as total failure.
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Show the 9 controls/ }));
+
+      const dialog = await screen.findByRole('dialog');
+      expect(within(dialog).getByText(/Nothing has produced a verdict yet/)).toBeInTheDocument();
+      expect(within(dialog).queryByText('0%')).toBeNull();
+    });
+
+    it('is wide, because the truncation was the point', async () => {
+      // The default width is a reading measure. A five-column table inside it is the
+      // shape the dialog was opened to escape, so this one asks for the wide panel.
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Show the 61 controls/ }));
+
+      expect(await screen.findByRole('dialog')).toHaveClass('modal__panel--wide');
+    });
+
+    it('closes, and puts focus back on the control that opened it', async () => {
+      renderPage();
+      const trigger = await screen.findByRole('button', { name: /Show the 61 controls/ });
+      await userEvent.click(trigger);
+
+      await userEvent.click(await screen.findByRole('button', { name: 'Close' }));
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      // Without this a keyboard user restarts at the top of the document, several
+      // frameworks above the one they were reading.
+      expect(trigger).toHaveFocus();
+    });
+
+    it('opens the framework that was asked for, not the first one', async () => {
+      // Every card carries the same button label shape. A dialog keyed off the wrong
+      // card would show a plausible table of somebody else's controls.
+      renderPage();
+
+      await userEvent.click(await screen.findByRole('button', { name: /Show the 9 controls/ }));
+
+      expect(await screen.findByRole('dialog')).toHaveAccessibleName('CERT-In controls');
+      await waitFor(() => {
+        expect(vi.mocked(api.get).mock.calls.map((call) => call[0])).toContain(
+          '/compliance/cert_in',
+        );
+      });
+    });
+
+    it('opens one framework at a time', async () => {
+      // Each card owns its own open state. Two dialogs stacked would trap focus in
+      // whichever mounted last and leave the other unreachable behind it.
+      renderPage();
+      await userEvent.click(await screen.findByRole('button', { name: /Show the 61 controls/ }));
+      await screen.findByRole('dialog');
+
+      expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    });
+  });
+
   describe('a control with many checks', () => {
     /** Fifteen check ids joined by commas were wider than the screen, so the three
      *  figures the row exists for — passed, failed, not evaluated — were pushed off
@@ -233,9 +325,9 @@ describe('CompliancePage', () => {
       const row = await openControls();
 
       expect(within(row).getByText('aaa-control-check-number-1')).toBeInTheDocument();
-      expect(within(row).getByText('aaa-control-check-number-3')).toBeInTheDocument();
-      expect(within(row).queryByText('aaa-control-check-number-4')).toBeNull();
-      expect(within(row).getByRole('button', { name: '+12 more' })).toBeInTheDocument();
+      expect(within(row).getByText('aaa-control-check-number-8')).toBeInTheDocument();
+      expect(within(row).queryByText('aaa-control-check-number-9')).toBeNull();
+      expect(within(row).getByRole('button', { name: '+7 more' })).toBeInTheDocument();
     });
 
     it('keeps the figures beside them, which is what the row is for', async () => {
@@ -250,7 +342,7 @@ describe('CompliancePage', () => {
     it('shows all of them when asked, and folds them back', async () => {
       const row = await openControls();
 
-      await userEvent.click(within(row).getByRole('button', { name: '+12 more' }));
+      await userEvent.click(within(row).getByRole('button', { name: '+7 more' }));
       expect(within(row).getByText('aaa-control-check-number-15')).toBeInTheDocument();
 
       await userEvent.click(within(row).getByRole('button', { name: 'show fewer' }));
@@ -269,6 +361,11 @@ describe('CompliancePage', () => {
         'aaa-control-check-number-1',
         'aaa-control-check-number-2',
         'aaa-control-check-number-3',
+        'aaa-control-check-number-4',
+        'aaa-control-check-number-5',
+        'aaa-control-check-number-6',
+        'aaa-control-check-number-7',
+        'aaa-control-check-number-8',
       ]);
     });
 

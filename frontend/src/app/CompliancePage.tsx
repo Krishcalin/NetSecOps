@@ -17,6 +17,13 @@
  * reading `0 / 0 / 650` is visually indistinguishable from a clean one, and on the
  * screen this replaced it sat directly beneath controls that genuinely passed.
  *
+ * **The breakdown opens in a dialog, not underneath the card.** The cards are a grid,
+ * so expanding in place gave a five-column table a third of the page: control names
+ * wrapped to four lines, check ids truncated, and the three figures the table exists
+ * for were squeezed to nothing. A dialog is the width of the window however many
+ * frameworks are on screen beside it, and the card's headline figures are repeated
+ * inside it because it covers the card they came from.
+ *
  * **The percentage stays, unlike MonitorRisk's.** That product refuses one in as many
  * words, and is right to: it maps *findings* onto controls, and the absence of a
  * finding is not evidence of compliance. NetSecOps runs checks that return an explicit
@@ -31,6 +38,7 @@ import { useQuery } from '@tanstack/react-query';
 
 import { api, ApiError } from '../api/client';
 import { Icon } from '../components/Icon';
+import { Modal } from '../components/Modal';
 import { PageHeader } from '../components/PageHeader';
 
 /** Three bands, not a gradient. A percentage of decided checks does not support finer
@@ -96,8 +104,13 @@ function stateOf(control: FrameworkControl): 'failing' | 'passing' | 'unevaluate
  * Some controls map to fifteen. Rendered as one comma-run they were wider than the
  * screen, which pushed Passed, Failed and Not evaluated off the right-hand edge — so
  * the column of supporting detail hid the three numbers the page exists to show, and
- * reading them meant scrolling a table sideways. */
-const CHECKS_SHOWN = 3;
+ * reading them meant scrolling a table sideways.
+ *
+ * Eight rather than the three this started at. The table used to expand inside a card
+ * in a grid, where the column was a third of the page; it opens in a dialog now and
+ * has the width to show most controls' checks outright. The fold stays for the few
+ * that map more than that — a row eight lines tall stops being a row. */
+const CHECKS_SHOWN = 8;
 
 /** The checks behind a control, as chips rather than a sentence of slugs.
  *
@@ -263,21 +276,51 @@ function FrameworkCard({ posture }: { posture: FrameworkPosture }) {
         </div>
       </dl>
 
+      {/* Opens a dialog rather than expanding in place. These cards sit in a grid, so
+          "in place" meant a five-column table inside a third of the page: the control
+          names wrapped to four lines, the check ids truncated, and the three figures
+          the table exists for were squeezed to nothing. A dialog is the full width of
+          the window regardless of how many frameworks are on screen beside it.
+
+          `aria-haspopup`, not `aria-expanded`: this reveals a dialog somewhere else,
+          not a region below itself, and `aria-expanded` would tell a screen-reader
+          user to look underneath for content that is not there. */}
       <button
         type="button"
-        className={open ? 'framework__toggle framework__toggle--open' : 'framework__toggle'}
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
+        className="framework__toggle"
+        onClick={() => setOpen(true)}
+        aria-haspopup="dialog"
         disabled={posture.controls === 0}
       >
-        {/* One glyph, rotated when open. The icon set has a single chevron, and two
-            near-identical entries would be a worse answer than a transform. */}
         <Icon name="chevron" size={14} />
-        {open ? 'Hide' : 'Show'} the {posture.controls} control
-        {posture.controls === 1 ? '' : 's'}
+        Show the {posture.controls} control{posture.controls === 1 ? '' : 's'}
       </button>
 
-      {open && <ControlTable framework={posture.key} />}
+      {open && (
+        <Modal label={`${name} controls`} size="wide" onClose={() => setOpen(false)}>
+          {/* The card's own figures repeat inside the dialog. It covers the card it
+              was opened from, so without them the reader has the breakdown and not
+              the number it breaks down. */}
+          <header className="dialog__head">
+            <h2 className="dialog__title">{name}</h2>
+            <p className="dialog__sub">
+              {posture.checks} check{posture.checks === 1 ? '' : 's'} mapped to{' '}
+              {posture.controls} control{posture.controls === 1 ? '' : 's'}, assessed on{' '}
+              {posture.device_count.toLocaleString()} device
+              {posture.device_count === 1 ? '' : 's'}.{' '}
+              {percent === null ? (
+                'Nothing has produced a verdict yet.'
+              ) : (
+                <>
+                  <strong style={{ color: complianceTone(percent) }}>{percent}%</strong> of
+                  decided checks pass — Not Applicable and Not Evaluated are in neither half.
+                </>
+              )}
+            </p>
+          </header>
+          <ControlTable framework={posture.key} />
+        </Modal>
+      )}
     </section>
   );
 }

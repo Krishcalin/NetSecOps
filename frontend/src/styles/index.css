@@ -3186,9 +3186,41 @@ code {
   padding: 20px 22px 22px;
 }
 
+/* For a dialog holding a table rather than prose. The default cap is a reading
+   measure, which squeezes five columns of figures back into the shape the dialog was
+   opened to escape. The gutter stays at 16px either side at every width. */
+.modal__panel--wide {
+  width: min(105rem, 100%);
+}
+
 .modal__panel:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+
+/* A dialog's own heading. The card it covers carried these figures, and the dialog
+   sits on top of it, so they are repeated rather than remembered. */
+.dialog__head {
+  margin: 0 0 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.dialog__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.dialog__sub {
+  margin: 4px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--text-muted);
+  /* Prose, so it stops at a measure rather than running the full width of a dialog
+     sized for a table. */
+  max-width: 68ch;
 }
 
 /* Top right, which is where every dialog on every platform puts it — and sticky, so
@@ -3340,22 +3372,19 @@ code {
   cursor: default;
 }
 
+/* The chevron points right and stays there. It used to rotate to mark the expanded
+   state, and there is no expanded state any more — the controls open in a dialog, so
+   the card never changes shape and a glyph that turned would be announcing something
+   that did not happen. Pointing right is what a control that goes somewhere does. */
 .framework__toggle svg {
-  transition: transform 120ms ease;
+  flex: none;
 }
 
-.framework__toggle--open svg {
-  transform: rotate(90deg);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .framework__toggle svg {
-    transition: none;
-  }
-}
-
-.framework .table-wrap {
-  margin-top: 12px;
+/* The control table inside the dialog. The border and shadow come off because the
+   panel already draws both, and a second frame a pixel inside the first is the thing
+   `.card .table-wrap` exists to avoid one level up. */
+.modal__panel .table-wrap {
+  margin-top: 4px;
   box-shadow: none;
 }
 
