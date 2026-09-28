@@ -434,6 +434,51 @@ PANOS = PlatformPolicy(
     ),
 )
 
+# ──────────────────── Radware Alteon (link load balancer) ───────────────────
+
+#: SRS §1.3.1. Read over SSH, and the CLI is a *menu tree* rather than a verb language,
+#: which makes this the most dangerous allow-list in the file to get wrong.
+#:
+#: **Every Alteon write is a path under `/cfg/`.** `/cfg/sys/ssnmp/wcomm` sets the SNMP
+#: write community; `/cfg/dump` prints the configuration. One leaf apart, and neither
+#: begins with a verb — so the global deny-list, which is anchored on write verbs, saw
+#: nothing to object to until `/cfg/(?!dump\b)` was added to it for exactly this
+#: platform. That is layer 3. This is layer 2, and the two are deliberately redundant.
+#:
+#: **Never write an entry of the form `/cfg/<arg>`.** The placeholder charset includes
+#: `/`, so a single such entry would admit the entire configuration tree in one token.
+#: Every entry below is a literal.
+#:
+#: `cc` is preferred over `/cfg/dump` where it suffices: Radware documents it as
+#: "configuration dump without keys and certificates", so the redaction happens on the
+#: appliance before the data crosses the network rather than in our parser afterwards.
+#: It is the only command in this file with that property. Both are listed because
+#: which one the profile should use cannot be settled without a real appliance — see
+#: docs/new-device-families.md.
+RADWARE_ALTEON = PlatformPolicy(
+    platform="radware_alteon",
+    commands=(
+        CommandRule(
+            "/cfg/dump",
+            note="Prints the configuration. Lives inside the configuration tree, which "
+            "is why DENY_PATTERN carries a /cfg/ rule — see readonly.py",
+        ),
+        CommandRule(
+            "cc",
+            note="Radware: 'configuration dump without keys and certificates'. Vendor-side "
+            "redaction, preferred over /cfg/dump where it carries what the checks need",
+        ),
+        *_cmds(
+            "/info/sys",
+            "/info/sys/general",
+            "/info/slb",
+            "/info/slb/dump",
+            "/info/link",
+            "/info/l3",
+        ),
+    ),
+)
+
 # ────────────────── Check Point Management API (POST-only) ──────────────────
 
 CHECKPOINT_MGMT = PlatformPolicy(
@@ -520,6 +565,7 @@ POLICIES: Final[dict[str, PlatformPolicy]] = {
         FORTIGATE,
         FORTIMANAGER,
         FORTIAUTHENTICATOR,
+        RADWARE_ALTEON,
         CHECKPOINT_MGMT,
         CHECKPOINT_GAIA,
         CHECKPOINT_GAIA_EXPERT,

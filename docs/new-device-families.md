@@ -310,16 +310,43 @@ matters, in the order an assessor would ask:
 The honest scope is **1 and 2 for v1, 3 noted, 4 as inventory**. Point 1 alone is most of
 the value and rests entirely on parsing a configuration dump we can obtain.
 
-### Unresolved
+### What shipped, and where it stopped
 
-- Whether `cc` or `/cfg/dump` should be the `yields_config` command. `cc` is safer;
-  `/cfg/dump` is the one every Radware operator knows. **Needs a capture of both from a
-  real appliance** to see whether `cc` omits anything the checks need.
-- The exact REST endpoint paths. Not knowable without a device or a support login. **The
-  CLI path is the one to build first** for exactly this reason: every command above is
-  publicly documented, and not one REST object is.
-- Whether Alteon's CLI pages its output, and what disables it. Every CLI platform in this
-  product needs a `session_only` paging command and Alteon's could not be confirmed.
+**Shipped**: the read-only allow-list (`RADWARE_ALTEON` in `policies.py`) and the
+deny-list rule that makes layer 3 reach this platform at all. Both are built entirely
+from publicly documented commands, and a security reviewer can read and approve them
+today. `test_alteon_readonly.py` holds both layers.
+
+**Not shipped: the collection profile and the parser**, and not because they were left
+for later. A profile implies a parser — `test_platform_keys` enforces it, because a
+platform that collects and cannot be read is assessed against an empty configuration
+and passes everything — and **no sample of Alteon's `cc` or `/cfg/dump` output exists
+in public documentation**. Three sources were tried on 2026-09-28: Radware's own
+support answers ("Partial content displayed, please Sign In"), `cmdref.net`, which
+documents the commands and shows no output, and a community cheat sheet, which has
+none either.
+
+A parser written from a guessed line format would not fail. It would report every
+Alteon in the estate as having no SNMP communities, no local users and no syslog
+target — which is indistinguishable from a clean appliance. That is the failure this
+page opens by warning about, and building it anyway to have something to show would be
+the worst available outcome.
+
+**One artefact unblocks it**: the output of `cc` from any Alteon, redacted or not — the
+command's whole point is that the appliance has already removed the keys and
+certificates. A `/cfg/dump` beside it would settle the second question below.
+
+### Still unresolved
+
+- Whether `cc` omits anything the management-plane checks need, compared with
+  `/cfg/dump`. The profile is written to prefer `cc` for its vendor-side redaction, and
+  that preference is only safe if it carries SNMP, users, SSH and syslog.
+- The exact REST endpoint paths. Not knowable without a device or a support login,
+  which is why the CLI is the path to build first.
+- Whether Alteon's CLI pages its output, and what disables it. Every other CLI platform
+  here has a `session_only` paging command; Alteon's spelling could not be confirmed
+  and **none was invented** — a `session_only` entry is a command waved past the
+  deny-list, and this is the platform where that guard is thinnest.
 
 ---
 
@@ -349,6 +376,17 @@ policies, certificates, administrative users and system settings are not establi
 and must not be guessed — this is the ISE `admin/settings` divergence recorded in
 `vendor-research.md` §4a, which is still open, and it cost a permanently empty NCM
 section.
+
+A service's *create* parameters are documented — `name`, `ip_address`, `port`, `type`,
+`address_version`, `vsite`, `group` — and a REST API usually returns what it accepts,
+so those field names are a reasonable inference. **They are an inference.** And the
+field that matters most is not among them: nothing found names the key that says
+whether a service is in **passive/monitor or active/block mode**, which is the single
+most important fact about a WAF and the one a parser exists to read.
+
+**Same position as Alteon, for the same reason.** One artefact unblocks it: the body of
+`GET /restapi/v3.2/services` from any WAF, and ideally one service's full object. Until
+then the honest state is a documented transport and no parser.
 
 ### The read-only shape, and why it is the Check Point case again
 

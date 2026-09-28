@@ -589,6 +589,11 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ise": CISCO_ISE_PROFILE,
     "fortios": FORTIOS_PROFILE,
     "panos": PANOS_PROFILE,
+    # `radware_alteon` has a read-only allow-list and deliberately no profile yet: a
+    # profile implies a parser (`test_platform_keys`), and no sample of Alteon's `cc`
+    # output exists in public documentation to write one against. See
+    # docs/new-device-families.md — a parser built on guessed field names does not
+    # fail, it reports "not configured" for ever.
     "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,
     "checkpoint_gaia": CHECKPOINT_GAIA_PROFILE,
     "fortiauthenticator": FORTIAUTHENTICATOR_PROFILE,

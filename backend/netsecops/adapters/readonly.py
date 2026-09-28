@@ -80,6 +80,15 @@ PIPE: Final[str] = "|"
 #: is consulted *first*, so an unlisted ``diagnose`` command never reaches this pattern at
 #: all. Widening a ``diagnose`` allow-list entry on the strength of this lookahead would
 #: be relying on a guard that does not exist.
+#: Radware Alteon is why the last alternative exists. Every other platform here writes
+#: with a verb at the start of the command, which is what this anchored pattern catches.
+#: Alteon writes by *navigating a menu tree*: `/cfg/sys/ssnmp/wcomm` sets the SNMP write
+#: community, and `/cfg/dump` prints the configuration. They differ by a leaf, and
+#: neither starts with a verb — so without `/cfg/`, layer 3 fires on nothing Alteon can
+#: send and the allow-list is the only control left on the one platform where a typo
+#: costs the most.
+#:
+#: `dump` is the single exception, and it is a whole-word one: `/cfg/dumpfoo` is denied.
 DENY_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"^(?:"
     r"conf(?:igure)?(?:\s+t(?:erminal)?)?"
@@ -88,6 +97,7 @@ DENY_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"|ping|traceroute|exec\s|execute\s"
     r"|diagnose\s(?!sys|hardware)"
     r"|no\s|shutdown|boot"
+    r"|/cfg/(?!dump\b)"
     r"|end$"
     r")",
     re.IGNORECASE,
