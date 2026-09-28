@@ -659,6 +659,69 @@ class Neighbour(NcmBase):
     capabilities: list[str] = Field(default_factory=list)
 
 
+class RealServer(NcmBase):
+    """A back-end a load balancer sends traffic to."""
+
+    id: str
+    address: str | None = None
+    enabled: bool | None = None
+    port: int | None = None
+
+
+class ServerGroup(NcmBase):
+    """A named set of real servers a virtual service balances across."""
+
+    id: str
+    members: list[str] = Field(default_factory=list)
+    health_check: str | None = None
+
+
+class VirtualService(NcmBase):
+    """One listener on a virtual server: a port, a service type, a back-end group.
+
+    `service` is the vendor's own word — `http`, `https`, `ssl`, `ftp` — kept unmapped
+    because the interesting question is whether the *listener* terminates cleartext, and
+    normalising `http` and `https` into a boolean would lose which of several services
+    on one VIP was the cleartext one.
+    """
+
+    port: int | None = None
+    service: str | None = None
+    group: str | None = None
+    real_port: int | None = None
+    ssl_policy: str | None = None
+
+
+class VirtualServer(NcmBase):
+    """A VIP and everything published on it.
+
+    **This is a load balancer's attack surface**, and it is the one thing about an
+    ADC that no other NCM section can hold: the addresses the estate publishes to the
+    world, and what is listening on each. An interface address says where the device
+    is; a VIP says what it offers.
+    """
+
+    id: str
+    address: str | None = None
+    enabled: bool | None = None
+    services: list[VirtualService] = Field(default_factory=list)
+
+
+class LoadBalancer(NcmBase):
+    """Server load balancing (SRS §1.3.1).
+
+    Populated only on a device that balances — an Alteon, an F5 — and empty everywhere
+    else, the same way `aaa_server` is empty on everything that is not an AAA service.
+    A check that reads this section is scoped by device class for that reason, rather
+    than reporting Not Evaluated on every switch in the estate.
+    """
+
+    enabled: bool | None = None
+    virtual_servers: list[VirtualServer] = Field(default_factory=list)
+    real_servers: list[RealServer] = Field(default_factory=list)
+    groups: list[ServerGroup] = Field(default_factory=list)
+
+
 class Layer2(NcmBase):
     vlans: list[Vlan] = Field(default_factory=list)
     spanning_tree: SpanningTree = Field(default_factory=SpanningTree)
@@ -1065,6 +1128,9 @@ class NormalisedConfig(NcmBase):
     snmp: Snmp = Field(default_factory=Snmp)
     interfaces: list[Interface] = Field(default_factory=list)
     l2: Layer2 = Field(default_factory=Layer2)
+    #: Server load balancing. Empty on everything that does not balance, like
+    #: `aaa_server` and `wireless` before it.
+    load_balancer: LoadBalancer = Field(default_factory=LoadBalancer)
     routing: Routing = Field(default_factory=Routing)
     acls: list[Acl] = Field(default_factory=list)
     firewall: Firewall = Field(default_factory=Firewall)

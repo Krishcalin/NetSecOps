@@ -156,6 +156,18 @@ DECLARED_UNISSUED: dict[tuple[str, str], str] = {
         ("linux_aaa", command): _NOT_TRIAGED
         for command in ("freeradius -v", "ss -lntup", "cat /etc/os-release")
     },
+    # Alteon gained a profile on 2026-09-28. These four are approved and deliberately
+    # still unissued, which is a different thing from untriaged.
+    ("radware_alteon", "/cfg/dump"): (
+        "Deliberate. `cc` is the same configuration with keys and certificates removed "
+        "by the appliance, and the profile asks for that instead. This stays approved "
+        "as the fallback for firmware too old to offer `cc`, and issuing both would "
+        "read every private key on the box for no additional fact."
+    ),
+    **{
+        ("radware_alteon", command): _NOT_TRIAGED
+        for command in ("/info/sys", "/info/slb/dump", "/info/link")
+    },
 }
 
 #: Platforms whose read-only contract exists and which nothing collects from. Legal —
@@ -164,10 +176,9 @@ POLICIES_WITHOUT_A_PROFILE: dict[str, str] = {
     "cisco_iosxr": "Approved in SRS §1.3 and never built. No parser either.",
     "cisco_ftd_fmc": "Firepower via FMC, approved and not built.",
     "fortimanager": "Used for child enumeration (children.py), which is not a collection.",
-    "radware_alteon": (
-        "Deliberate, 2026-09-28. No sample of `cc` output exists in public "
-        "documentation to write a parser against — see docs/new-device-families.md."
-    ),
+    # `radware_alteon` was here until a verified published `/cfg/dump` supplied the menu
+    # format its parser is written against. It now has a profile and a parser, so the
+    # declaration went stale and this sweep said so on the same run that made it true.
     "barracuda_waf": (
         "Deliberate, 2026-09-28. Only `services` is a confirmed object path and nothing "
         "names the field that says whether a service blocks or logs."
@@ -301,8 +312,10 @@ class TestTheBacklogIsVisible:
 
     def test_the_declared_backlog_is_the_size_it_says(self) -> None:
         # 61 when the sweep was written; 58 once CDP and LLDP were issued on both
-        # platforms. The number moving is the point.
-        assert len(DECLARED_UNISSUED) == 58
+        # platforms; 62 when Alteon gained a profile, which added four of its own
+        # approved-and-unissued commands to the backlog. The number moving in both
+        # directions is the point — closing one gap opened a smaller one, visibly.
+        assert len(DECLARED_UNISSUED) == 62
 
     def test_most_of_it_is_honestly_untriaged(self) -> None:
         # Stated rather than hidden behind invented per-command reasons. Writing a
@@ -310,4 +323,4 @@ class TestTheBacklogIsVisible:
         # decision nobody made is worse than an open question somebody can see.
         untriaged = [k for k, reason in DECLARED_UNISSUED.items() if reason is _NOT_TRIAGED]
 
-        assert len(untriaged) == 56
+        assert len(untriaged) == 59

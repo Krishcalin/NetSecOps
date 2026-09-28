@@ -47,6 +47,10 @@ PLATFORM_DIRS: dict[str, str] = {
     "linux/freeradius": "freeradius",
     "linux/tacplus": "tac_plus",
     "paloalto/panos": "panos",
+    # An ADC, and the first platform whose configuration is a menu tree rather than a
+    # stanza list. It belongs in the sweep for the ordinary reason: a parser nothing
+    # exercises is one whose output could go inert without anybody finding out.
+    "radware/alteon": "radware_alteon",
 }
 
 

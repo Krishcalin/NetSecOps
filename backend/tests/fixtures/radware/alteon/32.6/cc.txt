@@ -1,0 +1,113 @@
+script start "Alteon Application Switch" 4  /**** DO NOT EDIT THIS LINE!
+/* Configuration dump taken 14:02:55 Mon Sep 21, 2026
+/* Version 32.6.3.0, Base MAC address 00:03:b2:aa:bb:cc
+
+/c/sys/mmgmt
+	dhcp disabled
+	addr 10.136.1.100
+	mask 255.255.255.0
+	broad 10.136.1.255
+	gw 10.136.1.254
+	ena
+/c/sys
+	idle 15
+	hprompt ena
+/c/sys/ssnmp
+	name "lb-core-01"
+	rcomm "public"
+	wcomm "Str0ngW!"
+	loca "Rack 4, DC1"
+/c/sys/access/sshd/ena
+/c/sys/access/sshd/on
+/c/sys/access/telnet
+	dis
+/c/sys/access/http
+	dis
+/c/sys/access/https
+	ena
+/c/sys/ntp
+	on
+	prisrv 10.136.1.10
+	secsrv 10.136.1.11
+	tzone Europe/London
+/c/sys/syslog
+	host 10.136.1.20
+	host2 10.136.1.21
+	sever 6
+/c/sys/radius
+	on
+	prisrv 10.136.1.30
+	secsrv 10.136.1.31
+	port 1812
+	secret
+/c/sys/user/uid 1
+	name "netops"
+	cos oper
+	ena
+/c/sys/user/uid 2
+	name "auditor"
+	cos user
+	ena
+/c/l3/if 1
+	ena
+	ipver v4
+	addr 10.136.85.100
+	mask 255.255.255.0
+	broad 10.136.85.255
+	vlan 85
+/c/l3/if 2
+	ena
+	ipver v6
+	addr fc00:85:0:0:0:0:0:100
+	mask 64
+/c/l3/gw 1
+	ena
+	ipver v4
+	addr 10.136.85.254
+/c/slb
+	on
+/c/slb/real 1
+	ena
+	ipver v4
+	rip 10.136.85.1
+/c/slb/real 2
+	ena
+	ipver v4
+	rip 10.136.85.2
+/c/slb/real 3
+	dis
+	ipver v4
+	rip 10.136.85.3
+/c/slb/group 10
+	ipver v4
+	health tcp
+	add 1
+	add 2
+	add 3
+/c/slb/port 1
+	client ena
+	server ena
+	proxy ena
+/c/slb/virt 10
+	ena
+	ipver v4
+	vip 10.136.85.10
+/c/slb/virt 10/service 80 http
+	group 10
+	rport 80
+/c/slb/virt 10/service 80 http/pip
+	mode address
+	addr v4 10.136.85.200 255.255.255.255 persist disable
+/c/slb/virt 10/service 443 https
+	group 10
+	rport 443
+	sslpol strict-tls12
+/c/slb/virt 20
+	ena
+	ipver v4
+	vip 10.136.85.20
+/c/slb/virt 20/service 23 telnet
+	group 10
+	rport 23
+/
+script end  /**** DO NOT EDIT THIS LINE!

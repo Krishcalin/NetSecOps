@@ -22,6 +22,7 @@ from netsecops.parsers.fortinet.fortios import FortiOsParser
 from netsecops.parsers.linux.freeradius import FreeRadiusParser
 from netsecops.parsers.linux.tacplus import TacPlusParser
 from netsecops.parsers.paloalto.panos import PanOsParser
+from netsecops.parsers.radware.alteon import RadwareAlteonParser
 
 PARSERS: Final[dict[str, type[ConfigParser]]] = {
     "cisco_ios": CiscoIosParser,
@@ -48,6 +49,9 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     # platforms rather than one parser guessing which it was handed.
     "checkpoint_mgmt": CheckPointMgmtParser,
     "checkpoint_gaia": CheckPointGaiaParser,
+    # An ADC, so it is the first platform to fill `load_balancer`. Its menu-path dump is
+    # unlike anything else here and has its own parser rather than a syntax flag.
+    "radware_alteon": RadwareAlteonParser,
     # AAA servers (FR-AAA-02 … FR-AAA-04). These fill `aaa_server` rather than `aaa`:
     # they are the service the estate authenticates *against*, not a consumer of it.
     "fortiauthenticator": FortiAuthenticatorParser,

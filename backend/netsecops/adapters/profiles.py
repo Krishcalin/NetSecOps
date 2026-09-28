@@ -587,6 +587,31 @@ CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
     ),
 )
 
+#: Radware Alteon ADC (SRS §1.3.1).
+#:
+#: `cc` leads and `/cfg/dump` is the fallback, which is the order Radware's own note in
+#: `policies.py` argues for: `cc` is "configuration dump without keys and certificates",
+#: so the appliance redacts before the data ever leaves it. Both are approved; taking
+#: the redacting one first means the unredacted dump is only ever read where the
+#: appliance is too old to offer the other.
+RADWARE_ALTEON_PROFILE: Final = CollectionProfile(
+    platform="radware_alteon",
+    # Nothing. Alteon's CLI does not page `cc` output, and every paging command on this
+    # platform's allow-list would be a write to the session for no benefit.
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "cc",
+            "The configuration, with keys and certificates removed by the appliance",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand("/info/sys/general", "Version, model and serial, for CVE matching"),
+        CollectionCommand("/info/l3", "Live layer-3 state, including the routing table"),
+        CollectionCommand("/info/slb", "Which real servers are actually up"),
+    ),
+)
+
 #: IOS-XE shares IOS's configuration syntax and its command set.
 PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ios": CISCO_IOS_PROFILE,
@@ -600,11 +625,10 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ise": CISCO_ISE_PROFILE,
     "fortios": FORTIOS_PROFILE,
     "panos": PANOS_PROFILE,
-    # `radware_alteon` has a read-only allow-list and deliberately no profile yet: a
-    # profile implies a parser (`test_platform_keys`), and no sample of Alteon's `cc`
-    # output exists in public documentation to write one against. See
-    # docs/new-device-families.md — a parser built on guessed field names does not
-    # fail, it reports "not configured" for ever.
+    # No longer profile-less. A verified published `/cfg/dump` supplied the menu-path
+    # format the parser is written against — see `parsers/radware/alteon.py`, which
+    # records that it has still never met real hardware.
+    "radware_alteon": RADWARE_ALTEON_PROFILE,
     "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,
     "checkpoint_gaia": CHECKPOINT_GAIA_PROFILE,
     "fortiauthenticator": FORTIAUTHENTICATOR_PROFILE,

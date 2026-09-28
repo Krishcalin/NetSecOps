@@ -244,6 +244,24 @@ Worth adding, in order of what an assessment would actually turn up:
 
 ## Radware Alteon — link load balancing
 
+> **Update, 2026-09-28 — this is no longer blocked.** A verified published `/cfg/dump`
+> supplied the thing that was missing: not the REST catalogue, but the **shape of the
+> CLI configuration**. Alteon prints a flat sequence of menu paths with indented
+> settings (`/c/l3/if 1` then `addr`, `mask`, `ena`), and that is enough to write a
+> parser against without guessing a single field name.
+>
+> `radware_alteon` now has a collection profile and `parsers/radware/alteon.py`. The
+> profile asks for `cc` rather than `/cfg/dump` — Radware's own "configuration dump
+> without keys and certificates", so the appliance redacts before the data leaves it —
+> and `/cfg/dump` stays approved as the fallback for firmware too old to offer it.
+>
+> **It has still never been run against real hardware.** The fixture is that published
+> dump extended with management stanzas from the command reference, and the mitigation
+> is that unread stanzas land in `raw_unparsed` and are counted rather than dropped.
+>
+> The REST paragraphs below stand: the REST catalogue is still unestablished, and the
+> parser reads the CLI dump instead, which sidesteps the question entirely.
+
 ### What is verifiable, and what is not
 
 **Verified.** The REST API authenticates with HTTP Basic: `Authorization: Basic
