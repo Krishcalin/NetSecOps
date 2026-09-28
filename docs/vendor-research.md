@@ -46,11 +46,48 @@ Two facts that *are* primary and worth keeping: `read-only` is silently ignored 
 `continue-last-session` is true, and `enter-last-published-session` logs in read-only
 by definition.
 
-### 2. Four approved Gaia commands are never issued
+### 2. Four approved Gaia commands are never issued — and it turned out to be sixty-one
 
 `show route`, `show aaa <subject>`, `show syslog all` and `cpinfo -y all` are all on the
 `checkpoint_gaia` allow-list in `adapters/policies.py` and none appears in
 `CHECKPOINT_GAIA_PROFILE`. They are permitted and never sent.
+
+> **Measured across every platform, 2026-09-28: sixty-one commands, on seven
+> platforms.** This section found four by reading; `tests/test_unconsumed_capability.py`
+> now finds all of them at build time, by compiling each allow-list rule to the regex
+> the read-only guard actually matches with and asking whether any profile issues
+> something that matches it.
+>
+> **The largest of them is layer-2 adjacency.** `show cdp neighbors detail` and
+> `show lldp neighbors detail` are approved in SRS §8.2, sit on the `cisco_ios` and
+> `cisco_nxos` allow-lists, are issued by no profile, and nothing parses neighbour
+> output — the only `cdp`/`lldp` in the NCM is `features.cdp`, a boolean for the
+> hardening check. So the topology graph is built from routing tables and configuration
+> alone and cannot say what is *physically* adjacent to what. Both the AlgoSec and
+> FireMon dossiers note that those products' topology is config-derived too; this is the
+> input that would go past them.
+>
+> `enable` is on two allow-lists and issued by nothing at all — not a profile, and not
+> the session layer. Every profile reads what it needs without escalating, so it is a
+> permission granted and unused, and the better fix is probably to withdraw it.
+>
+> Fifty-six of the sixty-one are recorded as **NOT TRIAGED**, deliberately. Each was
+> approved by a customer's security reviewer and never asked for; whether it is a data
+> gap worth closing or a command to withdraw takes somebody who knows the platform, and
+> inventing a per-command justification would make the file look decided when it is not.
+> The list cannot grow without a line being written, and shrinking it either way — issue
+> the command, or narrow the allow-list — is progress.
+
+**Three related sweeps were measured and rejected**, recorded so nobody spends an
+afternoon re-attempting them. *An NCM field no check reads*: 289 of 355 populated fields,
+because checks are one consumer among the rulebase analyser, topology, the vulnerability
+matcher, reports and the console. *A job type nothing creates*: there is no such thing —
+`JobCreate.job_type` is a plain `JobType`, so the generic endpoint can create any of
+them; the real question, whether a feed import triggers a `vuln_rematch`, is about absent
+behaviour and is not machine-checkable. *A collected command whose output nothing
+parses*: parsers consume artefacts three ways — `ParseContext.artifact()`, a bundle
+lookup, and scanning `context.lines` — so a static sweep saw five of about a hundred and
+was reporting itself broken.
 
 `show route` was the one that mattered: it is why the SNMP route walk existed, and it
 made it unnecessary. **Actioned** — `show route` is now in `CHECKPOINT_GAIA_PROFILE`,
