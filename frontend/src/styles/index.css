@@ -2773,6 +2773,40 @@ code {
   flex-wrap: wrap;
 }
 
+/* ── full screen ───────────────────────────────────────────────────────────
+   A 640px frame is the constraint the zoom controls cannot work around: on a
+   six-hundred-device estate the fitted scale is already below a third, and
+   zooming in just pans a postage stamp. Full screen is the control that
+   actually answers "I cannot read this".
+
+   A fixed overlay rather than the Fullscreen API: `requestFullscreen` needs a
+   user gesture, is refused outright in some embedded and iframed contexts, and
+   takes the browser chrome with it — which loses the URL the map's group and
+   selection live in. */
+
+.estatemap--full {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  gap: 0;
+  padding: env(safe-area-inset-top, 0px) 16px env(safe-area-inset-bottom, 0px);
+  background: var(--bg);
+}
+
+.estatemap--full .estatemap__tools {
+  padding: 12px 0;
+  flex: none;
+}
+
+/* Fills whatever is left under the toolbar. `min-height: 0` is load-bearing: a
+   flex child's default `min-height: auto` refuses to shrink below its content,
+   so without it the frame keeps its 640px and overflows the viewport. */
+.estatemap--full .estatemap__frame {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
 .estatemap__frame {
   position: relative;
   height: 640px;

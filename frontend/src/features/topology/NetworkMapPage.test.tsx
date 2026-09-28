@@ -262,6 +262,59 @@ describe('NetworkMapPage', () => {
     ).toBeInTheDocument();
   });
 
+  describe('full screen', () => {
+    it('covers the page and announces itself as a dialog', async () => {
+      renderPage();
+      await screen.findByRole('button', { name: 'Full screen' });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+
+      // The role only appears in this state. A panel that is part of the page and
+      // announces itself as modal is worse than one that says nothing.
+      const dialog = screen.getByRole('dialog', { name: /Network map, full screen/i });
+      expect(dialog.className).toContain('estatemap--full');
+    });
+
+    it('is not a dialog while it is a panel on the page', async () => {
+      renderPage();
+      await screen.findByRole('button', { name: 'Full screen' });
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+    });
+
+    it('closes on Escape, so it is not a trap without a mouse', async () => {
+      renderPage();
+      await screen.findByRole('button', { name: 'Full screen' });
+      await userEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+
+      await userEvent.keyboard('{Escape}');
+
+      expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
+    });
+
+    it('stops the page behind it scrolling, and gives the scroll back', async () => {
+      renderPage();
+      await screen.findByRole('button', { name: 'Full screen' });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+      expect(document.body.style.overflow).toBe('hidden');
+
+      await userEvent.click(screen.getByRole('button', { name: 'Exit full screen' }));
+      expect(document.body.style.overflow).not.toBe('hidden');
+    });
+
+    it('keeps the zoom controls, which are the reason to open it', async () => {
+      renderPage();
+      await screen.findByRole('button', { name: 'Full screen' });
+      await userEvent.click(screen.getByRole('button', { name: 'Full screen' }));
+
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByRole('button', { name: 'Zoom in' })).toBeInTheDocument();
+      expect(within(dialog).getByRole('button', { name: 'Fit' })).toBeInTheDocument();
+    });
+  });
+
   it('reports a failure without implying the rest of the product is down', async () => {
     vi.stubGlobal(
       'fetch',

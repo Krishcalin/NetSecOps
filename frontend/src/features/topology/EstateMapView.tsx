@@ -68,6 +68,7 @@ export function EstateMapView({ layout, selected, onSelect, onToggleBundle, matc
   const arrow = `${uid}-arrow`;
   const frame = useRef<HTMLDivElement>(null);
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
+  const [full, setFull] = useState(false);
   const drag = useRef<{ x: number; y: number; ox: number; oy: number } | null>(null);
 
   const fit = useCallback(() => {
@@ -88,6 +89,42 @@ export function EstateMapView({ layout, selected, onSelect, onToggleBundle, matc
 
   // Re-fit whenever the drawing changes shape — a different group, or a bundle opened.
   useEffect(fit, [fit]);
+
+  /** Going full screen more than doubles the frame, so the scale fitted to the panel is
+   *  wrong the instant it opens — and the map would appear not to have grown at all.
+   *  Measured after a frame, because the new size does not exist until the browser has
+   *  laid the dialog out. */
+  useEffect(() => {
+    if (typeof requestAnimationFrame !== 'function') {
+      fit();
+      return;
+    }
+    const id = requestAnimationFrame(fit);
+    return () => cancelAnimationFrame(id);
+  }, [full, fit]);
+
+  /** Escape closes it, and the page behind stops scrolling while it is open.
+   *
+   * Both are what makes this a dialog rather than a large div: a full-screen view with
+   * no keyboard way out traps anybody not using a mouse, and a page that scrolls behind
+   * a fixed overlay moves the thing you return to.
+   */
+  useEffect(() => {
+    if (!full) return;
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setFull(false);
+    };
+    window.addEventListener('keydown', onKey);
+
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [full]);
 
   const zoomBy = (factor: number) => {
     setView((current) => {
@@ -117,8 +154,21 @@ export function EstateMapView({ layout, selected, onSelect, onToggleBundle, matc
     'The list beside this picture carries the same devices and is the navigable equivalent.';
 
   return (
-    <div className="estatemap">
+    <div
+      className={full ? 'estatemap estatemap--full' : 'estatemap'}
+      // Only a dialog when it is covering the page. Announcing a panel that is simply
+      // part of the page as modal is worse than not announcing it at all.
+      role={full ? 'dialog' : undefined}
+      aria-modal={full || undefined}
+      aria-label={full ? 'Network map, full screen' : undefined}
+    >
       <div className="estatemap__tools">
+        {/* First, and the only filled button here. Zooming inside a 640px frame is the
+            thing that does not work on a six-hundred-device estate — the reason to
+            reach for the controls at all is that the picture is too small to read. */}
+        <button className="button button--small" onClick={() => setFull((open) => !open)}>
+          {full ? 'Exit full screen' : 'Full screen'}
+        </button>
         <button className="button button--ghost button--small" onClick={() => zoomBy(1.25)}>
           Zoom in
         </button>
@@ -134,6 +184,7 @@ export function EstateMapView({ layout, selected, onSelect, onToggleBundle, matc
             Clear selection
           </button>
         )}
+        {full && <span className="finding__note">Esc to close</span>}
       </div>
 
       <div
