@@ -216,3 +216,45 @@ export const POLICY_LABELS: Record<Policy, { label: string; tone: string; meanin
     meaning: 'There is no path to evaluate policy over.',
   },
 };
+
+/** One entry from a device's CDP or LLDP table (FR-TOPO-01).
+ *
+ * Every other adjacency in this product is inferred from a route. This is a device
+ * stating that a cable runs from one port to another, which is why `protocol` survives
+ * all the way to the console: the two kinds of claim are not interchangeable, and the
+ * panel says which one it is showing.
+ */
+export type Neighbour = {
+  protocol: string;
+  local_interface: string;
+  remote_device: string | null;
+  remote_interface: string | null;
+  remote_address: string | null;
+  platform: string | null;
+  capabilities: string[];
+  device_id: string | null;
+  matched_by: string | null;
+};
+
+export type DeviceNeighbours = {
+  device_id: string;
+  snapshot_id: string | null;
+  cdp_enabled: boolean | null;
+  lldp_enabled: boolean | null;
+  neighbours: Neighbour[];
+  matched: number;
+  unmanaged: number;
+};
+
+/** How strong the join to an inventory device is, said in words.
+ *
+ * Three different claims arrive in one field and they are not equally good: a full
+ * hostname is an identity, a short one is an identity minus the thing that tells two
+ * sites apart, and an address is whichever interface the far end felt like advertising.
+ * Rendering them identically would invite the weakest to be read as the strongest.
+ */
+export const MATCH_LABELS: Record<string, string> = {
+  hostname: 'matched by hostname',
+  'short-hostname': 'matched by short name',
+  address: 'matched by management address',
+};

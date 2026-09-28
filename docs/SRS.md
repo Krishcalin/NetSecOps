@@ -594,6 +594,30 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 > the VRF list first and is a second round-trip per VRF, so IOS collects the global table
 > only. NX-OS's `vrf all` returns every table in one response, which is why it differs.
 
+> **Note, recorded 2026-09-28 — layer-2 adjacency. Nothing was added to this list.**
+> `show cdp neighbors detail` (IOS/IOS-XE, NX-OS) and `show lldp neighbors detail`
+> (IOS/IOS-XE) have been on the allow-lists below since Phase 2. They were issued by no
+> collection profile and read by no parser until now, which the
+> `test_unconsumed_capability.py` sweep found; the profiles now send them and
+> `parsers/neighbours.py` reads them into `l2.neighbours`.
+>
+> Recorded because the *capability* of this product is what §8.1 says it may send, and
+> for three years that capability and its behaviour disagreed. A customer reviewing
+> `netsecops-cli audit-commands` saw two commands they were told the tool could send; the
+> tool never sent them. Closing that gap is a change in what a device sees from us even
+> though the allow-list is untouched, so it belongs on the record beside the amendment
+> that did widen one.
+>
+> This extends FR-TOPO-01 in kind, not only in degree. Every other adjacency the product
+> reports is *inferred* — a route's next hop matched to an interface address. A neighbour
+> entry is a device *stating* that a cable runs from one port to another, and the two are
+> not interchangeable: a routed adjacency crossing an unmanaged access switch has no
+> cable behind it, and a cable into a port nobody routes over appears on no map.
+>
+> Scope deliberately not taken: LLDP on NX-OS. `show lldp neighbors detail` is not on the
+> NX-OS allow-list and a profile may not widen one — this list is closed precisely so
+> that "it is only a show command" cannot grow it an entry at a time.
+
 **Cisco IOS / IOS-XE (routers, switches, Catalyst 9800 WLC, IOS APs)**
 `terminal length 0`, `terminal width 512`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show ip interface brief`, `show interfaces status`, `show interfaces description`, `show cdp neighbors detail`, `show lldp neighbors detail`, `show vlan brief`, `show spanning-tree summary`, `show ip route summary`, `show ip route`, `show ip ssh`, `show ssh`, `show crypto key mypubkey rsa`, `show snmp community`, `show snmp user`, `show aaa servers`, `show tacacs`, `show radius server-group all`, `show ntp status`, `show ntp associations`, `show logging | include (Trap|Buffer|Logging to)`, `show users`, `show access-lists`, `show ip access-lists`, `show line`, `show clock`, `show archive`, `show ip http server status`, `show crypto pki certificates`, `show boot`, `show redundancy`, `show stackwise-virtual`, `show switch`, `show port-security`, `show ip dhcp snooping`, `show ip arp inspection`, `show errdisable recovery`, `show wireless summary`, `show wlan summary`, `show wlan all`, `show ap summary`, `show ap config general`, `show wireless profile policy summary`, `show aaa method-lists all`.
 

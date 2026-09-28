@@ -235,7 +235,55 @@ class TopologySummary(BaseModel):
     unmanaged_next_hops: int = 0
 
 
+class NeighbourRead(BaseModel):
+    """One entry from a device's CDP or LLDP table (FR-TOPO-01).
+
+    Every other adjacency this product reports is inferred — a route names a next hop,
+    the next hop falls inside an interface's subnet, and the two are concluded to be
+    connected. This is a device *stating* that a cable runs from one port to another,
+    which is a different kind of claim, and `protocol` stays on the wire so a reader can
+    tell which of the two they are looking at.
+    """
+
+    protocol: str
+    local_interface: str
+    remote_device: str | None = None
+    remote_interface: str | None = None
+    remote_address: str | None = None
+    platform: str | None = None
+    capabilities: list[str] = Field(default_factory=list)
+    #: The device in this inventory the entry resolves to, where it resolves to one.
+    #: Null is not an error: the far end may be a phone, an access point, a customer
+    #: handoff or simply a switch nobody has onboarded.
+    device_id: uuid.UUID | None = None
+    #: `hostname`, `short-hostname` or `address` — how the match above was made, so the
+    #: console can show how strong the join is instead of presenting all three alike.
+    matched_by: str | None = None
+
+
+class DeviceNeighboursRead(BaseModel):
+    """A device's neighbour table, with the reason an empty one is empty.
+
+    `cdp_enabled` and `lldp_enabled` are the point of this envelope. A list of no
+    neighbours has three causes that look identical — the protocol is disabled, the
+    protocol is enabled and nothing answered, or the device was collected before these
+    commands were ever issued — and only the first two are visible from the feature
+    flags. `snapshot_id` covers the third: null means nothing has been collected at all.
+    """
+
+    device_id: uuid.UUID
+    snapshot_id: uuid.UUID | None = None
+    cdp_enabled: bool | None = None
+    lldp_enabled: bool | None = None
+    neighbours: list[NeighbourRead] = Field(default_factory=list)
+    #: Resolved to a device in this inventory, and not. Split out so the console does not
+    #: have to count a list to say "4 of 11 are managed".
+    matched: int = 0
+    unmanaged: int = 0
+
+
 __all__ = [
+    "DeviceNeighboursRead",
     "EstateMapRead",
     "HopRead",
     "MapGroupRead",
@@ -243,6 +291,7 @@ __all__ = [
     "MapLinkRead",
     "MapNodeRead",
     "MissingDeviceRead",
+    "NeighbourRead",
     "PathRequest",
     "PathResponse",
     "TopologySummary",

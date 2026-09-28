@@ -17,6 +17,7 @@ import { EvidencePanel } from '../features/snapshots/EvidencePanel';
 import type { DeviceDetail, Paginated } from '../features/inventory/types';
 import { PageHeader } from '../components/PageHeader';
 import { RiskPanel } from '../features/findings/RiskPanel';
+import { NeighboursPanel } from '../features/topology/NeighboursPanel';
 import type {
   ConfigDiff,
   ConfigUploadResponse,
@@ -165,6 +166,12 @@ export function DeviceConfigPage() {
       {drift.data && <DriftBanner drift={drift.data} />}
 
       {can('finding:read') && <RiskPanel deviceId={deviceId} />}
+
+      {/* Above the snapshot history rather than below the configuration: "what is
+          plugged into this" is a question about the device now, and the pages below are
+          about how its configuration has changed. Gated on the same permission the
+          endpoint requires, so a reader who cannot fetch it is not shown an empty card. */}
+      {can('snapshot:read') && <NeighboursPanel deviceId={deviceId} />}
 
       <section className="card">
         <div className="card__header">

@@ -61,11 +61,6 @@ from netsecops.adapters.profiles import PROFILES
 #: now issues it, or it came off the allow-list. Narrowing an allow-list is the better
 #: outcome where nothing needs the command — this product's promise is what it *may*
 #: send, not only what it does.
-_TOPOLOGY = (
-    "Layer-2 adjacency. Approved, never issued, and nothing parses neighbour output — "
-    "so the topology graph is routing-table and configuration derived, and cannot say "
-    "what is physically adjacent to what. The largest gap on this page."
-)
 _NOT_TRIAGED = (
     "NOT TRIAGED — approved in SRS §8.2 and never issued. Either a data gap worth "
     "closing or a command to remove from the allow-list; deciding needs somebody who "
@@ -77,9 +72,10 @@ _UNUSED_PRIVILEGE = (
 )
 
 DECLARED_UNISSUED: dict[tuple[str, str], str] = {
-    ("cisco_ios", "show cdp neighbors detail"): _TOPOLOGY,
-    ("cisco_ios", "show lldp neighbors detail"): _TOPOLOGY,
-    ("cisco_nxos", "show cdp neighbors detail"): _TOPOLOGY,
+    # The three CDP/LLDP entries that were here are gone, which is what shrinking this
+    # list looks like: the profiles issue them now and the parsers read them, so the
+    # declarations went stale and `test_no_declaration_outlives_the_thing_it_explains`
+    # said so on the same run that made them true.
     ("cisco_ios", "enable"): _UNUSED_PRIVILEGE,
     ("cisco_asa", "enable"): _UNUSED_PRIVILEGE,
     **{
@@ -304,7 +300,9 @@ class TestTheBacklogIsVisible:
     """
 
     def test_the_declared_backlog_is_the_size_it_says(self) -> None:
-        assert len(DECLARED_UNISSUED) == 61
+        # 61 when the sweep was written; 58 once CDP and LLDP were issued on both
+        # platforms. The number moving is the point.
+        assert len(DECLARED_UNISSUED) == 58
 
     def test_most_of_it_is_honestly_untriaged(self) -> None:
         # Stated rather than hidden behind invented per-command reasons. Writing a

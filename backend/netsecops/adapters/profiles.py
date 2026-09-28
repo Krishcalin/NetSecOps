@@ -171,6 +171,14 @@ CISCO_IOS_PROFILE: Final = CollectionProfile(
             "show ip route",
             "The forwarding table, including protocol-learned routes (FR-TOPO-01)",
         ),
+        # Layer-2 adjacency (FR-TOPO-01). Approved in SRS §8.2 since Phase 2 and issued
+        # by nothing until `test_unconsumed_capability.py` found them. The routing table
+        # above *infers* a path by matching a next hop to an interface; these two are a
+        # device stating which cable goes where, which no configuration contains.
+        CollectionCommand("show cdp neighbors detail", "Physically adjacent Cisco devices"),
+        CollectionCommand(
+            "show lldp neighbors detail", "Physically adjacent devices of any vendor"
+        ),
         CollectionCommand("show ip ssh", "Live SSH version and timeout, which the config omits"),
         CollectionCommand("show snmp user", "SNMPv3 users; the config stores these opaquely"),
         CollectionCommand("show aaa servers", "AAA server reachability, not visible in config"),
@@ -239,6 +247,9 @@ CISCO_NXOS_PROFILE: Final = CollectionProfile(
             "show ip route vrf all",
             "Every VRF's forwarding table, including protocol-learned routes (FR-TOPO-01)",
         ),
+        # CDP only: `show lldp neighbors detail` is not on the NX-OS allow-list, and a
+        # profile may not widen one.
+        CollectionCommand("show cdp neighbors detail", "Physically adjacent Cisco devices"),
         CollectionCommand("show ssh server", "Live SSH server state"),
         CollectionCommand("show snmp user", "SNMPv3 users and their security levels"),
         CollectionCommand("show aaa authentication", "Authentication method lists"),

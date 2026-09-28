@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from sqlalchemy import func, select
@@ -38,7 +38,7 @@ from netsecops.core.config import get_settings
 from netsecops.core.logging import get_logger
 from netsecops.db.models.collection import Finding, FindingStatus, Snapshot
 from netsecops.db.models.inventory import Device, DeviceStatus, Site
-from netsecops.ncm.models import Route
+from netsecops.ncm.models import Neighbour, Route
 from netsecops.parsers.routes import interface_network
 from netsecops.topology.cache import GRAPH_CACHE, CachedGraph, Fingerprint
 from netsecops.topology.estate_map import (
@@ -77,6 +77,47 @@ class GraphSummary:
     devices_with_rulebase: int = 0
     routes: int = 0
     unmanaged_next_hops: int = 0
+
+
+@dataclass(slots=True)
+class ResolvedNeighbour:
+    """A neighbour entry and the device in the inventory it turned out to be.
+
+    The match is the whole value of the data. An unresolved neighbour is still worth
+    showing — it is the edge of the managed estate, the same fact `missing_devices`
+    reports for layer 3 — but a resolved one is a *stated* adjacency between two devices
+    this product holds configurations for, which nothing else in the graph can produce.
+    """
+
+    neighbour: Neighbour
+    device_id: uuid.UUID | None = None
+    #: `hostname`, `short-hostname` or `address`. Carried so the console can say how
+    #: confident the join is rather than presenting all three as the same claim.
+    matched_by: str | None = None
+
+
+@dataclass(slots=True)
+class NeighbourView:
+    """What one device can see on the wire, with the reason an empty list is empty.
+
+    `cdp_enabled` and `lldp_enabled` exist because "no neighbours" has three causes that
+    look identical in a list of none: the protocol is off, the protocol is on and nothing
+    answered, or the device was collected before these commands were issued. Reporting
+    the first as though it were the second is this codebase's named failure mode.
+    """
+
+    snapshot_id: uuid.UUID | None = None
+    cdp_enabled: bool | None = None
+    lldp_enabled: bool | None = None
+    neighbours: list[ResolvedNeighbour] = field(default_factory=list)
+
+    @property
+    def matched(self) -> int:
+        return sum(1 for entry in self.neighbours if entry.device_id is not None)
+
+    @property
+    def unmanaged(self) -> int:
+        return len(self.neighbours) - self.matched
 
 
 class TopologyService:
@@ -261,6 +302,87 @@ class TopologyService:
     async def missing(self, *, limit: int = 50) -> list[MissingDevice]:
         return missing_devices(await self.graph(), limit=limit)
 
+    async def neighbours_for(self, device: Device) -> NeighbourView:
+        """What one device reported seeing on the wire (FR-TOPO-01).
+
+        Deliberately *not* built on `graph()`. This answers a question about one device
+        from one snapshot, and paying 580ms to assemble the whole estate for it would
+        make the panel too slow to open — the graph exists to join routes across
+        devices, which this does not need.
+
+        The neighbours are resolved against the inventory here rather than in the parser
+        because they are two different kinds of fact with different lifetimes: what the
+        device said is fixed at collection time and stored on the snapshot; whether the
+        estate contains a device by that name changes every time somebody onboards one.
+        Baking the match into the snapshot would freeze an answer that should move.
+        """
+        row = (
+            await self.session.execute(
+                select(Snapshot.id, Snapshot.ncm)
+                .where(Snapshot.device_id == device.id)
+                .order_by(Snapshot.created_at.desc())
+                .limit(1)
+            )
+        ).first()
+
+        if row is None:
+            return NeighbourView()
+
+        ncm = row.ncm or {}
+        features = ncm.get("features") or {}
+        raw = (ncm.get("l2") or {}).get("neighbours") or []
+
+        by_hostname, by_short, by_address = await self._identity_index()
+        resolved = [
+            _resolve(Neighbour.model_validate(entry), by_hostname, by_short, by_address)
+            for entry in raw
+        ]
+
+        return NeighbourView(
+            snapshot_id=row.id,
+            cdp_enabled=features.get("cdp"),
+            lldp_enabled=features.get("lldp"),
+            neighbours=resolved,
+        )
+
+    async def _identity_index(
+        self,
+    ) -> tuple[dict[str, uuid.UUID], dict[str, uuid.UUID], dict[str, uuid.UUID]]:
+        """Every name and address the estate answers to, in one query.
+
+        Three indexes rather than one because a neighbour advertises whichever it feels
+        like: CDP on IOS reports an FQDN, NX-OS the short name, and a device that
+        advertises no name at all may still advertise an address.
+
+        A short name claimed by two devices is dropped from that index instead of
+        resolving to whichever sorted first. `core-sw01.site-a` and `core-sw01.site-b`
+        are different switches, and a wrong adjacency drawn confidently is worse than
+        an unmanaged one that asks a human.
+        """
+        rows = await self.session.execute(
+            select(Device.id, Device.hostname, Device.mgmt_ip).where(
+                Device.org_id == self.org_id,
+                Device.status != DeviceStatus.ARCHIVED.value,
+            )
+        )
+
+        by_hostname: dict[str, uuid.UUID] = {}
+        by_address: dict[str, uuid.UUID] = {}
+        short_counts: dict[str, set[uuid.UUID]] = {}
+
+        for device_id, hostname, mgmt_ip in rows:
+            if hostname:
+                by_hostname.setdefault(hostname.strip().lower(), device_id)
+                short = hostname.strip().lower().split(".", 1)[0]
+                short_counts.setdefault(short, set()).add(device_id)
+            if mgmt_ip:
+                by_address.setdefault(str(mgmt_ip), device_id)
+
+        by_short = {
+            name: next(iter(owners)) for name, owners in short_counts.items() if len(owners) == 1
+        }
+        return by_hostname, by_short, by_address
+
     async def estate_map(self, *, limit: int = 2000) -> EstateMap:
         """The whole graph, projected into something drawable (FR-TOPO-02).
 
@@ -303,6 +425,36 @@ class TopologyService:
         for device_id, severity, total in rows:
             counts.setdefault(device_id, {})[severity] = int(total)
         return counts
+
+
+def _resolve(
+    neighbour: Neighbour,
+    by_hostname: dict[str, uuid.UUID],
+    by_short: dict[str, uuid.UUID],
+    by_address: dict[str, uuid.UUID],
+) -> ResolvedNeighbour:
+    """Which device in the inventory a neighbour entry names, if any.
+
+    Ordered strongest first. The full name is tried before the short one because two
+    estates that both run a `core-sw01` are common and a domain suffix is what tells
+    them apart; the address is tried last because a neighbour advertises whichever
+    interface it likes, and that is frequently not the address the inventory manages
+    the device on.
+    """
+    name = (neighbour.remote_device or "").strip().lower()
+
+    if name:
+        if (device_id := by_hostname.get(name)) is not None:
+            return ResolvedNeighbour(neighbour, device_id, "hostname")
+        if (device_id := by_short.get(name.split(".", 1)[0])) is not None:
+            return ResolvedNeighbour(neighbour, device_id, "short-hostname")
+
+    if neighbour.remote_address and (
+        (device_id := by_address.get(neighbour.remote_address)) is not None
+    ):
+        return ResolvedNeighbour(neighbour, device_id, "address")
+
+    return ResolvedNeighbour(neighbour)
 
 
 def _node_from(
@@ -431,4 +583,10 @@ def latest_snapshot_ids(nodes: Sequence[DeviceNode]) -> list[uuid.UUID]:
     return [node.snapshot_id for node in nodes if node.snapshot_id is not None]
 
 
-__all__ = ["GraphSummary", "TopologyService", "latest_snapshot_ids"]
+__all__ = [
+    "GraphSummary",
+    "NeighbourView",
+    "ResolvedNeighbour",
+    "TopologyService",
+    "latest_snapshot_ids",
+]

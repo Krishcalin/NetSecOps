@@ -1,0 +1,59 @@
+------------------------------------------------
+Local Intf: Gi0/2
+Chassis id: 000c.2911.a0b1
+Port id: Gi1/0/12
+Port Description: Uplink to access stack
+System Name: access-sw03.example.local
+
+System Description:
+Cisco IOS Software, C2960X Software (C2960X-UNIVERSALK9-M), Version 15.2(7)E3, RELEASE SOFTWARE (fc2)
+
+Time remaining: 97 seconds
+System Capabilities: B,R
+Enabled Capabilities: B
+Management Addresses:
+    IP: 10.10.30.3
+Auto Negotiation - supported, enabled
+Physical media capabilities:
+    1000baseT(FD)
+    100base-TX(FD)
+Media Attachment Unit type: 30
+Vlan ID: 1
+
+------------------------------------------------
+Local Intf: Gi0/7
+Chassis id: 0050.5699.1a2b
+Port id: 0050.5699.1a2b
+Port Description: not advertised
+System Name: not advertised
+
+System Description: not advertised
+
+Time remaining: 106 seconds
+System Capabilities: not advertised
+Enabled Capabilities: not advertised
+Management Addresses - not advertised
+Auto Negotiation - not supported
+Physical media capabilities - not advertised
+Media Attachment Unit type - not advertised
+Vlan ID: - not advertised
+
+------------------------------------------------
+Local Intf: Gi0/11
+Chassis id: 10.40.10.9
+Port id: eth0
+Port Description: not advertised
+System Name: ups-comms-rack4
+
+System Description:
+Network Management Card 2 AP9640
+
+Time remaining: 88 seconds
+System Capabilities: S
+Enabled Capabilities: S
+Management Addresses:
+    IP: 10.40.10.9
+Auto Negotiation - supported, enabled
+Vlan ID: - not advertised
+
+Total entries displayed: 3

@@ -14,14 +14,16 @@ rules may ask what they would do.
 
 from __future__ import annotations
 
+import uuid
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query
 
-from netsecops.api.deps import SessionDep, require, verify_csrf
+from netsecops.api.deps import PrincipalDep, SessionDep, require, verify_csrf
 from netsecops.core.logging import get_logger
 from netsecops.core.rbac import Permission
 from netsecops.schemas.topology import (
+    DeviceNeighboursRead,
     EstateMapRead,
     HopRead,
     MapGroupRead,
@@ -29,10 +31,12 @@ from netsecops.schemas.topology import (
     MapLinkRead,
     MapNodeRead,
     MissingDeviceRead,
+    NeighbourRead,
     PathRequest,
     PathResponse,
     TopologySummary,
 )
+from netsecops.services.inventory import InventoryService
 from netsecops.services.topology import TopologyService
 
 log = get_logger(__name__)
@@ -239,6 +243,58 @@ async def estate_map(
         isolated=result.isolated,
         omitted_groups=list(result.omitted_groups),
         omitted_devices=result.omitted_devices,
+    )
+
+
+@router.get(
+    "/devices/{device_id}/neighbours",
+    response_model=DeviceNeighboursRead,
+    dependencies=[Depends(require(Permission.SNAPSHOT_READ))],
+    summary="What this device can see on the wire, from CDP and LLDP (FR-TOPO-01)",
+)
+async def device_neighbours(
+    device_id: uuid.UUID, session: SessionDep, principal: PrincipalDep
+) -> DeviceNeighboursRead:
+    """Stated physical adjacency, as opposed to the inferred kind everything else here
+    reports.
+
+    A route's next hop matched to an interface address concludes that two devices are
+    connected. A neighbour entry is one of them saying so. They disagree more often than
+    is comfortable — a layer-2 path crossing an unmanaged switch produces a routing
+    adjacency with no cable behind it — and the disagreement is usually the finding.
+
+    Both protocols appear in one list and are **not** merged. CDP and LLDP frequently
+    report the same link differently, or only one of them reports it at all, and
+    collapsing them would lose which one saw what.
+
+    An empty list is not an answer on its own: read it with `cdp_enabled`,
+    `lldp_enabled` and `snapshot_id`, which separate "the protocol is off" from "the
+    protocol is on and nothing answered" from "nothing has been collected".
+    """
+    device = await InventoryService(session).get_device(device_id, scope=principal.scope)
+    view = await TopologyService(session).neighbours_for(device)
+
+    return DeviceNeighboursRead(
+        device_id=device.id,
+        snapshot_id=view.snapshot_id,
+        cdp_enabled=view.cdp_enabled,
+        lldp_enabled=view.lldp_enabled,
+        neighbours=[
+            NeighbourRead(
+                protocol=entry.neighbour.protocol,
+                local_interface=entry.neighbour.local_interface,
+                remote_device=entry.neighbour.remote_device,
+                remote_interface=entry.neighbour.remote_interface,
+                remote_address=entry.neighbour.remote_address,
+                platform=entry.neighbour.platform,
+                capabilities=list(entry.neighbour.capabilities),
+                device_id=entry.device_id,
+                matched_by=entry.matched_by,
+            )
+            for entry in view.neighbours
+        ],
+        matched=view.matched,
+        unmanaged=view.unmanaged,
     )
 
 

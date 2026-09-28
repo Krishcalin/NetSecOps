@@ -400,6 +400,11 @@ MATRIX: list[Case] = [
     # The same graph the path query walks, projected for drawing. Nothing in it is
     # derived from anything but stored configuration, so it sits with the reads above.
     Case("GET", "/api/v1/topology/map", _DEVICE_READERS),
+    # A device's CDP/LLDP table, read from its latest snapshot (FR-TOPO-01). Same
+    # readers as everything else assembled from stored configuration: it discloses what
+    # the device itself broadcasts to its own neighbours, which is strictly less than
+    # the running configuration these roles may already read in full.
+    Case("GET", "/api/v1/devices/{device_id}/neighbours", _DEVICE_READERS),
     # ── Segmentation intent (FR-TOPO-07) ────────────────────────────────────
     # Reading the declared policy and the matrix sits with the other device reads: the
     # matrix is a path answer per zone pair, assembled from the same stored

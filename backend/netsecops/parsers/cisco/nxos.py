@@ -53,6 +53,7 @@ from netsecops.parsers.cisco.acl import (
     parse_ace,
     record_bindings,
 )
+from netsecops.parsers.neighbours import parse_cdp_detail
 from netsecops.parsers.route_tables import parse_nxos_route_table, store_routes
 from netsecops.parsers.routes import connected_routes, parse_ios_static_route
 
@@ -426,6 +427,14 @@ class CiscoNxosParser(CiscoStyleParser):
 
     def _parse_l2(self, parse: CiscoConfParse, result: ParseResult) -> None:
         l2 = result.ncm.l2
+
+        # CDP only. `show lldp neighbors detail` is not on the NX-OS allow-list, and
+        # this is not the place to widen one — SRS §8.2 is closed precisely so that
+        # "it is only a show command" cannot grow it an entry at a time.
+        if output := result.context.artifact("show cdp neighbors detail"):
+            for neighbour in parse_cdp_detail(output):
+                l2.neighbours.append(neighbour)
+                result.record(f"l2.neighbours.{len(l2.neighbours) - 1}", line=1)
 
         for obj in parse.find_objects(r"^vlan\s+\d"):
             start, end = self.family_range(obj)

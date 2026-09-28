@@ -62,6 +62,7 @@ from netsecops.parsers.cisco.acl import (
     parse_ace,
     record_bindings,
 )
+from netsecops.parsers.neighbours import parse_cdp_detail, parse_lldp_detail
 from netsecops.parsers.route_tables import parse_cisco_route_table, store_routes
 from netsecops.parsers.routes import connected_routes, parse_ios_static_route
 
@@ -827,8 +828,33 @@ class CiscoIosParser(CiscoStyleParser):
 
     # ────────────────────────────── layer 2 ─────────────────────────────
 
+    def _parse_neighbours(self, result: ParseResult) -> None:
+        """What this device can see on the wire (FR-TOPO-01).
+
+        Both protocols where both ran. They are *not* merged: CDP and LLDP disagree
+        about the same link often enough — one filtered on a port, the other disabled
+        on the far end — that collapsing them would lose which one saw what, and the
+        disagreement is usually the interesting part.
+
+        Neither command is required. A device with CDP disabled reports nothing, which
+        is a fact `features.cdp` already records, so an empty list here is not an error.
+        """
+        l2 = result.ncm.l2
+
+        for command, parser in (
+            ("show cdp neighbors detail", parse_cdp_detail),
+            ("show lldp neighbors detail", parse_lldp_detail),
+        ):
+            output = result.context.artifact(command)
+            if not output:
+                continue
+            for neighbour in parser(output):
+                l2.neighbours.append(neighbour)
+                result.record(f"l2.neighbours.{len(l2.neighbours) - 1}", line=1)
+
     def _parse_l2(self, parse: CiscoConfParse, result: ParseResult) -> None:
         l2 = result.ncm.l2
+        self._parse_neighbours(result)
 
         for obj in parse.find_objects(r"^vlan\s+\d+"):
             start, end = self.family_range(obj)

@@ -624,6 +624,41 @@ class SpanningTree(NcmBase):
     portfast_default: bool | None = None
 
 
+class Neighbour(NcmBase):
+    """A device this one can see on the wire, from CDP or LLDP.
+
+    **Observed state, not configuration**, which is why it sits in the NCM beside
+    `wireless.aps` rather than anywhere else: both are things a device reports about
+    the world rather than settings somebody made, and both are absent from any running
+    configuration.
+
+    It is also the only evidence of *physical* adjacency this product can obtain. The
+    topology graph is built by matching a route's next hop to an interface, which
+    infers a path; a neighbour entry is a device saying "this cable goes there".
+    """
+
+    #: `cdp` or `lldp`. Kept rather than merged: the two disagree about the same link
+    #: more often than is comfortable — LLDP may be off on one side, CDP filtered on
+    #: the other — and a reader needs to know which protocol said what.
+    protocol: str
+    #: The port on *this* device. The one field both protocols always carry, and the
+    #: one that answers "what is plugged into this port".
+    local_interface: str
+    #: What the far end calls itself. `None` where it did not say — LLDP prints the
+    #: literal string "not advertised", which is not a device name.
+    remote_device: str | None = None
+    remote_interface: str | None = None
+    #: The far end's management address where it advertised one. Not a substitute for
+    #: the name: a device may advertise either, both or neither.
+    remote_address: str | None = None
+    #: CDP's `Platform:` or LLDP's system description, unparsed. Enough to tell a
+    #: Cisco switch from a printer, which is the question that matters when deciding
+    #: whether an unmanaged neighbour is interesting.
+    platform: str | None = None
+    #: `Switch`, `Router`, `Host`, `Phone`… as the protocol reported them.
+    capabilities: list[str] = Field(default_factory=list)
+
+
 class Layer2(NcmBase):
     vlans: list[Vlan] = Field(default_factory=list)
     spanning_tree: SpanningTree = Field(default_factory=SpanningTree)
@@ -631,6 +666,10 @@ class Layer2(NcmBase):
     vtp_password_set: bool | None = None
     dhcp_snooping_enabled: bool | None = None
     arp_inspection_enabled: bool | None = None
+    #: What this device can see on the wire (FR-TOPO-01). Empty where neither protocol
+    #: is enabled, which is itself a fact — `features.cdp` and `features.lldp` say
+    #: whether it was ever going to report anything.
+    neighbours: list[Neighbour] = Field(default_factory=list)
 
 
 # ─────────────────────────────── routing ────────────────────────────────────

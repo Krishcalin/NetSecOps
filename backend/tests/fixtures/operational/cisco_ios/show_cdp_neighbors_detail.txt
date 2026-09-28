@@ -1,0 +1,48 @@
+-------------------------
+Device ID: core-sw01.example.local
+Entry address(es):
+  IP address: 10.10.10.1
+Platform: cisco WS-C3850-24T,  Capabilities: Switch IGMP
+Interface: GigabitEthernet0/1,  Port ID (outgoing port): GigabitEthernet1/0/24
+Holdtime : 143 sec
+
+Version :
+Cisco IOS Software, IOS-XE Software, Catalyst L3 Switch Software (CAT3K_CAA-UNIVERSALK9-M), Version 16.12.4, RELEASE SOFTWARE (fc5)
+
+advertisement version: 2
+VTP Management Domain: 'CAMPUS'
+Native VLAN: 1
+Duplex: full
+Management address(es):
+  IP address: 10.10.10.1
+
+-------------------------
+Device ID: SEP001A2B3C4D5E
+Entry address(es):
+  IP address: 10.30.10.55
+Platform: Cisco IP Phone 8845,  Capabilities: Host Phone Two-port Mac Relay
+Interface: GigabitEthernet0/5,  Port ID (outgoing port): Port 1
+Holdtime : 171 sec
+
+Version :
+sip8845.12-0-1SR1-1
+
+advertisement version: 2
+Duplex: full
+Power drawn: 6.300 Watts
+Power request id: 57007, Power management id: 3
+
+-------------------------
+Device ID: ap-floor2-01
+Entry address(es):
+Platform: cisco AIR-AP2802I-E-K9,  Capabilities: Trans-Bridge
+Interface: GigabitEthernet0/9,  Port ID (outgoing port): GigabitEthernet0
+Holdtime : 128 sec
+
+Version :
+Cisco AP Software, ap3g3-k9w8 Version 8.10.185.0
+
+advertisement version: 2
+Duplex: full
+
+Total cdp entries displayed : 3

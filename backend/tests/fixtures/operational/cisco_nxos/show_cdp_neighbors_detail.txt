@@ -1,0 +1,34 @@
+----------------------------------------
+Device ID:dist-sw02.example.local(FDO21120ABC)
+System Name: dist-sw02.example.local
+
+Interface address(es):
+    IPv4 Address: 10.10.20.2
+Platform: N9K-C93180YC-EX, Capabilities: Router Switch IGMP Filtering Supports-STP-Dispute
+Interface: Ethernet1/1, Port ID (outgoing port): Ethernet1/49
+Holdtime: 168 sec
+
+Version:
+Cisco Nexus Operating System (NX-OS) Software, Version 10.3(4a)
+
+Advertisement Version: 2
+Native VLAN: 1
+Duplex: full
+Mgmt address(es):
+    IPv4 Address: 10.10.20.2
+
+----------------------------------------
+Device ID:fex-101(SSI21130XYZ)
+
+Interface address(es):
+Platform: N2K-C2248TP-1GE, Capabilities: Host Supports-STP-Dispute
+Interface: Ethernet1/47, Port ID (outgoing port): Ethernet1/1
+Holdtime: 142 sec
+
+Version:
+Cisco Nexus Operating System (NX-OS) Software, Version 9.3(3)
+
+Advertisement Version: 2
+Duplex: full
+
+Total entries displayed: 2
