@@ -50,6 +50,7 @@ from netsecops.db.models.jobs import ErrorClass, Job, JobDevice, JobStatus, JobT
 from netsecops.db.session import session_scope
 from netsecops.ncm.models import NCM_VERSION
 from netsecops.parsers.checkpoint.mgmt import SCOPE_KEY
+from netsecops.services.access_points import sync_access_points
 from netsecops.services.assessment import AssessmentService
 from netsecops.services.audit import AuditService
 from netsecops.services.credentials import CredentialService, ResolvedCredential
@@ -931,6 +932,12 @@ async def _collect_profile(
         await snapshots.record_drift_finding(device, snapshot, drift)
     else:
         await snapshots.resolve_drift_finding(device)
+
+    # A wireless controller carries an inventory nothing else in the estate has: the
+    # access points currently joined to it. Recorded as assets here rather than by a
+    # separate job, because the list is only true as of the collection that produced
+    # it. Non-wireless devices fall straight through — see the service.
+    await sync_access_points(session, device, snapshot.ncm)
 
     await session.flush()
 

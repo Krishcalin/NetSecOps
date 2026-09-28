@@ -479,6 +479,50 @@ RADWARE_ALTEON = PlatformPolicy(
     ),
 )
 
+# ─────────────── Barracuda Web Application Firewall (REST) ──────────────────
+
+#: SRS §1.3.1. Read over the v3 REST API, and unlike Check Point's it is a genuine
+#: REST API: the reads are GETs and the guard's method restriction does the work.
+#:
+#: **Login is the one POST**, which SRS §8.1 item 3 permits for authentication
+#: specifically — the same exception `cisco_ftd_fmc` uses, and for the same reason.
+#: `POST /restapi/v3.x/login` takes `{"username", "password"}` and returns a token,
+#: which is then presented as the HTTP Basic *username* with an empty password
+#: (`-u '<token>:'`). Both version segments are listed rather than a bare `/restapi/`
+#: prefix: a prefix would admit a POST to every object on the appliance, which is how
+#: a WAF service gets created rather than read.
+#:
+#: **The management API is on a non-standard port** — 8443 for HTTPS, 8000 plaintext.
+#: That belongs to the device record rather than being implied by the scheme, and 8000
+#: should never be used against a real appliance: the login body carries the password.
+#:
+#: There is no collection profile and no parser yet, deliberately. Only `services` is a
+#: confirmed object path, and nothing in Barracuda's public documentation names the
+#: field that says whether a service *blocks or merely logs* — which is the single most
+#: important fact about a WAF and the one a parser exists to read. See
+#: docs/new-device-families.md; the same position as `radware_alteon`, for the same
+#: reason.
+BARRACUDA_WAF = PlatformPolicy(
+    platform="barracuda_waf",
+    http=(
+        HttpRule(
+            "POST",
+            "/restapi/v3.2/login",
+            reason="Token generation only (SRS §8.1.3); the token is then used as the "
+            "HTTP Basic username with an empty password",
+            body_predicate="auth_only",
+        ),
+        HttpRule(
+            "POST",
+            "/restapi/v3.1/login",
+            reason="Same, on firmware that predates v3.2",
+            body_predicate="auth_only",
+        ),
+        HttpRule("GET", "/restapi/v3.2/"),
+        HttpRule("GET", "/restapi/v3.1/"),
+    ),
+)
+
 # ────────────────── Check Point Management API (POST-only) ──────────────────
 
 CHECKPOINT_MGMT = PlatformPolicy(
@@ -566,6 +610,7 @@ POLICIES: Final[dict[str, PlatformPolicy]] = {
         FORTIMANAGER,
         FORTIAUTHENTICATOR,
         RADWARE_ALTEON,
+        BARRACUDA_WAF,
         CHECKPOINT_MGMT,
         CHECKPOINT_GAIA,
         CHECKPOINT_GAIA_EXPERT,

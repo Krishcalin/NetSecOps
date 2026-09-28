@@ -105,10 +105,25 @@ kept identical.
 controller's — the AP join profile, the RF profile and the policy tag that the
 controller applies to it. Reaching out to a CAPWAP AP over SSH to read a configuration
 it does not own would be device contact that buys nothing. Lightweight APs belong in the
-inventory as **rows derived from the controller**, the way `adapters/children.py`
-already derives FortiGates from a FortiManager and firewalls from Panorama. An
-autonomous AP is the opposite case: it holds its own configuration, nothing else knows
-what is on it, and it needs a collection path.
+inventory as **rows derived from the controller**. An autonomous AP is the opposite
+case: it holds its own configuration, nothing else knows what is on it, and it needs a
+collection path.
+
+> **Built, and not the way this paragraph first proposed.** `children.py` was the
+> obvious model and is the wrong one: its own docstring warns against importing a
+> device that "can never be collected from", because that produces "a permanent
+> collection failure" — which is a lightweight AP exactly. Its preview/import/approve
+> flow also exists so a human can decide whether to *connect* to something, and nothing
+> will ever be sent to an access point, so the queue would be a chore with no decision
+> in it.
+>
+> `services/access_points.py` derives the rows directly from the controller's parsed
+> NCM after each collection, with a new `DeviceStatus.INVENTORY_ONLY`: in the
+> inventory, outside every assessment. The status is the load-bearing part. An access
+> point filed as an ordinary device is permanently unassessed, and three hundred of
+> them would drag the grade distribution, the estate roll-up and every coverage figure
+> towards "nobody has looked" — the figures would be describing radios rather than the
+> network.
 
 ### How the Catalyst 9800 is read — **verified**
 
@@ -444,7 +459,7 @@ read) — and `tests/test_platform_keys.py` fails when they disagree.
 |---|---|---|---|---|---|---|
 | ~~Catalyst 9800 / EWC~~ **done** | `cisco_c9800` | 3, two of them aliases | extend IOS | `wireless.aps` exists | reuse 5, add ~4 | exists |
 | ~~Autonomous AP~~ **done** | none needed | — | extend IOS | `wireless` exists | reuse 5 | exists |
-| Lightweight AP inventory | — | — | — | — | — | exists |
+| ~~Lightweight AP inventory~~ **done** | — | — | — | `aps_declared` added | — | new status: `inventory_only` |
 | Radware Alteon | `radware_alteon` | 3 + deny-list fix | new | reuse `management`/`snmp`/… | reuse `common/`, add TLS | **new: `load_balancer`** |
 | Barracuda WAF | `barracuda_waf` | 3 | new | **new: `waf`** | new family | **new: `waf`** |
 

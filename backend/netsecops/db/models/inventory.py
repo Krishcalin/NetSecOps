@@ -71,6 +71,22 @@ class Criticality(StrEnum):
 
 class DeviceStatus(StrEnum):
     ACTIVE = "active"
+    #: An asset NetSecOps records and will never contact (SRS §1.3.1).
+    #:
+    #: A CAPWAP access point holds no configuration of its own — its controller does —
+    #: so there is nothing to collect from it and no credential to hold for it. It is
+    #: still an asset, and an estate's AP count is a thing people need. This status is
+    #: what lets it be both: it is in the inventory and it is not a target.
+    #:
+    #: Distinct from `pending_review`, which means "not yet approved for assessment" —
+    #: a state something leaves. Nothing leaves this one by being approved, because
+    #: approval would not make the device readable.
+    #:
+    #: The load-bearing consequence is that it is **not** `active`, so it is outside
+    #: the grade distribution, the estate roll-up and the coverage figures. An AP
+    #: counted as an unassessed device would make every wireless estate look
+    #: uncollected, which is the opposite of what recording it is for.
+    INVENTORY_ONLY = "inventory_only"
     ARCHIVED = "archived"
     #: Discovered but not yet approved for assessment (FR-DISC-04).
     PENDING_REVIEW = "pending_review"

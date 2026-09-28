@@ -454,6 +454,14 @@ class JobService:
         # expressed by approving it, not by widening a job.
         stmt = stmt.where(Device.status != DeviceStatus.PENDING_REVIEW.value)
 
+        # An `inventory_only` device is recorded as an asset and is not a target: a
+        # CAPWAP access point holds no configuration and has no credential, so a job
+        # that reached one would resolve nothing, connect to nothing and fail for ever.
+        # Unlike `pending_review` there is no approval that changes this — approving it
+        # would not make it readable — which is why it is a separate status rather than
+        # a device somebody forgot to approve.
+        stmt = stmt.where(Device.status != DeviceStatus.INVENTORY_ONLY.value)
+
         inventory = InventoryService(self.session)
         stmt = await inventory._apply_scope(stmt, principal_scope)
 
