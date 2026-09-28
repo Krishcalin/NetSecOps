@@ -146,6 +146,11 @@ class ConfigUploadResponse(BaseModel):
     parse_coverage: int | None
     unparsed_count: int
     drift: DriftRead
+    #: The commands the supporting captures were read as, resolved from their filenames
+    #: against the platform's allow-list. Echoed back because a file named slightly
+    #: wrong is the likeliest mistake here, and reporting the count alone would let
+    #: `show_verison.txt` look accepted.
+    supporting_commands: list[str] = Field(default_factory=list)
 
 
 __all__ = [

@@ -59,6 +59,72 @@ function DriftBanner({ drift }: { drift: Drift }) {
   );
 }
 
+/** Upload a configuration, and the command output that goes with it (FR-COL-11).
+ *
+ * **Why there are two inputs rather than one multi-select.** A running configuration and
+ * a capture of `show cdp neighbors detail` are not interchangeable, and a file picker's
+ * ordering is not something a person chooses — so asking which file is the configuration
+ * is the only way to know. It also makes the second field's purpose legible, which a
+ * single "add files" control never would.
+ *
+ * The hint below the second field is load-bearing, not decoration: the filename is the
+ * only thing that says which command a capture is the output of, and a name the server
+ * cannot resolve is the likeliest mistake anyone will make here.
+ */
+function UploadForm({
+  onSubmit,
+  pending,
+}: {
+  onSubmit: (config: File, captures: File[]) => void;
+  pending: boolean;
+}) {
+  const [config, setConfig] = useState<File | null>(null);
+  const [captures, setCaptures] = useState<File[]>([]);
+
+  return (
+    <form
+      className="upload"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (config) onSubmit(config, captures);
+      }}
+    >
+      <div className="upload__fields">
+        <label className="upload__field">
+          <span className="upload__label">Configuration</span>
+          <input
+            type="file"
+            accept=".cfg,.txt,.conf,.xml,.json,text/plain"
+            onChange={(event) => setConfig(event.target.files?.[0] ?? null)}
+          />
+        </label>
+
+        <label className="upload__field">
+          <span className="upload__label">Command output (optional)</span>
+          <input
+            type="file"
+            multiple
+            accept=".txt,.log,.out,.json,.xml,.cfg,.conf,text/plain"
+            onChange={(event) => setCaptures(Array.from(event.target.files ?? []))}
+          />
+        </label>
+
+        <button className="button button--small" type="submit" disabled={!config || pending}>
+          {pending ? 'Parsing…' : 'Upload'}
+        </button>
+      </div>
+
+      <p className="card__hint">
+        A running configuration does not contain the device&rsquo;s version, the routes it learned,
+        or what is plugged into its ports. Add those by naming each file after the command that
+        produced it — <code>show version.txt</code>, <code>show cdp neighbors detail.txt</code>.
+        Underscores work too. Only commands on this platform&rsquo;s read-only allow-list are
+        accepted.
+      </p>
+    </form>
+  );
+}
+
 export function DeviceConfigPage() {
   const { deviceId = '' } = useParams();
   const { can } = useAuth();
@@ -122,9 +188,13 @@ export function DeviceConfigPage() {
   });
 
   const upload = useMutation({
-    mutationFn: (file: File) => {
+    mutationFn: ({ config, captures }: { config: File; captures: File[] }) => {
       const form = new FormData();
-      form.append('file', file);
+      form.append('file', config);
+      // One part per capture, under the name the API repeats. Each file's *name* is
+      // what says which command it is the output of — the server resolves it against
+      // the platform's allow-list and refuses anything not on it.
+      for (const capture of captures) form.append('artifacts', capture);
       return request<ConfigUploadResponse>(`/devices/${deviceId}/configs`, {
         method: 'POST',
         body: form,
@@ -176,33 +246,44 @@ export function DeviceConfigPage() {
       <section className="card">
         <div className="card__header">
           <h2 className="card__title">Snapshots</h2>
-          {canPin && (
-            <label className="button button--ghost button--small">
-              Upload a configuration
-              <input
-                type="file"
-                accept=".cfg,.txt,.conf,.xml,.json,text/plain"
-                hidden
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) upload.mutate(file);
-                  // Reset so selecting the same file twice still fires a change event.
-                  event.target.value = '';
-                }}
-              />
-            </label>
-          )}
         </div>
+
+        {canPin && (
+          <UploadForm
+            onSubmit={(config, captures) => upload.mutate({ config, captures })}
+            pending={upload.isPending}
+          />
+        )}
 
         {uploadError && (
           <div className="alert alert--error" role="alert">
             {uploadError}
           </div>
         )}
-        {upload.isPending && <p className="page-loading">Parsing…</p>}
-        {upload.data?.deduplicated && (
+        {upload.data && (
           <div className="alert" role="status">
-            That configuration was already stored — the existing snapshot was reused.
+            {upload.data.deduplicated ? (
+              <>
+                <strong>That configuration was already stored</strong> — the existing snapshot was
+                reused.{' '}
+              </>
+            ) : (
+              <>
+                <strong>Stored.</strong>{' '}
+              </>
+            )}
+            {/* Echoed back rather than counted. A file named `show_verison.txt` is the
+                likeliest mistake here, and "1 capture accepted" would let it look
+                right — the server resolves the name, so only the server can say what
+                it was actually read as. */}
+            {upload.data.supporting_commands.length > 0 ? (
+              <>Read {upload.data.supporting_commands.join(', ')} alongside it.</>
+            ) : (
+              <>
+                No command output came with it, so the version, learned routes and neighbour table
+                are whatever the configuration alone could say.
+              </>
+            )}
           </div>
         )}
 

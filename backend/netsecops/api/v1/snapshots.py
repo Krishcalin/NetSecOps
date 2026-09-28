@@ -32,7 +32,12 @@ from netsecops.schemas.snapshots import (
 )
 from netsecops.services.audit import AuditService
 from netsecops.services.inventory import InventoryService
-from netsecops.services.snapshots import DriftResult, SemanticChange, SnapshotService
+from netsecops.services.snapshots import (
+    DriftResult,
+    SemanticChange,
+    SnapshotService,
+    SupportingCapture,
+)
 
 log = get_logger(__name__)
 router = APIRouter(tags=["snapshots"])
@@ -148,7 +153,30 @@ async def upload_config(
     snapshots: SnapshotDep,
     principal: PrincipalDep,
     file: Annotated[UploadFile, File(description="A device configuration export")],
+    artifacts: Annotated[
+        list[UploadFile] | None,
+        File(
+            description=(
+                "Optional operational command output, each file named after the command "
+                "that produced it — 'show cdp neighbors detail.txt'. Only commands on "
+                "the platform's read-only allow-list are accepted."
+            )
+        ),
+    ] = None,
 ) -> ConfigUploadResponse:
+    """Assess a configuration, and whatever command output came with it.
+
+    A running configuration does not contain a device's version, its serial, the routes
+    it learned, or what is plugged into its ports. A live collection gathers those
+    alongside the configuration; an upload could not, which left an air-gapped estate
+    without the CVE matching, the topology graph and the neighbour table that the same
+    product gives a reachable one.
+
+    Each supporting file is read as the command its name spells, resolved against the
+    platform's SRS §8.2 allow-list. That gate is the point rather than a formality: an
+    upload is still this product taking a device's output into its store, and a filename
+    is not a reason to hold something §8.1 promises is never gathered.
+    """
     device = await InventoryService(snapshots.session).get_device(device_id, scope=principal.scope)
 
     raw = await file.read()
@@ -168,11 +196,33 @@ async def upload_config(
         # bytes keeps the rest parseable.
         text = raw.decode("utf-8", errors="replace")
 
+    captures: list[SupportingCapture] = []
+    for extra in artifacts or []:
+        blob = await extra.read()
+        if len(blob) > MAX_CONFIG_BYTES:
+            raise ValidationProblem(
+                f"'{extra.filename}' is larger than {MAX_CONFIG_BYTES // (1024 * 1024)} MB.",
+                filename=extra.filename,
+                size_bytes=len(blob),
+            )
+        # An empty capture is skipped rather than refused. `show cdp neighbors detail`
+        # on a switch with CDP off legitimately returns nothing, and rejecting the whole
+        # upload over it would punish the honest case.
+        if not blob.strip():
+            continue
+        captures.append(
+            SupportingCapture(
+                filename=extra.filename or "capture.txt",
+                text=blob.decode("utf-8", errors="replace"),
+            )
+        )
+
     result = await snapshots.ingest_config(
         device,
         config_text=text,
         filename=file.filename or "config.txt",
         actor=principal,
+        supporting=captures,
     )
     await snapshots.session.commit()
 
@@ -183,6 +233,7 @@ async def upload_config(
         deduplicated=result.deduplicated,
         parse_coverage=result.snapshot.parse_coverage,
         unparsed_count=result.snapshot.unparsed_count,
+        supporting_commands=list(result.supporting_commands),
         drift=_drift_response(
             device.id,
             await snapshots.baseline(device),

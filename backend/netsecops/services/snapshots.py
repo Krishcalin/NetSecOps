@@ -25,11 +25,13 @@ import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any
+from pathlib import PurePosixPath
+from typing import Any, Final
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from netsecops.adapters.policies import get_policy
 from netsecops.core.crypto import SecretVault, build_vault
 from netsecops.core.errors import ConflictError, NotFoundError, ValidationProblem
 from netsecops.core.logging import get_logger
@@ -53,6 +55,96 @@ from netsecops.parsers.registry import NoParserError, get_parser
 from netsecops.services.audit import AuditService
 
 log = get_logger(__name__)
+
+
+# ────────────────────── supporting captures (FR-COL-11) ─────────────────────
+
+
+@dataclass(frozen=True, slots=True)
+class SupportingCapture:
+    """One file of operational command output, uploaded rather than collected.
+
+    **Why this exists.** Twelve places across six parsers read `ParseContext.artifact`
+    — the device version, model and serial that every CVE match depends on, the
+    protocol-learned routes the topology graph is built from, ACL hit counts, a
+    controller's access points, CDP and LLDP neighbours. None of it appears in a running
+    configuration, and until now the only way to supply it was a live collection.
+
+    That left an estate onboarded by upload with every one of those capabilities dead
+    and nothing saying so — an empty neighbour list on an uploaded switch reads exactly
+    like a switch with CDP disabled. Air-gapped sites are precisely the ones FR-COL-11
+    exists for, so the gap was widest where the feature was most needed.
+    """
+
+    #: What the operator called the file. The command is read from it — see
+    #: `command_from_filename`.
+    filename: str
+    text: str
+
+
+#: Extensions a captured-output file is likely to carry. Stripped before the rest of the
+#: name is read as a command, and deliberately a closed set: a device genuinely named
+#: `show flash` must not lose its tail to a suffix nobody meant as one.
+_CAPTURE_SUFFIXES: Final = (".txt", ".log", ".out", ".json", ".xml", ".cfg", ".conf")
+
+
+def command_from_filename(filename: str) -> list[str]:
+    """The commands a capture's filename might name, best first.
+
+    Two spellings are accepted because both are what people actually type:
+    `show version.txt` and `show_version.txt`. Underscores become spaces; **hyphens do
+    not**, and that is the whole subtlety here — `show radius-server`,
+    `show run-config commands` and `get router info routing-table all` are real
+    allow-list entries whose hyphens are part of the command.
+    """
+    stem = PurePosixPath(filename.replace("\\", "/")).name
+    for suffix in _CAPTURE_SUFFIXES:
+        if stem.lower().endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+
+    literal = " ".join(stem.split())
+    underscored = " ".join(stem.replace("_", " ").split())
+
+    candidates = [literal]
+    if underscored != literal:
+        candidates.append(underscored)
+    return [candidate for candidate in candidates if candidate]
+
+
+def resolve_supporting_command(filename: str, platform: str) -> str:
+    """Which approved command a capture is the output of.
+
+    **Resolved against the platform's own allow-list, never trusted from the filename.**
+    SRS §8.2 is the list of what this product may read from a device, and an upload is
+    still this product reading a device's output — accepting `cat /etc/shadow.txt`
+    because somebody named a file that way would put data in the NCM that §8.1 promises
+    is never gathered. The allow-list is already the answer to "may we hold this", so it
+    is the gate here too, and it costs nothing to reuse.
+
+    `session_only` entries are refused as well. `terminal length 0` sets paging and
+    produces no output; a file claiming to be its result is a mistake, not a capture.
+    """
+    try:
+        policy = get_policy(platform)
+    except KeyError as exc:
+        raise ValidationProblem(str(exc)) from None
+
+    candidates = command_from_filename(filename)
+    for candidate in candidates:
+        rule = policy.match(candidate)
+        if rule is not None and not rule.session_only:
+            return candidate
+
+    raise ValidationProblem(
+        f"'{filename}' does not name a command {platform} is permitted to be read with. "
+        "Name each supporting file after the command that produced it — "
+        "'show cdp neighbors detail.txt' or 'show_cdp_neighbors_detail.txt' — and see "
+        "`netsecops-cli audit-commands` for the full list.",
+        filename=filename,
+        platform=platform,
+        read_as=candidates,
+    )
 
 
 #: Lines that change without the configuration changing (FR-DRIFT-01).
@@ -260,6 +352,9 @@ class IngestResult:
     drift: DriftResult
     finding: Finding | None
     deduplicated: bool
+    #: The commands the supporting captures were read as. Returned rather than counted
+    #: so the caller can see that `show_verison.txt` was not silently accepted.
+    supporting_commands: tuple[str, ...] = ()
 
 
 class SnapshotService:
@@ -357,6 +452,7 @@ class SnapshotService:
         filename: str,
         actor: Principal,
         platform: str | None = None,
+        supporting: Sequence[SupportingCapture] | None = None,
     ) -> IngestResult:
         """Assess a configuration supplied by an operator rather than collected.
 
@@ -365,6 +461,15 @@ class SnapshotService:
         same path as a live collection — same artefact encryption, same snapshot, same
         drift detection — so an uploaded configuration is not a second-class citizen
         with its own quietly different behaviour.
+
+        ``supporting`` closes the one place it *was* second-class. A live collection
+        gathers command output beside the configuration and the parsers read it; an
+        upload could not, so version, model and serial (and therefore every CVE match),
+        protocol-learned routes, ACL hit counts and CDP/LLDP neighbours were all
+        unavailable to exactly the estates this endpoint exists for. Each capture is
+        named after the command that produced it, checked against the platform's
+        allow-list, and stored as its own artefact so the evidence trail says where
+        every NCM field came from.
         """
         # The device's own platform, never its policy key: expert mode and sudo reads
         # widen the command allow-list and do not change the configuration format, so
@@ -375,6 +480,22 @@ class SnapshotService:
                 "This device has no platform set, so the file cannot be parsed. "
                 "Set the device's platform first."
             )
+
+        # Resolved first, before a Collection or an artefact exists. The transaction
+        # would roll a later refusal back anyway, but ordering the check ahead of the
+        # writes is what makes "a bad filename costs you nothing" true of the code
+        # rather than true of the enclosing transaction.
+        captures: dict[str, str] = {}
+        for capture in supporting or ():
+            command = resolve_supporting_command(capture.filename, platform)
+            if command in captures:
+                raise ValidationProblem(
+                    f"Two files both name '{command}'. Each command may be supplied once, "
+                    "because the parser reads one output per command and silently taking "
+                    "whichever arrived last would make the result depend on upload order.",
+                    command=command,
+                )
+            captures[command] = capture.text
 
         collection = Collection(
             org_id=device.org_id,
@@ -396,6 +517,18 @@ class SnapshotService:
             kind=ArtifactKind.UPLOAD,
         )
 
+        for ordinal, (command, text) in enumerate(captures.items(), start=1):
+            await self.store_artifact(
+                collection,
+                command=command,
+                response=text,
+                ordinal=ordinal,
+                # UPLOAD, not COMMAND: this output is real, and nothing was sent to a
+                # device to obtain it. An evidence trail that cannot tell those apart
+                # is one that would let an offline assessment be read as a live one.
+                kind=ArtifactKind.UPLOAD,
+            )
+
         digest = config_hash(config_text)
         already = (
             await self.session.execute(
@@ -412,6 +545,7 @@ class SnapshotService:
             platform=platform,
             artifact_id=artifact.id,
             command=f"upload:{filename}",
+            supporting=captures,
         )
 
         drift = await self.detect_drift(device, snapshot)
@@ -429,7 +563,14 @@ class SnapshotService:
             object_id=collection.id,
             device_id=device.id,
             command_text=f"upload:{filename}",
-            details={"source": "offline_upload", "bytes": len(config_text.encode("utf-8"))},
+            details={
+                "source": "offline_upload",
+                "bytes": len(config_text.encode("utf-8")),
+                # Named in the audit record, not just counted: this is the list of
+                # device output the product took in, and SRS §8.1 item 8 is a promise
+                # that the log says exactly what was read.
+                "supporting_commands": list(captures),
+            },
             org_id=device.org_id,
         )
 
@@ -440,6 +581,7 @@ class SnapshotService:
             drift=drift,
             finding=finding if drift.changed else None,
             deduplicated=already,
+            supporting_commands=tuple(captures),
         )
 
     # ──────────────────────────── snapshots ─────────────────────────────
@@ -522,12 +664,39 @@ class SnapshotService:
             # than storing the same text again.
             existing.seen_count += 1
             existing.last_seen_at = datetime.now(UTC)
+
+            # **The configuration being identical does not make what we know identical.**
+            # `config_hash` is over the text; supporting command output is not in it, by
+            # design — a routing table reconverges on its own and folding it into the
+            # digest would make every collection of an unchanged device look like drift.
+            #
+            # The consequence was that this branch parsed the NCM and threw it away. Add
+            # `show cdp neighbors detail` to a configuration already stored and the
+            # neighbours were read, discarded, and the panel stayed empty with nothing
+            # saying why — which is the failure mode this codebase is named for, sitting
+            # in the one path an air-gapped estate has.
+            #
+            # Refreshed only when it actually differs, so an unchanged re-upload still
+            # writes nothing but the counter.
+            refreshed = ncm_hash(ncm)
+            # Captured before the assignment below, which would otherwise make this
+            # comparison false every time and the log say nothing ever changed.
+            changed = refreshed != existing.normalized_hash
+            if changed:
+                existing.ncm = ncm.to_storage()
+                existing.normalized_hash = refreshed
+                existing.ncm_version = ncm.ncm_version
+                existing.parser_platform = platform
+                existing.parse_coverage = coverage
+                existing.unparsed_count = len(ncm.raw_unparsed)
+
             await self.session.flush()
             log.info(
                 "snapshot.deduplicated",
                 device_id=str(device.id),
                 snapshot_id=str(existing.id),
                 seen_count=existing.seen_count,
+                ncm_refreshed=changed,
             )
             return existing
 

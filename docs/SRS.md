@@ -249,7 +249,7 @@ Requirement ID format: `FR-<MODULE>-<NN>`. Priority: **M** = Must (v1.0), **S** 
 | FR-COL-08 | Partial collections SHALL be stored and assessed with checks marked "Not evaluated — missing data". | M |
 | FR-COL-09 | The system SHALL support SSH jump hosts / bastions (ProxyJump semantics) per device or group. | M |
 | FR-COL-10 | The system SHALL verify device SSH host keys and TLS certificates with policy options: strict (pin on first use, alert on change), or accept-and-record. Host key/cert changes SHALL generate a finding. | M |
-| FR-COL-11 | Users SHALL be able to upload configuration files offline (text/XML/JSON exports) for assessment without live access (air-gapped or pre-onboarding use). | M |
+| FR-COL-11 | Users SHALL be able to upload configuration files offline (text/XML/JSON exports) for assessment without live access (air-gapped or pre-onboarding use). An upload MAY additionally carry operational command output, one file per command, named after the command that produced it and accepted only where that command appears on the platform's §8.2 allow-list. | M |
 | FR-COL-12 | Live job progress (per device status, log tail without secrets) SHALL stream to the UI via WebSocket. | M |
 | FR-COL-13 | Config artefacts SHALL be redacted for display (passwords, shared secrets, keys, communities masked) while the original is retained encrypted for diff/hash purposes. | M |
 
@@ -617,6 +617,26 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 > Scope deliberately not taken: LLDP on NX-OS. `show lldp neighbors detail` is not on the
 > NX-OS allow-list and a profile may not widen one — this list is closed precisely so
 > that "it is only a show command" cannot grow it an entry at a time.
+
+> **Amendment, recorded 2026-09-28 — the allow-list also gates what may be *uploaded*.**
+> FR-COL-11 now accepts operational command output beside a configuration, because
+> twelve places across six parsers read command output that no running configuration
+> contains: the version, model and serial every CVE match depends on, protocol-learned
+> routes, ACL hit counts, a controller's access points, and CDP/LLDP neighbours. An
+> upload-only estate therefore had all twelve dead, and an empty neighbour list on an
+> uploaded switch was indistinguishable from a switch with CDP turned off — the gap was
+> widest in exactly the air-gapped case FR-COL-11 exists to serve.
+>
+> Each file is read as the command its name spells, and **resolved against the same
+> per-platform allow-list below**. That is the part worth recording: an upload is still
+> this product taking a device's output into its store, so a filename is not a reason to
+> hold something §8.1 promises is never gathered. `cat /etc/shadow.txt` is refused on a
+> Cisco device for the same reason the collector would never send it, and a command
+> approved for one platform is not thereby approved for another.
+>
+> Nothing was added to any list and nothing new is sent to any device — §8.1 is
+> untouched. Uploaded output is stored as an `upload` artefact rather than a `command`
+> one, so the evidence trail never implies a device was contacted.
 
 **Cisco IOS / IOS-XE (routers, switches, Catalyst 9800 WLC, IOS APs)**
 `terminal length 0`, `terminal width 512`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show ip interface brief`, `show interfaces status`, `show interfaces description`, `show cdp neighbors detail`, `show lldp neighbors detail`, `show vlan brief`, `show spanning-tree summary`, `show ip route summary`, `show ip route`, `show ip ssh`, `show ssh`, `show crypto key mypubkey rsa`, `show snmp community`, `show snmp user`, `show aaa servers`, `show tacacs`, `show radius server-group all`, `show ntp status`, `show ntp associations`, `show logging | include (Trap|Buffer|Logging to)`, `show users`, `show access-lists`, `show ip access-lists`, `show line`, `show clock`, `show archive`, `show ip http server status`, `show crypto pki certificates`, `show boot`, `show redundancy`, `show stackwise-virtual`, `show switch`, `show port-security`, `show ip dhcp snooping`, `show ip arp inspection`, `show errdisable recovery`, `show wireless summary`, `show wlan summary`, `show wlan all`, `show ap summary`, `show ap config general`, `show wireless profile policy summary`, `show aaa method-lists all`.

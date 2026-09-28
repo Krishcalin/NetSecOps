@@ -100,4 +100,8 @@ export interface ConfigUploadResponse {
   parse_coverage: number | null;
   unparsed_count: number;
   drift: Drift;
+  /** The commands the supporting captures were read as, resolved by the server from
+   *  their filenames. Echoed back because a slightly wrong name is the likeliest
+   *  mistake, and a count alone would let `show_verison.txt` look accepted. */
+  supporting_commands: string[];
 }

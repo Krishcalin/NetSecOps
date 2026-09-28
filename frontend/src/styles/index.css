@@ -2427,6 +2427,57 @@ code {
   margin-bottom: var(--gap);
 }
 
+/* ── offline upload (FR-COL-11) ────────────────────────────────────────────
+   Two inputs, not one multi-select: a running configuration and a capture of
+   `show cdp neighbors detail` are not interchangeable, and a file picker's
+   ordering is not something a person chooses. */
+
+.upload {
+  margin: 0 0 16px;
+  padding: 14px 16px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.upload__fields {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.upload__field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  /* `min-width: 0` so a long filename shrinks the control rather than pushing the
+     submit button off the row. */
+  min-width: 0;
+}
+
+.upload__label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.upload input[type='file'] {
+  font-size: 12.5px;
+  max-width: 100%;
+  color: var(--text-muted);
+}
+
+.upload code {
+  font-size: 11.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
 /* ── the overview row ──────────────────────────────────────────────────────
    The stat tiles beside the estate's direction rather than stacked above it.
 
