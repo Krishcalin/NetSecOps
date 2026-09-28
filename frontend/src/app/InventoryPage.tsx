@@ -17,7 +17,7 @@ import { NavLink } from 'react-router-dom';
 import { ApiError, api } from '../api/client';
 import { useAuth } from '../features/auth/useAuth';
 import type { Device, DeviceGroup, Paginated, PendingDevice } from '../features/inventory/types';
-import { VENDOR_LABELS } from '../features/inventory/types';
+import { DEVICE_CLASSES, VENDOR_LABELS, classLabel } from '../features/inventory/types';
 import { PageHeader } from '../components/PageHeader';
 import { useUrlFilters } from './useUrlFilters';
 
@@ -124,19 +124,6 @@ function PendingReview() {
   );
 }
 
-/** The appliance types, and what to call them. Every `DeviceClass` the API accepts, so
- *  the page's own control can reach the five the sidebar does not name. */
-const DEVICE_CLASSES: { value: string; label: string }[] = [
-  { value: 'router', label: 'Routers' },
-  { value: 'switch', label: 'Switches' },
-  { value: 'firewall', label: 'Firewalls' },
-  { value: 'wireless_controller', label: 'Wireless controllers' },
-  { value: 'wireless_ap', label: 'Wireless access points' },
-  { value: 'manager', label: 'Managers' },
-  { value: 'aaa_server', label: 'AAA servers' },
-  { value: 'unknown', label: 'Unclassified' },
-];
-
 export function InventoryPage() {
   const { can } = useAuth();
   const queryClient = useQueryClient();
@@ -147,7 +134,7 @@ export function InventoryPage() {
   // link — and so a filtered inventory can be sent to somebody.
   const filters = useUrlFilters({ device_class: '' });
   const deviceClass = filters.read('device_class');
-  const className = DEVICE_CLASSES.find((entry) => entry.value === deviceClass)?.label;
+  const className = deviceClass ? classLabel(deviceClass, 'plural') : undefined;
   const [confirmArchive, setConfirmArchive] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -225,9 +212,9 @@ export function InventoryPage() {
             }}
           >
             <option value="">All types</option>
-            {DEVICE_CLASSES.map((entry) => (
-              <option key={entry.value} value={entry.value}>
-                {entry.label}
+            {DEVICE_CLASSES.map((value) => (
+              <option key={value} value={value}>
+                {classLabel(value, 'plural')}
               </option>
             ))}
           </select>

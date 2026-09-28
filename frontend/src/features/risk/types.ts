@@ -101,35 +101,6 @@ export interface EstateRiskTrend {
   latest_grade: Grade | null;
 }
 
-/** Plural, for the filter and the headings it produces — "Firewalls by grade". */
-export const CLASS_LABELS: Record<string, string> = {
-  firewall: 'Firewalls',
-  switch: 'Switches',
-  router: 'Routers',
-  wireless_ap: 'Wireless APs',
-  wireless_controller: 'Wireless controllers',
-  manager: 'Managers',
-  aaa_server: 'AAA servers',
-  unknown: 'Unclassified',
-};
-
-/** Singular, for a row, which describes one device.
- *
- * A second map rather than trimming an `s`: three of the eight do not pluralise that
- * way, and `AAA servers` and `Wireless APs` both have capitals that a
- * `text-transform` would either flatten or over-apply.
- */
-export const CLASS_SINGULAR: Record<string, string> = {
-  firewall: 'Firewall',
-  switch: 'Switch',
-  router: 'Router',
-  wireless_ap: 'Wireless AP',
-  wireless_controller: 'Wireless controller',
-  manager: 'Manager',
-  aaa_server: 'AAA server',
-  unknown: 'Unclassified',
-};
-
 /** Spelled out rather than drawn as an arrow. Risk counts down here, so an arrow
  *  would be ambiguous even before a screen reader skipped it. */
 export const DIRECTION_LABELS: Record<Direction, string> = {

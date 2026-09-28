@@ -54,6 +54,27 @@ NetSecOps will **not**:
 | RADIUS / TACACS+ configuration | (a) AAA client config on every device above; (b) Cisco ISE (ERS/OpenAPI) | (a) Authentication profiles / server profiles on PAN-OS | (a) AAA client config; (b) FortiAuthenticator (REST) | (a) RADIUS/TACACS objects & authentication settings in Management API and Gaia |
 | Generic AAA servers | FreeRADIUS, tac_plus / tac_plus-ng on Linux (via SSH, read config files) — **SHOULD** | | | |
 
+#### 1.3.1 Additional device classes (v1.1)
+
+Added 2026-09-28. These are vendors outside the original four, so they are listed by
+platform rather than forced into the columns above. See
+[new-device-families.md](new-device-families.md) for the study behind each row,
+including what is verified against vendor documentation and what is not.
+
+| Device class | Vendor | Platform | Transport | Notes |
+|---|---|---|---|---|
+| Link load balancer / ADC | Radware | Alteon (34.x / 33.x) | SSH CLI; REST API secondary | The CLI is built first because every command is publicly documented and no REST endpoint path is — Alteon serves its own API catalogue from the appliance at `/restdoc/`. `cc` dumps the configuration with keys and certificates already removed by the device, and is preferred over `/cfg/dump` where it suffices. |
+| Web application firewall | Barracuda | Web Application Firewall (v3.x REST API) | HTTPS REST, port 8443 (8000 plaintext) | `POST /restapi/v3.x/login` returns a token presented as the HTTP Basic *username* with an empty password. Login is the only permitted POST, under §8.1 item 3. |
+| Wireless controller | Cisco | Catalyst 9800, Embedded Wireless Controller on AP | SSH CLI (IOS-XE) | Already named in §1.3 above and in the §8.2 command allow-list; §1.3.1 records that EWC shares the 9800's platform because it runs the same image and the same configuration syntax. |
+| Wireless access point | Cisco | Autonomous Aironet / Mobility Express (IOS) | SSH CLI | A *lightweight* (CAPWAP) AP holds no configuration of its own and is **not** collected from: it appears in the inventory as a row derived from its controller, the way a managed FortiGate is derived from a FortiManager (FR-INV-04). |
+
+**A web application firewall does not fit the `firewall` section of the NCM.** It has no
+zones, no address objects and no ordered allow/deny rulebase; its posture is per-service
+— monitor or block mode, the bound security policy, TLS termination and back-end
+encryption. FR-PARSE-02's NCM gains a `waf` section for it, and the rulebase analyser
+(FR-FW-02 … FR-FW-05) is **not** applied to WAF data: shadowing and permissiveness are
+meaningless there, and the conclusions would be indistinguishable from real ones.
+
 ### 1.4 Definitions and acronyms
 
 | Term | Meaning |

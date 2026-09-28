@@ -257,10 +257,14 @@ describe('InventoryPage', () => {
     });
 
     it('offers every device class, not just the three the sidebar names', async () => {
-      // Five of the eight have no navigation entry, so this control is the only way to
+      // Seven of the ten have no navigation entry, so this control is the only way to
       // reach them — a class missing from both is one the product stores and nobody
       // can list. Pinned as the whole set rather than a few spot checks, because a
       // dropped entry is invisible: the option is simply not there.
+      //
+      // `deviceClasses.test.ts` checks the same list against the backend enum. This
+      // one checks it reaches the control, which is the half that went wrong when
+      // `load_balancer` and `waf` were added to a vocabulary that existed four times.
       renderPage();
 
       const select = await screen.findByLabelText('Type');
@@ -275,6 +279,8 @@ describe('InventoryPage', () => {
         'firewall',
         'wireless_controller',
         'wireless_ap',
+        'load_balancer',
+        'waf',
         'manager',
         'aaa_server',
         'unknown',

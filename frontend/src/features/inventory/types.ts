@@ -4,17 +4,90 @@
  * document once the API is running, so the two cannot drift for long.
  */
 
-export type Vendor = 'cisco' | 'paloalto' | 'fortinet' | 'checkpoint' | 'linux' | 'unknown';
+export const VENDORS = [
+  'cisco',
+  'paloalto',
+  'fortinet',
+  'checkpoint',
+  'linux',
+  'radware',
+  'barracuda',
+  'unknown',
+] as const;
 
-export type DeviceClass =
-  | 'firewall'
-  | 'switch'
-  | 'router'
-  | 'wireless_ap'
-  | 'wireless_controller'
-  | 'manager'
-  | 'aaa_server'
-  | 'unknown';
+export type Vendor = (typeof VENDORS)[number];
+
+/** The device classes the product recognises (SRS §1.3, §1.3.1).
+ *
+ * One vocabulary, and the type is derived from it rather than written twice. It was in
+ * four places when `load_balancer` and `waf` were added — this union, the Inventory
+ * page's picker, the Risk Trends page's picker, and a label map beside each — which is
+ * four chances for a class the backend accepts to be missing from a control. A filter
+ * whose options are a subset of reality is a filter that lies about the estate.
+ *
+ * `deviceClasses.test.ts` reads the `DeviceClass` enum out of the backend model and
+ * fails if the two disagree, which is the check that actually protects this: a class
+ * added to the server and not here is capability with no surface, and on a
+ * console-only deployment that is indistinguishable from capability that is absent.
+ *
+ * The order is the one the pickers show — the three appliance types the sidebar names
+ * first, then the rest, then whatever is still unclassified.
+ */
+export const DEVICE_CLASSES = [
+  'router',
+  'switch',
+  'firewall',
+  'wireless_controller',
+  'wireless_ap',
+  'load_balancer',
+  'waf',
+  'manager',
+  'aaa_server',
+  'unknown',
+] as const;
+
+export type DeviceClass = (typeof DEVICE_CLASSES)[number];
+
+/** Plural, for a filter option and the heading it produces — "Firewalls by grade". */
+export const CLASS_LABELS: Record<string, string> = {
+  router: 'Routers',
+  switch: 'Switches',
+  firewall: 'Firewalls',
+  wireless_controller: 'Wireless controllers',
+  wireless_ap: 'Wireless access points',
+  load_balancer: 'Load balancers',
+  waf: 'Web application firewalls',
+  manager: 'Managers',
+  aaa_server: 'AAA servers',
+  unknown: 'Unclassified',
+};
+
+/** Singular, for a row, which describes one device.
+ *
+ * A second map rather than trimming an `s`: three of these do not pluralise that way,
+ * and `AAA server` and `Wireless AP` carry capitals a `text-transform` would either
+ * flatten or over-apply.
+ */
+export const CLASS_SINGULAR: Record<string, string> = {
+  router: 'Router',
+  switch: 'Switch',
+  firewall: 'Firewall',
+  wireless_controller: 'Wireless controller',
+  wireless_ap: 'Wireless AP',
+  load_balancer: 'Load balancer',
+  waf: 'Web application firewall',
+  manager: 'Manager',
+  aaa_server: 'AAA server',
+  unknown: 'Unclassified',
+};
+
+/** A class the maps have never heard of falls back to its own key rather than to
+ *  nothing: an unlabelled row reads as a loading failure, where the key at least says
+ *  the console is behind its server. */
+export function classLabel(value: string, form: 'plural' | 'singular' = 'singular'): string {
+  const map = form === 'plural' ? CLASS_LABELS : CLASS_SINGULAR;
+  return map[value] ?? value;
+}
 
 export type Criticality = 'critical' | 'high' | 'medium' | 'low';
 export type DeviceStatus = 'active' | 'archived' | 'pending_review';
@@ -168,6 +241,8 @@ export const VENDOR_LABELS: Record<Vendor, string> = {
   fortinet: 'Fortinet',
   checkpoint: 'Check Point',
   linux: 'Linux',
+  radware: 'Radware',
+  barracuda: 'Barracuda',
   unknown: 'Unknown',
 };
 

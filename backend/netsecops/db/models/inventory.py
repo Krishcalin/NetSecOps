@@ -32,17 +32,31 @@ class Vendor(StrEnum):
     FORTINET = "fortinet"
     CHECKPOINT = "checkpoint"
     LINUX = "linux"
+    #: SRS §1.3.1. Both are stored as plain strings in a `String(32)` column with no
+    #: check constraint, so adding a vendor needs no migration — this enum and the
+    #: console's label maps are the only places the vocabulary is written down.
+    RADWARE = "radware"
+    BARRACUDA = "barracuda"
     UNKNOWN = "unknown"
 
 
 class DeviceClass(StrEnum):
-    """SRS §1.3 device classes."""
+    """SRS §1.3 device classes, and §1.3.1 for the two added in v1.1."""
 
     FIREWALL = "firewall"
     SWITCH = "switch"
     ROUTER = "router"
     WIRELESS_AP = "wireless_ap"
     WIRELESS_CONTROLLER = "wireless_controller"
+    #: An application delivery controller, including the link load balancers of
+    #: SRS §1.3.1. Deliberately not `firewall`: an ADC terminates TLS and proxies, and
+    #: filing it as a firewall would put it in front of the rulebase analyser, which
+    #: has nothing true to say about one.
+    LOAD_BALANCER = "load_balancer"
+    #: A web application firewall. Also not `firewall`, and for a sharper version of
+    #: the same reason — it has no zones, no address objects and no ordered rulebase,
+    #: so every conclusion the rulebase analyser reached about it would be invented.
+    WAF = "waf"
     MANAGER = "manager"
     AAA_SERVER = "aaa_server"
     UNKNOWN = "unknown"

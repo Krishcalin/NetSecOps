@@ -35,6 +35,9 @@ import { Icon } from '../components/Icon';
 import {
   CLASS_LABELS,
   CLASS_SINGULAR,
+  DEVICE_CLASSES,
+} from '../features/inventory/types';
+import {
   DIRECTION_LABELS,
   GRADE_TONES,
   PRIORITY_TONES,
@@ -48,21 +51,6 @@ import {
 } from '../features/risk/types';
 import type { FindingTrend } from '../features/findings/types';
 import { useUrlFilters } from './useUrlFilters';
-
-/** Every `DeviceClass` the API accepts, so the page's own picker reaches the five the
- *  sidebar does not name. Mirrors `InventoryPage`'s list deliberately: both drive the
- *  same `device_class` parameter, and a reader who filtered the inventory to switches
- *  should find the same word here. */
-const DEVICE_CLASSES = [
-  'router',
-  'switch',
-  'firewall',
-  'wireless_controller',
-  'wireless_ap',
-  'manager',
-  'aaa_server',
-  'unknown',
-];
 
 const WINDOW_DAYS = 90;
 
