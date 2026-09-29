@@ -175,6 +175,14 @@ class AddressSet:
 
 
 ANY_ADDRESS = AddressSet(v4=ANY_IPV4, v6=ANY_IPV6)
+
+#: Actions that inspect a packet and then carry on to the next rule instead of deciding.
+#:
+#: Firepower's `MONITOR` is the only one so far, and it exists to log traffic without
+#: affecting it. Kept as data rather than a string comparison in `analysis.py` because
+#: the next platform with one — and there will be one — should be a single line here
+#: rather than a second copy of the rule.
+NON_TERMINATING_ACTIONS: frozenset[str] = frozenset({"monitor"})
 EMPTY_ADDRESS = AddressSet()
 
 
@@ -217,6 +225,22 @@ class ResolvedRule:
     def permits(self) -> bool:
         """Whether this rule allows traffic. Vendors spell denial four ways."""
         return self.action.lower() in {"allow", "permit", "accept"}
+
+    @property
+    def terminates(self) -> bool:
+        """Whether matching this rule ends evaluation.
+
+        Almost every rule on almost every platform does, which is why nothing needed to
+        ask until Firepower arrived: **FMC's `MONITOR` action logs a match and continues
+        to the next rule.** It decides nothing.
+
+        That matters to shadowing and not to anything else. Coverage is computed from
+        match space alone, so a broad `MONITOR` entry near the top of an access policy
+        covers the match space of every rule below it — and would be reported as
+        shadowing all of them, on a device where the suggested remedy is to delete live
+        rules that are in fact reached exactly as intended.
+        """
+        return self.action.lower() not in NON_TERMINATING_ACTIONS
 
     @property
     def logs(self) -> bool:

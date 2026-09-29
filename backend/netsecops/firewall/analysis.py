@@ -383,6 +383,21 @@ def analyse(
             if earlier.rulebase != later.rulebase:
                 continue
 
+            # ── filter 0b: does the earlier rule even decide anything? ────
+            # Coverage below is computed from match space alone, which is right for
+            # every action that ends evaluation and wrong for the one that does not:
+            # Firepower's MONITOR logs a match and continues to the next rule. A broad
+            # MONITOR entry near the top of an access policy covers the match space of
+            # everything under it, and without this it is reported as shadowing all of
+            # them — on a device where the suggested remedy is to delete live rules that
+            # are reached exactly as intended.
+            #
+            # Only the *earlier* rule is tested. A non-terminating rule can still be
+            # shadowed: a packet that never reaches it never gets logged, which is a
+            # real finding about a real gap in visibility.
+            if not earlier.terminates:
+                continue
+
             # ── filter 1: zones, an integer set test on tiny sets ────────
             if not earlier.zones_intersect(later):
                 continue

@@ -171,8 +171,12 @@ class TestOnboardingRejectsWhatItCannotCollect:
         user = await make_user(session, username="platform_keys")
         return Principal(id=user.id, username=user.username, roles=frozenset(), scope=Scope.all())
 
+    # `cisco_ftd_fmc` was in this list until 2026-09-29 and has a profile and a parser
+    # now, so onboarding one is no longer a mistake to refuse. The list shrinking is
+    # what progress looks like here — each entry is a platform somebody could add to
+    # the inventory and never collect from.
     @pytest.mark.parametrize(
-        "platform", ["cisco_iosxr", "cisco_ftd_fmc", "linux_aaa", "checkpoint_gaia_expert"]
+        "platform", ["cisco_iosxr", "linux_aaa", "checkpoint_gaia_expert"]
     )
     async def test_a_platform_with_no_way_to_collect_is_refused(
         self, service, actor, platform: str

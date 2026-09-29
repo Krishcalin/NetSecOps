@@ -64,6 +64,9 @@ PLATFORM_DIRS: dict[str, str] = {
     # its own: it shares a base class with the IOS parser, so a change there can go
     # inert here without any Cisco test noticing.
     "arista/eos": "arista_eos",
+    # Firepower through its management centre. A bundle of REST responses, and the one
+    # platform in the corpus whose rulebase carries a non-terminating action.
+    "cisco/fmc": "cisco_ftd_fmc",
 }
 
 

@@ -180,7 +180,6 @@ DECLARED_UNISSUED: dict[tuple[str, str], str] = {
 #: `test_platform_keys` allows a policy without a profile — and each is a decision.
 POLICIES_WITHOUT_A_PROFILE: dict[str, str] = {
     "cisco_iosxr": "Approved in SRS §1.3 and never built. No parser either.",
-    "cisco_ftd_fmc": "Firepower via FMC, approved and not built.",
     "fortimanager": "Used for child enumeration (children.py), which is not a collection.",
     # `radware_alteon` and `barracuda_waf` were both here, and both left within a day of
     # each other once the evidence turned up — a verified published `/cfg/dump` for one,

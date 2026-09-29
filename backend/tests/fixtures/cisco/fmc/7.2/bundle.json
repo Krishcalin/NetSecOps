@@ -1,0 +1,121 @@
+{
+  "/api/fmc_platform/v1/info/serverversion": {
+    "items": [
+      {
+        "serverVersion": "7.2.5 (build 208)",
+        "geoVersion": "2026-09-01-002",
+        "vdbVersion": "build 369"
+      }
+    ],
+    "paging": { "offset": 0, "limit": 25, "count": 1, "pages": 1 }
+  },
+  "/api/fmc_config/v1/domain/e276abec/devices/devicerecords": {
+    "items": [
+      {
+        "id": "a1b2c3d4-0000-0000-0000-000000000001",
+        "name": "ftd-edge-01",
+        "hostName": "ftd-edge-01.corp.example.net",
+        "model": "Cisco Firepower 2130 Threat Defense",
+        "sw_version": "7.2.5",
+        "healthStatus": "green"
+      }
+    ]
+  },
+  "/api/fmc_config/v1/domain/e276abec/policy/accesspolicies": {
+    "items": [
+      { "id": "pol-0001", "name": "Edge-Policy", "type": "AccessPolicy" }
+    ]
+  },
+  "/api/fmc_config/v1/domain/e276abec/object/networks": {
+    "items": [
+      { "id": "n1", "name": "net-corp", "type": "Network", "value": "10.0.0.0/8" },
+      { "id": "n2", "name": "net-dmz", "type": "Network", "value": "192.0.2.0/24" }
+    ]
+  },
+  "/api/fmc_config/v1/domain/e276abec/object/hosts": {
+    "items": [
+      { "id": "h1", "name": "host-jump", "type": "Host", "value": "10.10.0.9" }
+    ]
+  },
+  "/api/fmc_config/v1/domain/e276abec/object/networkgroups": {
+    "items": [
+      {
+        "id": "g1",
+        "name": "grp-internal",
+        "type": "NetworkGroup",
+        "objects": [
+          { "id": "n1", "name": "net-corp", "type": "Network" },
+          { "id": "h1", "name": "host-jump", "type": "Host" }
+        ],
+        "literals": [{ "type": "Network", "value": "172.16.0.0/12" }]
+      }
+    ]
+  },
+  "/api/fmc_config/v1/domain/e276abec/object/ports": {
+    "items": [
+      { "id": "p1", "name": "HTTPS", "type": "ProtocolPortObject", "protocol": "TCP", "port": "443" },
+      { "id": "p2", "name": "SSH", "type": "ProtocolPortObject", "protocol": "TCP", "port": "22" }
+    ]
+  },
+  "/api/fmc_config/v1/domain/e276abec/policy/accesspolicies/pol-0001/accessrules": {
+    "items": [
+      {
+        "id": "r1",
+        "name": "monitor-everything",
+        "action": "MONITOR",
+        "enabled": true,
+        "logBegin": false,
+        "logEnd": true,
+        "sendEventsToFMC": true
+      },
+      {
+        "id": "r2",
+        "name": "allow-dmz-https",
+        "action": "ALLOW",
+        "enabled": true,
+        "sourceZones": { "objects": [{ "name": "inside", "type": "SecurityZone" }] },
+        "destinationZones": { "objects": [{ "name": "dmz", "type": "SecurityZone" }] },
+        "sourceNetworks": { "objects": [{ "name": "grp-internal", "type": "NetworkGroup" }] },
+        "destinationNetworks": {
+          "objects": [{ "name": "net-dmz", "type": "Network" }],
+          "literals": [{ "type": "Host", "value": "192.0.2.50" }]
+        },
+        "destinationPorts": { "objects": [{ "name": "HTTPS", "type": "ProtocolPortObject" }] },
+        "logBegin": false,
+        "logEnd": true,
+        "ipsPolicy": { "id": "ips1", "name": "Balanced Security and Connectivity" },
+        "filePolicy": { "id": "fp1", "name": "Block Malware" }
+      },
+      {
+        "id": "r3",
+        "name": "trust-backup",
+        "action": "TRUST",
+        "enabled": true,
+        "sourceNetworks": { "literals": [{ "type": "Host", "value": "10.10.0.9" }] },
+        "destinationPorts": { "objects": [{ "name": "SSH", "type": "ProtocolPortObject" }] },
+        "logBegin": false,
+        "logEnd": false
+      },
+      {
+        "id": "r4",
+        "name": "legacy-disabled",
+        "action": "ALLOW",
+        "enabled": false,
+        "sourceNetworks": { "objects": [{ "name": "net-corp", "type": "Network" }] },
+        "logEnd": true
+      },
+      {
+        "id": "r5",
+        "name": "block-rest",
+        "action": "BLOCK_WITH_RESET",
+        "enabled": true,
+        "logBegin": true,
+        "logEnd": false
+      }
+    ],
+    "paging": { "offset": 0, "limit": 25, "count": 5, "pages": 1 }
+  },
+  "/api/fmc_config/v1/domain/e276abec/policy/intrusionpolicies": {
+    "items": [{ "id": "ips1", "name": "Balanced Security and Connectivity" }]
+  }
+}

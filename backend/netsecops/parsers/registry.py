@@ -15,6 +15,7 @@ from netsecops.parsers.base import ConfigParser
 from netsecops.parsers.checkpoint.gaia import CheckPointGaiaParser
 from netsecops.parsers.checkpoint.mgmt import CheckPointMgmtParser
 from netsecops.parsers.cisco.asa import CiscoAsaParser
+from netsecops.parsers.cisco.fmc import CiscoFmcParser
 from netsecops.parsers.cisco.ios import CiscoIosParser
 from netsecops.parsers.cisco.ise import CiscoIseParser
 from netsecops.parsers.cisco.nxos import CiscoNxosParser
@@ -45,6 +46,9 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     "cisco_wlc_aireos": CiscoWlcParser,
     # ISE is an AAA *server*: it fills `aaa_server` rather than `aaa` (FR-AAA-02).
     "cisco_ise": CiscoIseParser,
+    # Firepower through its management centre. A bundle of REST responses rather than a
+    # configuration, and the first platform to emit a non-terminating rule action.
+    "cisco_ftd_fmc": CiscoFmcParser,
     "fortios": FortiOsParser,
     "panos": PanOsParser,
     # Check Point splits in two: the security policy lives on the management server and

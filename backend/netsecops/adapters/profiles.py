@@ -587,6 +587,57 @@ CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
     ),
 )
 
+#: Cisco Firepower via its management centre (SRS §1.3).
+#:
+#: The object endpoints are not optional and are the reason this list is not three
+#: entries. A rule names an address object; without the catalogue that name resolves to
+#: the empty set and the rule can never match a packet — which is not an error anybody
+#: sees, it is a rulebase that quietly analyses as inert.
+#:
+#: `{domain}` and `{policy}` are expanded by the collector: FMC scopes every
+#: configuration endpoint by domain UUID, and access rules by the policy they belong to.
+CISCO_FMC_PROFILE: Final = CollectionProfile(
+    platform="cisco_ftd_fmc",
+    setup=(),
+    transport=Transport.HTTP,
+    bundled=True,
+    commands=(
+        CollectionCommand(
+            "GET /api/fmc_config/v1/domain/{domain}/policy/accesspolicies/{policy}/accessrules",
+            "The access rules — the rulebase itself",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "GET /api/fmc_platform/v1/info/serverversion", "FMC version, for FR-VUL-01"
+        ),
+        CollectionCommand(
+            "GET /api/fmc_config/v1/domain/{domain}/devices/devicerecords",
+            "The sensors this centre manages, and their models",
+        ),
+        CollectionCommand(
+            "GET /api/fmc_config/v1/domain/{domain}/policy/accesspolicies",
+            "Which access policies exist, so their rules can be fetched",
+        ),
+        CollectionCommand(
+            "GET /api/fmc_config/v1/domain/{domain}/object/networks",
+            "Network objects a rule's members resolve against",
+        ),
+        CollectionCommand(
+            "GET /api/fmc_config/v1/domain/{domain}/object/hosts", "Host objects"
+        ),
+        CollectionCommand(
+            "GET /api/fmc_config/v1/domain/{domain}/object/networkgroups", "Network groups"
+        ),
+        CollectionCommand(
+            "GET /api/fmc_config/v1/domain/{domain}/object/ports", "Port objects"
+        ),
+        CollectionCommand(
+            "GET /api/fmc_config/v1/domain/{domain}/object/portobjectgroups", "Port groups"
+        ),
+    ),
+)
+
 #: Arista EOS (SRS §1.3).
 #:
 #: Three commands, and `show version` is doing the work of three Cisco ones: EOS puts
@@ -742,6 +793,7 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     # format the parser is written against — see `parsers/radware/alteon.py`, which
     # records that it has still never met real hardware.
     "arista_eos": ARISTA_EOS_PROFILE,
+    "cisco_ftd_fmc": CISCO_FMC_PROFILE,
     "f5_bigip": F5_BIGIP_PROFILE,
     # One profile for SRX, MX and EX: the configuration format is a property of Junos,
     # not of the chassis, and the security commands simply return nothing on the two
