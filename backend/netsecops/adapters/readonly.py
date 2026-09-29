@@ -31,6 +31,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Final, Literal
+from urllib.parse import parse_qs, unquote
 
 from netsecops.core.errors import ReadOnlyViolationError
 from netsecops.core.logging import get_logger
@@ -168,10 +169,20 @@ class HttpRule:
     """
 
     method: HttpMethod
-    #: Matched against the request path as a prefix, after normalising the leading slash.
+    #: Matched against the request path as a prefix, after the path has been resolved —
+    #: see `resolve_path`. A prefix is only a safe way to permit a subtree if nothing
+    #: can climb back out of it.
     path_prefix: str
     reason: str = ""
-    #: For POST-only vendor APIs: the body must satisfy this to be permitted.
+    #: What the request must satisfy to be permitted, checked against the POST body or,
+    #: for a GET, against the parsed query string.
+    #:
+    #: **Both, because some vendor APIs accept the same operation either way.** PAN-OS's
+    #: XML API is the case that matters: `type`, `action` and `cmd` travel in a POST body
+    #: or a GET query string interchangeably, and the API is fully functional over GET —
+    #: `action=set`, `action=delete` and `type=commit` all work. This rule was applied to
+    #: the body alone until 2026-09-29, so the POST rule refused a configuration write
+    #: while the GET rule beside it permitted the identical operation.
     body_predicate: str | None = None
 
 
@@ -236,6 +247,62 @@ class PlatformPolicy:
 def normalise(command: str) -> str:
     """Collapse whitespace so spacing cannot change whether a command matches."""
     return re.sub(r"\s+", " ", command).strip()
+
+
+class PathTraversalError(ValueError):
+    """A request path tried to climb out of the subtree it named."""
+
+
+def resolve_path(path: str) -> str:
+    """The path a server would act on, or a refusal.
+
+    ``path_prefix`` permits a subtree, which is only safe if nothing can climb back out
+    of it. Until 2026-09-29 the guard normalised the leading slash and no more, so
+    ``/api/v2/cmdb/firewall/policy/../../monitor/system/os/reboot`` satisfied
+    ``startswith('/api/v2/cmdb/firewall/policy')`` and was permitted — as was the
+    percent-encoded form, because nothing decoded it before comparing.
+
+    Nothing could construct such a path at the time: every entry in ``profiles.py`` is a
+    literal constant. It mattered because it was about to stop being true — collecting
+    Firepower and Barracuda means splicing a policy UUID or a service name **the device
+    itself returned** into a path, and a hostile appliance answering with a name like
+    ``../../admin`` is the whole attack. A guard whose promise holds only while its
+    callers are careful is not defence in depth.
+
+    Decoding is repeated to a fixed point rather than done once: ``%252e%252e`` decodes
+    to ``%2e%2e`` and then to ``..``, and a single pass would hand the comparison a
+    string the server would still resolve further.
+    """
+    raw, separator, query = path.partition("?")
+
+    decoded = raw
+    for _ in range(4):
+        once = unquote(decoded)
+        if once == decoded:
+            break
+        decoded = once
+    else:
+        # Still changing after four passes. No legitimate path is encoded that deeply,
+        # and refusing beats guessing at what the server would finally see.
+        raise PathTraversalError("path is encoded too many times to resolve safely")
+
+    if "\\" in decoded:
+        # A backslash is a separator on the far side of several vendor stacks and not
+        # one here, so it is a way to write a segment this comparison cannot see.
+        raise PathTraversalError("path contains a backslash")
+
+    segments = decoded.split("/")
+    if any(segment == ".." for segment in segments):
+        # Refused rather than collapsed. `posixpath.normpath` would resolve this into a
+        # path that then compares cleanly, which turns a request that was trying to
+        # escape into one that quietly succeeds somewhere else — the caller should be
+        # told its path was wrong, not silently rewritten.
+        raise PathTraversalError("path contains a '..' segment")
+
+    resolved = "/" + "/".join(s for s in segments if s not in {"", "."})
+    if decoded.endswith("/") and not resolved.endswith("/"):
+        resolved += "/"
+    return resolved + separator + query
 
 
 class ReadOnlyGuard:
@@ -321,21 +388,38 @@ class ReadOnlyGuard:
     ) -> HttpRule:
         """Validate an HTTP operation against the policy (SRS §8.1 item 3)."""
         verb = method.upper()
-        normalised_path = "/" + path.lstrip("/")
 
         if verb in {"PUT", "PATCH", "DELETE"}:
             raise ReadOnlyViolationError(
                 f"{verb} is never permitted against a device.",
                 platform=self.policy.platform,
-                path=normalised_path,
+                path="/" + path.lstrip("/"),
             )
+
+        try:
+            normalised_path = resolve_path("/" + path.lstrip("/"))
+        except PathTraversalError as exc:
+            # Refused before any rule is consulted, like the command-injection check:
+            # a path that has to be untangled before it can be compared is not a path
+            # this product meant to send.
+            raise ReadOnlyViolationError(
+                f"Request path was not sent: {exc}.",
+                platform=self.policy.platform,
+                method=verb,
+                path="/" + path.lstrip("/"),
+            ) from exc
+
+        # What the request is asking for, wherever this API carries it. PAN-OS accepts
+        # the same parameters as a POST body or a GET query string, so a predicate that
+        # read only the body left the GET side of an identical operation unguarded.
+        parameters = body if verb == "POST" else _query_parameters(normalised_path)
 
         for rule in self.policy.http:
             if rule.method != verb:
                 continue
             if not normalised_path.startswith(rule.path_prefix):
                 continue
-            if rule.body_predicate and not _body_permitted(rule.body_predicate, body):
+            if rule.body_predicate and not _body_permitted(rule.body_predicate, parameters):
                 continue
             return rule
 
@@ -408,6 +492,24 @@ def _panos_read_only(body: object) -> bool:
     if api_type == "export":
         return str(body.get("category", "")).lower() in {"configuration", "certificate"}
     return False
+
+
+def _query_parameters(path: str) -> dict[str, str] | None:
+    """A GET's query string as the predicates expect to read it, or None.
+
+    None where a key appears more than once, and a rule with a predicate then has
+    nothing it can approve. Picking one value would be guessing: which of two `type=`
+    parameters a server acts on is a property of that server's parser, so a guard that
+    examined the first while PAN-OS read the second would have approved an operation it
+    never looked at. This product composes no such request, so refusing costs nothing.
+    """
+    _base, _sep, query = path.partition("?")
+    if not query:
+        return {}
+    parsed = parse_qs(query, keep_blank_values=True)
+    if any(len(values) > 1 for values in parsed.values()):
+        return None
+    return {key: values[0] for key, values in parsed.items()}
 
 
 def _auth_only(body: object) -> bool:
