@@ -745,6 +745,7 @@ class PanOsParser(ConfigParser):
             log_end=_yes(entry, "log-end"),
             profiles=profiles,
             schedule=_text(entry, "schedule"),
+            comment=_text(entry, "description"),
         )
 
     # ── certificates ────────────────────────────────────────────────────

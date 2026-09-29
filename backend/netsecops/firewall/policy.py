@@ -23,8 +23,15 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
-from netsecops.firewall.intervals import IPV4_MAX, describe_ipv4
+from netsecops.firewall.intervals import (
+    EMPTY_INTERVALS,
+    IPV4_MAX,
+    IntervalSet,
+    describe_ipv4,
+    parse_address,
+)
 from netsecops.firewall.model import ANY_PROTOCOL, ResolvedRule
 
 
@@ -46,6 +53,11 @@ class RuleIssue(StrEnum):
     EXPIRED_SCHEDULE = "expired_schedule"
     INSECURE_SERVICE = "insecure_service"
     UNRESOLVED_OBJECTS = "unresolved_objects"
+    #: Nobody wrote down what the rule is for.
+    NO_DOCUMENTATION = "no_documentation"
+    #: The device has no route to anything this rule permits, so it can never match
+    #: forwarded traffic.
+    UNROUTABLE_DESTINATION = "unroutable_destination"
 
 
 ISSUE_SEVERITY: dict[RuleIssue, str] = {
@@ -69,6 +81,14 @@ ISSUE_SEVERITY: dict[RuleIssue, str] = {
     RuleIssue.EXPIRED_SCHEDULE: "low",
     RuleIssue.INSECURE_SERVICE: "high",
     RuleIssue.UNRESOLVED_OBJECTS: "medium",
+    # Info, not low. An undocumented rule is a change-management problem and a real one —
+    # it is why nobody dares delete anything — but it is not a security state, and
+    # ranking it alongside findings about traffic would push those down the page.
+    RuleIssue.NO_DOCUMENTATION: "info",
+    # Low: the rule is dead rather than dangerous. Worth surfacing because a dead rule
+    # is a rule a reviewer still has to read, and because it is often the fossil of a
+    # decommissioned site — but nothing is exposed by it.
+    RuleIssue.UNROUTABLE_DESTINATION: "low",
 }
 
 
@@ -313,10 +333,80 @@ def _days_since(timestamp: str | None) -> int | None:
     return (datetime.now(UTC) - parsed).days
 
 
+@dataclass(frozen=True, slots=True)
+class RoutedSpace:
+    """Everything this device has a route to, and whether that is worth judging on.
+
+    A rule is dead if the device cannot forward to anything it permits. That is a useful
+    thing to say and an easy thing to say wrongly, so the conditions under which the
+    question may be asked at all are collected here rather than spread through the loop:
+
+    * **A default route covers everything.** On any device carrying `0.0.0.0/0` no
+      destination is unroutable, and the check must not run at all — otherwise a rule
+      is reported dead on the one kind of device where nothing is.
+    * **A truncated table is not a table.** `MAX_ROUTES_PER_DEVICE` caps what is stored,
+      and a prefix that fell off the end is missing evidence, not a missing route.
+    * **No routes means not collected**, not a device that forwards nowhere. A switch
+      whose table was never captured must produce no findings here.
+    * **IPv6 is judged separately or not at all.** The forwarding table stored here is
+      IPv4, so a rule whose destination is IPv6 is unevaluated rather than dead.
+    """
+
+    space: IntervalSet
+    #: False where any of the conditions above applies. Nothing is judged.
+    usable: bool = True
+
+    @classmethod
+    def from_routes(cls, routes: Sequence[Any], *, truncated: bool | None = False) -> RoutedSpace:
+        if truncated or not routes:
+            return cls(space=EMPTY_INTERVALS, usable=False)
+
+        space = EMPTY_INTERVALS
+        for route in routes:
+            destination = getattr(route, "destination", None) or (
+                route.get("destination") if isinstance(route, dict) else None
+            )
+            if not destination:
+                continue
+            v4, _v6 = parse_address(str(destination))
+            if not v4:
+                # An IPv6 prefix, or one that could not be read. Either way it adds no
+                # IPv4 coverage, and a table we only partly understood cannot be used to
+                # call a rule dead.
+                if ":" not in str(destination):
+                    return cls(space=EMPTY_INTERVALS, usable=False)
+                continue
+            if v4.covers_value(0) and v4.covers_value(IPV4_MAX):
+                # A default route. Everything is reachable; there is nothing to report.
+                return cls(space=EMPTY_INTERVALS, usable=False)
+            space = space.union(v4)
+
+        return cls(space=space, usable=bool(space.intervals))
+
+    def reaches(self, destination: IntervalSet) -> bool:
+        return bool(self.space.intersection(destination).intervals)
+
+
 def examine(
-    rules: Sequence[ResolvedRule], *, thresholds: PolicyThresholds = DEFAULT_THRESHOLDS
+    rules: Sequence[ResolvedRule],
+    *,
+    thresholds: PolicyThresholds = DEFAULT_THRESHOLDS,
+    routed: RoutedSpace | None = None,
+    comments_captured: bool = False,
 ) -> PolicyReport:
-    """Find what is wrong with each rule in its own right (FR-FW-02)."""
+    """Find what is wrong with each rule in its own right (FR-FW-02).
+
+    ``routed`` is what this device can actually forward to, from its own forwarding
+    table. Supplied, it turns on the unroutable-destination check; omitted, that check
+    simply does not run — the caller is the only thing that knows whether a route list
+    is complete, and guessing here would file a dead-rule finding against every rule on
+    a device whose table was never collected.
+
+    ``comments_captured`` says the parser for this platform reads rule comments. Same
+    reasoning: on a platform whose parser does not, every `comment` is None, and
+    reporting that as an undocumented rulebase would be a finding about our own
+    coverage dressed up as a finding about the customer's configuration.
+    """
     report = PolicyReport(rules_examined=len(rules))
     used = unused = unknown = 0
 
@@ -368,6 +458,36 @@ def examine(
                 f"This rule references {len(rule.unresolved)} object(s) the collection "
                 f"did not capture: {', '.join(rule.unresolved[:5])}. Its real scope "
                 "could not be determined, so it is excluded from overlap analysis.",
+            )
+
+        if comments_captured and not (rule.comment or "").strip():
+            # Above the permits gate on purpose: a deny rule nobody documented is the
+            # one people are most afraid to touch, because there is no record of what it
+            # was protecting or whether the reason still holds.
+            add(
+                RuleIssue.NO_DOCUMENTATION,
+                rule,
+                "This rule carries no comment. Other rules in this policy do, so the "
+                "field is being used — nothing here records what this one is for, which "
+                "is what makes a rule impossible to retire safely.",
+            )
+
+        if (
+            routed is not None
+            and routed.usable
+            and not rule.destination.is_any
+            and not rule.unresolved_dst
+            and rule.destination.v4.intervals
+            and not routed.reaches(rule.destination.v4)
+        ):
+            # Also above the permits gate: a deny rule for somewhere unreachable is
+            # equally dead, and equally worth deleting.
+            add(
+                RuleIssue.UNROUTABLE_DESTINATION,
+                rule,
+                f"This device has no route to {describe_ipv4(rule.destination.v4)}, so "
+                "this rule can never match forwarded traffic. Usually the remains of a "
+                "site or segment that has been decommissioned.",
             )
 
         if not rule.permits:

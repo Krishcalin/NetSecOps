@@ -51,6 +51,8 @@ from netsecops.firewall import (
     resolve_rulebase,
 )
 from netsecops.firewall.analysis import RELATIONSHIP_SEVERITY
+from netsecops.firewall.model import RULE_COMMENT_PLATFORMS
+from netsecops.firewall.policy import RoutedSpace
 
 log = get_logger(__name__)
 
@@ -134,8 +136,19 @@ class FirewallAssessmentService:
         inferred = external_zones is None
         zones = external_zones if external_zones is not None else external_zones_from(firewall)
 
+        routing = (snapshot.ncm or {}).get("routing") or {}
         analysis = analyse(rules)
-        policy = examine_policy(rules)
+        policy = examine_policy(
+            rules,
+            # Built from this snapshot's own forwarding table. `RoutedSpace` decides
+            # whether the table can be judged on at all — a default route, a truncated
+            # table or no table means the dead-rule check does not run.
+            routed=RoutedSpace.from_routes(
+                routing.get("routes") or [],
+                truncated=routing.get("routes_truncated"),
+            ),
+            comments_captured=device.platform in RULE_COMMENT_PLATFORMS,
+        )
         hygiene = examine_hygiene(resolver, rules)
         nat = examine_nat(firewall, rules, resolver, external_zones=zones)
 

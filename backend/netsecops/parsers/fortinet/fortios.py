@@ -566,6 +566,7 @@ class FortiOsParser(ConfigParser):
                         log_end=None if not log_setting else log_setting in {"all", "utm"},
                         profiles=_profiles(entry),
                         schedule=entry.get("schedule"),
+                        comment=entry.get("comments"),
                     )
                 )
                 result.record(

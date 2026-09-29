@@ -43,8 +43,9 @@ from netsecops.firewall import (
 )
 from netsecops.firewall.analysis import RELATIONSHIP_SEVERITY
 from netsecops.firewall.intervals import describe_ipv4
-from netsecops.firewall.model import PROTOCOL_NUMBERS
+from netsecops.firewall.model import PROTOCOL_NUMBERS, RULE_COMMENT_PLATFORMS
 from netsecops.firewall.permissiveness import score_rule
+from netsecops.firewall.policy import RoutedSpace
 from netsecops.schemas.firewall import (
     HygieneFindingRead,
     NatRuleRead,
@@ -202,8 +203,16 @@ class FirewallViewService:
 
         self.rules, self.resolver = resolve_rulebase(self.firewall)
 
+        routing = (self.snapshot.ncm or {}).get("routing") or {}
         analysis = analyse(self.rules)
-        policy = examine_policy(self.rules)
+        policy = examine_policy(
+            self.rules,
+            routed=RoutedSpace.from_routes(
+                routing.get("routes") or [],
+                truncated=routing.get("routes_truncated"),
+            ),
+            comments_captured=self.snapshot.parser_platform in RULE_COMMENT_PLATFORMS,
+        )
         hygiene = examine_hygiene(self.resolver, self.rules)
         nat = examine_nat(self.firewall, self.rules, self.resolver, external_zones=self._external)
 

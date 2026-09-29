@@ -234,6 +234,7 @@
             <security>
               <rules>
                 <entry name="Mgmt to DMZ">
+                  <description>Jump-host SSH to the DMZ, CHG0038812</description>
                   <from><member>trust</member></from>
                   <to><member>dmz</member></to>
                   <source><member>mgmt-net</member></source>

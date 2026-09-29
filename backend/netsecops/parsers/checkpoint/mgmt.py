@@ -497,6 +497,7 @@ class CheckPointMgmtParser(ConfigParser):
             profiles=profiles,
             hit_count=_hits(entry.get("hits")),
             last_hit=_last_hit(entry.get("hits")),
+            comment=(str(entry.get("comments")) or None) if entry.get("comments") else None,
         )
 
     # ── NAT (FR-FW-04) ──────────────────────────────────────────────────

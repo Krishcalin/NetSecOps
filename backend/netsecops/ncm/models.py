@@ -33,7 +33,13 @@ from pydantic import BaseModel, ConfigDict, Field
 #: are opposite facts and `ncm_version` is the only thing that distinguishes them, so a
 #: path walk over an old snapshot must answer Unknown rather than Unreachable. Same
 #: discipline as absent-is-not-false in the check engine.
-NCM_VERSION = "1.1"
+#:
+#: Bumped 1.1 → 1.2 when `SecurityRule.comment` arrived (FR-FW-02), for exactly the same
+#: reason: on a 1.1 snapshot every rule's comment is None because no parser wrote one,
+#: and on a 1.2 snapshot it is None because the author wrote none. Reporting the first
+#: as an undocumented rulebase would file a finding against every rule on every device
+#: collected before today.
+NCM_VERSION = "1.2"
 
 
 class NcmBase(BaseModel):
@@ -931,6 +937,15 @@ class SecurityRule(NcmBase):
     schedule: str | None = None
     hit_count: int | None = None
     last_hit: str | None = None
+    #: What the rule is for, in the author's words: a PAN-OS `description`, a FortiOS
+    #: `set comments`, a Check Point `comments`, the `remark` above a Cisco ACL entry.
+    #:
+    #: `None` means *not captured*, which is not the same as "the author wrote none" —
+    #: several platforms here have no such field at all, and a parser that does not read
+    #: one leaves this None. So an undocumented-rule finding is only raised where the
+    #: rulebase is known to carry comments; see `RULE_COMMENTS_CAPTURED`. Added in NCM
+    #: 1.2, so a snapshot taken before it reads None for the same reason.
+    comment: str | None = None
 
 
 class NatRule(NcmBase):

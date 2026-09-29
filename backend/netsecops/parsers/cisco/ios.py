@@ -68,6 +68,10 @@ from netsecops.parsers.routes import connected_routes, parse_ios_static_route
 
 log = get_logger(__name__)
 
+#: `remark` on an ACL line. An IOS access-list entry has no comment field of its own, so
+#: this is the only place the author's intent is written down.
+_ACL_REMARK = re.compile(r"^remark\s+", re.IGNORECASE)
+
 #: Password storage types. 0 is plaintext and 7 is trivially reversible; both are
 #: treated as weak. 5 (MD5) is legacy but not reversible; 8 (PBKDF2) and 9 (scrypt)
 #: are the modern choices.
@@ -1261,15 +1265,27 @@ class CiscoIosParser(CiscoStyleParser):
                 continue
 
             acl = Acl(name=match.group(2), type=match.group(1))
+            # A `remark` describes the entries that follow it, until the next remark —
+            # which is how Cisco ACLs are documented, there being no per-entry comment
+            # field. Carried forward rather than attached to the next entry alone: one
+            # remark above a block of five is the common shape, and claiming only the
+            # first of them is documented would file findings against a documented ACL.
+            remark: str | None = None
             for child in obj.children:
-                self._add_ace(acl, child.text.strip(), result)
+                line = child.text.strip()
+                if _ACL_REMARK.match(line):
+                    remark = _ACL_REMARK.sub("", line).strip() or None
+                    continue
+                self._add_ace(acl, line, result, comment=remark)
 
             result.ncm.acls.append(acl)
             result.record(f"acls.{len(result.ncm.acls) - 1}", line=start, line_end=end)
             result.consume(start, end)
 
-        # Numbered ACLs are flat rather than hierarchical.
+        # Numbered ACLs are flat rather than hierarchical, so the running remark is kept
+        # per ACL number: `access-list 101 remark …` lines for two ACLs can interleave.
         numbered: dict[str, Acl] = {}
+        remarks: dict[str, str | None] = {}
         for obj in parse.find_objects(r"^access-list\s+\d+"):
             match = re.match(r"^access-list\s+(\d+)\s+(.*)", obj.text)
             if not match:
@@ -1278,7 +1294,12 @@ class CiscoIosParser(CiscoStyleParser):
 
             number, rest = match.groups()
             acl = numbered.setdefault(number, Acl(name=number, type="numbered"))
-            self._add_ace(acl, rest.strip(), result, raw=obj.text.strip())
+            entry = rest.strip()
+            if _ACL_REMARK.match(entry):
+                remarks[number] = _ACL_REMARK.sub("", entry).strip() or None
+                result.consume(self.line_number(obj))
+                continue
+            self._add_ace(acl, entry, result, raw=obj.text.strip(), comment=remarks.get(number))
             result.consume(self.line_number(obj))
 
         for acl in numbered.values():
@@ -1286,7 +1307,15 @@ class CiscoIosParser(CiscoStyleParser):
 
         self._bind_acls(parse, result)
 
-    def _add_ace(self, acl: Acl, text: str, result: ParseResult, *, raw: str | None = None) -> None:
+    def _add_ace(
+        self,
+        acl: Acl,
+        text: str,
+        result: ParseResult,
+        *,
+        raw: str | None = None,
+        comment: str | None = None,
+    ) -> None:
         """Record one entry on the ACL and, if it is a rule, on the rulebase."""
         ace = parse_ace(text)
         if ace is None:
@@ -1322,6 +1351,7 @@ class CiscoIosParser(CiscoStyleParser):
                 dst=[ace.destination],
                 services=list(ace.services) if not ace.partial else [UNREADABLE],
                 log_end=ace.log,
+                comment=comment,
             )
         )
 

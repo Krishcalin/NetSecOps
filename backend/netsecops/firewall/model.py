@@ -204,6 +204,22 @@ EXTERNALLY_RESOLVED_TYPES: frozenset[str] = frozenset(
     {"security-group", "prefix-list", "dynamic-group", "epg-no-subnet", "service-tag"}
 )
 
+#: Platforms whose parser reads the author's comment on a rule.
+#:
+#: The undocumented-rule finding may only be raised for these. Everywhere else every
+#: `comment` is None because nothing looked, and reporting that would be a finding about
+#: our own parser coverage dressed up as one about the customer's configuration — the
+#: absent-is-not-false rule, applied to a field we chose not to read yet.
+#:
+#: A parser that starts populating `SecurityRule.comment` adds itself here, and
+#: `test_platform_keys.py` is what makes that a build failure rather than an oversight.
+#: NX-OS and ASA are deliberately absent: both write `remark` lines too, and neither
+#: parser carries them onto the rule yet. Listing them would report every rule on those
+#: platforms as undocumented.
+RULE_COMMENT_PLATFORMS: frozenset[str] = frozenset(
+    {"panos", "fortios", "checkpoint_mgmt", "cisco_ios", "cisco_iosxe", "cisco_c9800"}
+)
+
 
 @dataclass(slots=True)
 class ResolvedRule:
@@ -226,6 +242,10 @@ class ResolvedRule:
     schedule: str | None
     hit_count: int | None
     last_hit: str | None
+    #: The author's own note on the rule, where the platform has one and the parser
+    #: reads it. None means *not captured*, never "none was written" — see
+    #: `SecurityRule.comment`.
+    comment: str | None = None
     #: Names that could not be expanded, split by which side of the rule they sit on.
     #:
     #: Split because a query can then tell a rule that *definitely does not match* from
@@ -656,6 +676,7 @@ def resolve_rulebase(firewall: Mapping[str, Any]) -> tuple[list[ResolvedRule], O
                 schedule=raw.get("schedule"),
                 hit_count=raw.get("hit_count"),
                 last_hit=raw.get("last_hit"),
+                comment=raw.get("comment"),
                 unresolved_src=missing_src,
                 unresolved_dst=missing_dst,
                 unresolved_svc=missing_svc,
