@@ -612,6 +612,43 @@ RADWARE_ALTEON_PROFILE: Final = CollectionProfile(
     ),
 )
 
+#: Barracuda Web Application Firewall, over the v3.2 REST API (SRS §1.3.1).
+#:
+#: The per-service endpoints are the point. `GET /services` says what the appliance
+#: publishes; it does not say whether any of it is *protected*. `basic-security` carries
+#: `mode` — `Active` blocks, `Passive` only logs — and a WAF in passive mode reports
+#: attacks in exactly the way an enforcing one does, so nothing else in the collection
+#: can tell them apart.
+#:
+#: They are templated per service and the collector expands them, which is why the
+#: bundle this parser reads is keyed by the *expanded* path.
+BARRACUDA_WAF_PROFILE: Final = CollectionProfile(
+    platform="barracuda_waf",
+    setup=(),
+    transport=Transport.HTTP,
+    bundled=True,
+    commands=(
+        CollectionCommand(
+            "GET /restapi/v3.2/services",
+            "Every published web application: address, port, type and whether it is on",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "GET /restapi/v3.2/services/{service}/basic-security",
+            "Whether the service blocks or only logs, and which policy it applies",
+        ),
+        CollectionCommand(
+            "GET /restapi/v3.2/services/{service}/ssl-security",
+            "TLS versions the listener accepts, HSTS and the cipher posture",
+        ),
+        CollectionCommand(
+            "GET /restapi/v3.2/services/{service}/servers",
+            "The back ends behind the service, and which are in service",
+        ),
+    ),
+)
+
 #: IOS-XE shares IOS's configuration syntax and its command set.
 PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ios": CISCO_IOS_PROFILE,
@@ -629,6 +666,10 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     # format the parser is written against — see `parsers/radware/alteon.py`, which
     # records that it has still never met real hardware.
     "radware_alteon": RADWARE_ALTEON_PROFILE,
+    # No longer profile-less either. Barracuda publish the v3.2 OpenAPI specification in
+    # their own repository, which names `mode: Active|Passive` — the field the earlier
+    # note said public documentation did not have.
+    "barracuda_waf": BARRACUDA_WAF_PROFILE,
     "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,
     "checkpoint_gaia": CHECKPOINT_GAIA_PROFILE,
     "fortiauthenticator": FORTIAUTHENTICATOR_PROFILE,

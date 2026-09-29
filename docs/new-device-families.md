@@ -385,6 +385,36 @@ certificates. A `/cfg/dump` beside it would settle the second question below.
 
 ## Barracuda Web Application Firewall
 
+> **Update, 2026-09-29 — this is no longer blocked, and the thing that unblocked it was
+> a source nobody had looked for.** Barracuda publish the **v3.2 OpenAPI specification**
+> in their own `barracudanetworks/waf-automation` repository, under
+> `waf-api/openapi-spec/v11.0.0/v3.2/`. It defines every object's properties.
+>
+> That answers the question this section recorded as unanswerable. From
+> `Service_basic_security.json`:
+>
+> ```json
+> "mode": {"type": "string", "enum": ["Passive", "Active"]}
+> ```
+>
+> **That is the field that says whether a service blocks or merely logs.** Also
+> confirmed from the specification: field names use hyphens (`ip-address`, not
+> `ip_address`, which the v3 request examples in the prose documentation use), the
+> service `type` enum, the four back-end `status` values of which only `In Service`
+> means live, and the full TLS-version flag set on `Service_ssl_security.json`.
+>
+> `barracuda_waf` now has a collection profile and `parsers/barracuda/waf.py`.
+>
+> **One thing is still unverified: the response envelope.** The specification defines
+> the objects and gives no schema for a GET response, so the shape *around* the data is
+> unknown. The parser accepts a bare list, `{"data": [ … ]}` and `{"data": {"<name>":
+> { … }}}`, and the tests exercise all three — guessing one and being wrong would read
+> nothing and report a WAF with no services, which is indistinguishable from an
+> appliance nobody has configured.
+>
+> Questions 3 and 5 in the open list at the foot of this page are unaffected and still
+> open.
+
 ### How it is read — **verified**
 
 | | |

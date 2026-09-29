@@ -1,0 +1,131 @@
+{
+  "/services": {
+    "data": [
+      {
+        "name": "corp-www",
+        "ip-address": "203.0.113.10",
+        "mask": "255.255.255.0",
+        "port": 443,
+        "type": "HTTPS",
+        "status": "On",
+        "address-version": "IPv4",
+        "vsite": "default",
+        "group": "default-group",
+        "comments": "Public corporate site"
+      },
+      {
+        "name": "legacy-intranet",
+        "ip-address": "203.0.113.20",
+        "mask": "255.255.255.0",
+        "port": 80,
+        "type": "HTTP",
+        "status": "On",
+        "address-version": "IPv4",
+        "vsite": "default",
+        "group": "default-group",
+        "comments": "Pending migration"
+      },
+      {
+        "name": "retired-portal",
+        "ip-address": "203.0.113.30",
+        "mask": "255.255.255.0",
+        "port": 443,
+        "type": "HTTPS",
+        "status": "Off",
+        "address-version": "IPv4",
+        "vsite": "default",
+        "group": "default-group",
+        "comments": ""
+      }
+    ]
+  },
+  "/services/corp-www/basic-security": {
+    "data": {
+      "mode": "Active",
+      "web-firewall-policy": "default",
+      "web-firewall-log-level": "5-Notice",
+      "rate-control-status": "On",
+      "rate-control-pool": "default-pool",
+      "trusted-hosts-action": "Default",
+      "ignore-case": "No",
+      "client-ip-addr-header": "X-Forwarded-For"
+    }
+  },
+  "/services/corp-www/ssl-security": {
+    "data": {
+      "status": "On",
+      "enable-ssl-3": "No",
+      "enable-tls-1": "No",
+      "enable-tls-1-1": "No",
+      "enable-tls-1-2": "Yes",
+      "enable-tls-1-3": "Yes",
+      "enable-hsts": "Yes",
+      "hsts-max-age": 31536000,
+      "include-hsts-sub-domains": "Yes",
+      "enable-pfs": "Yes",
+      "enable-ocsp-stapling": "Yes",
+      "enable-sni": "No",
+      "enable-strict-sni-check": "No",
+      "ciphers": "Default",
+      "ssl-tls-presets": "Mozilla Modern Compatibility"
+    }
+  },
+  "/services/corp-www/servers": {
+    "data": [
+      {
+        "identifier": "IP Address",
+        "ip-address": "10.20.0.11",
+        "port": 8443,
+        "status": "In Service",
+        "comments": "web01"
+      },
+      {
+        "identifier": "IP Address",
+        "ip-address": "10.20.0.12",
+        "port": 8443,
+        "status": "Out of Service Maintenance",
+        "comments": "web02"
+      }
+    ]
+  },
+  "/services/legacy-intranet/basic-security": {
+    "data": {
+      "mode": "Passive",
+      "web-firewall-policy": "sharepoint2013",
+      "web-firewall-log-level": "6-Information",
+      "rate-control-status": "Off",
+      "trusted-hosts-action": "Allow",
+      "ignore-case": "Yes"
+    }
+  },
+  "/services/legacy-intranet/ssl-security": {
+    "data": {
+      "status": "Off",
+      "enable-ssl-3": "No",
+      "enable-tls-1": "Yes",
+      "enable-tls-1-1": "Yes",
+      "enable-tls-1-2": "Yes",
+      "enable-tls-1-3": "No",
+      "enable-hsts": "No",
+      "enable-pfs": "No",
+      "ciphers": "Custom",
+      "ssl-tls-presets": "Use Configured Values"
+    }
+  },
+  "/services/legacy-intranet/servers": {
+    "data": [
+      {
+        "identifier": "Hostname",
+        "hostname": "intranet-app.corp.local",
+        "port": 8080,
+        "status": "In Service",
+        "comments": ""
+      }
+    ]
+  },
+  "/system/security": {
+    "data": {
+      "note": "An endpoint the collector fetched and no rule here reads."
+    }
+  }
+}

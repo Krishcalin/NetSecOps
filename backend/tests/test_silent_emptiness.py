@@ -51,6 +51,9 @@ PLATFORM_DIRS: dict[str, str] = {
     # stanza list. It belongs in the sweep for the ordinary reason: a parser nothing
     # exercises is one whose output could go inert without anybody finding out.
     "radware/alteon": "radware_alteon",
+    # A WAF, read as a bundle of REST responses keyed by endpoint. Its bundle is a
+    # configuration in the sense that matters here — it is what the checks run against.
+    "barracuda/waf": "barracuda_waf",
 }
 
 

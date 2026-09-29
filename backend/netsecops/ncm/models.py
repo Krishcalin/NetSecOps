@@ -691,6 +691,22 @@ class VirtualService(NcmBase):
     real_port: int | None = None
     ssl_policy: str | None = None
 
+    #: `active` — the listener blocks what it detects — or `passive`, which inspects
+    #: everything and stops nothing.
+    #:
+    #: **On a WAF this is the single most important fact about a service**, and it is
+    #: the one an appliance's dashboard flatters: a passive WAF reports attacks in
+    #: exactly the way an active one does, so a screen full of blocked-looking events
+    #: says nothing about whether anything was blocked. `None` where the platform does
+    #: not have the concept, which is most load balancers.
+    enforcement: str | None = None
+    #: The security policy applied to this listener, by name.
+    policy: str | None = None
+    #: TLS versions the listener accepts. A listener still offering TLS 1.0 is the
+    #: finding, and it is invisible from the management plane's own TLS settings.
+    tls_versions: list[str] = Field(default_factory=list)
+    hsts: bool | None = None
+
 
 class VirtualServer(NcmBase):
     """A VIP and everything published on it.

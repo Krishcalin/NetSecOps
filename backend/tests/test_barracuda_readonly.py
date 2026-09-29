@@ -110,12 +110,27 @@ class TestLoginIsTheOnlyPost:
         assert all(rule.reason for rule in posts), "a POST rule must say why it exists"
 
 
-class TestItIsNotCollectableYet:
-    def test_the_platform_has_a_policy_and_no_profile(self) -> None:
-        """Deliberate. A profile implies a parser, and a parser needs field names that
-        public documentation does not carry — the ISE `admin/settings` divergence in
-        `vendor-research.md` §4a is the same mistake, still open, and it cost a
-        permanently empty NCM section."""
+class TestItIsCollectableNow:
+    """This class used to assert the opposite, and the reason it did was sound.
+
+    A profile implies a parser, a parser needs field names, and public documentation did
+    not carry them — the ISE `admin/settings` divergence in `vendor-research.md` §4a is
+    the same mistake and it cost a permanently empty NCM section.
+
+    What changed is the evidence, not the standard: Barracuda publish the **v3.2 OpenAPI
+    specification** in their own `barracudanetworks/waf-automation` repository, which
+    defines every object's properties — including `mode: Active|Passive`, the field the
+    old note said nothing named.
+    """
+
+    def test_the_platform_is_now_fully_wired(self) -> None:
         assert "barracuda_waf" in POLICIES
-        assert "barracuda_waf" not in PROFILES
-        assert "barracuda_waf" not in PARSERS
+        assert "barracuda_waf" in PROFILES
+        assert "barracuda_waf" in PARSERS
+
+    def test_the_profile_reads_the_field_that_was_missing(self) -> None:
+        # The specific thing whose absence blocked this platform. A WAF that publishes
+        # services and cannot say whether any of them enforce is not worth collecting.
+        assert any(
+            "basic-security" in command for command in PROFILES["barracuda_waf"].all_commands()
+        )

@@ -75,8 +75,8 @@ across each platform added, and coverage is the gap a customer measures first.
 1. **Device breadth.** AlgoSec onboards roughly twenty vendor families. We have
    fourteen platforms. Missing: Juniper (SRX, Netscreen, M/E, Junos Space), F5 BIG-IP
    LTM/AFM, Arista, VMware NSX, AWS, Azure, Cisco ACI and FirePower, Symantec Blue Coat,
-   WatchGuard, McAfee Sidewinder. **Radware Alteon landed on 2026-09-28**; Barracuda WAF
-   is next.
+   WatchGuard, McAfee Sidewinder. **Radware Alteon landed 2026-09-28 and Barracuda WAF
+   2026-09-29**; Juniper SRX, F5 BIG-IP and Arista are next.
 2. **Matrices, DR sets, and group/matrix-level reports.** AlgoSec's cross-device
    constructs, and the "multi-device reasoning" gap the earlier competitive dossier
    identified as the only real engine-level one.

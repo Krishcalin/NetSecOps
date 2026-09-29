@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Final
 
+from netsecops.parsers.barracuda.waf import BarracudaWafParser
 from netsecops.parsers.base import ConfigParser
 from netsecops.parsers.checkpoint.gaia import CheckPointGaiaParser
 from netsecops.parsers.checkpoint.mgmt import CheckPointMgmtParser
@@ -52,6 +53,10 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     # An ADC, so it is the first platform to fill `load_balancer`. Its menu-path dump is
     # unlike anything else here and has its own parser rather than a syntax flag.
     "radware_alteon": RadwareAlteonParser,
+    # A WAF is a reverse proxy, so it fills `load_balancer` too — its services are VIPs
+    # and its back ends are real servers. What it adds is `enforcement`: whether a
+    # listener blocks what it detects or only logs it.
+    "barracuda_waf": BarracudaWafParser,
     # AAA servers (FR-AAA-02 … FR-AAA-04). These fill `aaa_server` rather than `aaa`:
     # they are the service the estate authenticates *against*, not a consumer of it.
     "fortiauthenticator": FortiAuthenticatorParser,

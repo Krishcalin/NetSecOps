@@ -176,13 +176,11 @@ POLICIES_WITHOUT_A_PROFILE: dict[str, str] = {
     "cisco_iosxr": "Approved in SRS §1.3 and never built. No parser either.",
     "cisco_ftd_fmc": "Firepower via FMC, approved and not built.",
     "fortimanager": "Used for child enumeration (children.py), which is not a collection.",
-    # `radware_alteon` was here until a verified published `/cfg/dump` supplied the menu
-    # format its parser is written against. It now has a profile and a parser, so the
-    # declaration went stale and this sweep said so on the same run that made it true.
-    "barracuda_waf": (
-        "Deliberate, 2026-09-28. Only `services` is a confirmed object path and nothing "
-        "names the field that says whether a service blocks or logs."
-    ),
+    # `radware_alteon` and `barracuda_waf` were both here, and both left within a day of
+    # each other once the evidence turned up — a verified published `/cfg/dump` for one,
+    # and Barracuda's own v3.2 OpenAPI specification for the other. Each now has a
+    # profile and a parser, so the declarations went stale and this sweep said so on the
+    # same run that made them true.
     "checkpoint_gaia_expert": "An escape, not a platform — see this module's siblings.",
     "linux_aaa_sudo": "An escape, not a platform.",
 }
