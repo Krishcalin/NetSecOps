@@ -1,0 +1,70 @@
+! Command: show running-config
+! device: arista-leaf-01 (DCS-7050SX3-48YC8, EOS-4.29.2F)
+!
+transceiver qsfp default-mode 4x10G
+!
+hostname arista-leaf-01
+dns domain corp.example.net
+!
+spanning-tree mode mstp
+!
+banner login
+Authorised access only. Activity is monitored.
+EOF
+!
+aaa authentication login default group radius local
+aaa authorization exec default group radius local
+!
+username admin privilege 15 role network-admin secret sha512 $6$REDACTED
+username auditor privilege 1 role network-operator nopassword
+!
+radius-server host 10.10.0.30 key 7 REDACTED
+!
+management api http-commands
+   protocol https
+   no shutdown
+   !
+   vrf default
+      no shutdown
+!
+management ssh
+   idle-timeout 15
+   server-port 22
+!
+snmp-server community public ro
+snmp-server community Str0ngRW rw
+!
+logging host 10.10.0.20
+logging host 10.10.0.21
+!
+ntp server 10.10.0.10 prefer
+ntp server 10.10.0.11
+!
+interface Ethernet1
+   description Uplink to spine1
+   no switchport
+   ip address 10.10.10.2/30
+!
+interface Ethernet2
+   description Uplink to spine2
+   no switchport
+   ip address 10.10.10.6/30
+!
+interface Ethernet47
+   description Decommissioned
+   shutdown
+!
+interface Management1
+   ip address 10.10.0.5/24
+!
+interface Vlan10
+   description Server VLAN
+   ip address 10.20.0.1/24
+!
+ip routing
+!
+ip route 0.0.0.0/0 10.10.10.1
+ip route 10.30.0.0/16 10.10.10.5
+ip route 10.99.0.0/16 Null0
+!
+end

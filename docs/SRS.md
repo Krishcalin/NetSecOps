@@ -618,6 +618,20 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 > NX-OS allow-list and a profile may not widen one — this list is closed precisely so
 > that "it is only a show command" cannot grow it an entry at a time.
 
+> **Amendment, recorded 2026-09-29 — Arista EOS added.** Three entries:
+> `terminal length 0` (session-only), `show running-config` and `show version`.
+>
+> Shorter than the Cisco IOS list by two thirds, and that is a property of the platform
+> rather than an omission: EOS returns the release, the model and the serial in one
+> `show version`, where IOS needs `show version`, `show inventory` and often a third.
+>
+> EOS is IOS-like but is **not** read by the IOS parser. Its addresses and static routes
+> are CIDR, its management services live under `management ssh` and `management api
+> http-commands` rather than `line vty` and `ip http server`, and every username carries
+> a role. Each of those differences fails silently: pointed at EOS, the IOS patterns
+> match nothing and report a switch with no addresses and no routes, which is what a
+> device that was never collected looks like.
+
 > **Amendment, recorded 2026-09-29 — F5 BIG-IP added.** A new vendor family, read
 > through `tmsh`. Three commands: `tmsh -q list`, `tmsh -q show sys version` and
 > `tmsh -q show sys hardware`.
@@ -695,6 +709,9 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 
 **Cisco ASA**
 `terminal pager 0`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show interface ip brief`, `show nameif`, `show route`, `show access-list`, `show nat`, `show ssh`, `show ssh sessions`, `show snmp-server statistics`, `show aaa-server`, `show ntp associations`, `show logging`, `show crypto ca certificates`, `show crypto ikev1 sa`, `show crypto ikev2 sa`, `show failover`, `show context`, `show local-host` (bounded), `show run access-group`, `show run object`, `show run object-group`, `show run service-policy`, `show run policy-map`, `show run class-map`, `show run http`, `show run ssh`, `show run username`.
+
+**Arista EOS**
+`terminal length 0` (session-only; allowed exception), `show running-config`, `show version`.
 
 **F5 BIG-IP (tmsh)**
 `tmsh -q list`, `tmsh -q show sys version`, `tmsh -q show sys hardware`.

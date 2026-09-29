@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Final
 
+from netsecops.parsers.arista.eos import AristaEosParser
 from netsecops.parsers.barracuda.waf import BarracudaWafParser
 from netsecops.parsers.base import ConfigParser
 from netsecops.parsers.checkpoint.gaia import CheckPointGaiaParser
@@ -52,6 +53,10 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     # platforms rather than one parser guessing which it was handed.
     "checkpoint_mgmt": CheckPointMgmtParser,
     "checkpoint_gaia": CheckPointGaiaParser,
+    # EOS is IOS-like enough to share `CiscoStyleParser`, and different enough not to
+    # share `CiscoIosParser`: CIDR addresses and routes, `management ssh` in place of
+    # `line vty`, and a role on every username.
+    "arista_eos": AristaEosParser,
     # An ADC like Alteon, and it fills `load_balancer` the same way — but its brace
     # tree has no statement terminators, so it reads with its own parser rather than
     # the Junos one.

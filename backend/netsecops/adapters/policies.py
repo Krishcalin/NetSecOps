@@ -479,6 +479,27 @@ RADWARE_ALTEON = PlatformPolicy(
     ),
 )
 
+# ──────────────────────────── Arista EOS (SSH) ──────────────────────────────
+
+#: EOS is deliberately IOS-like, and its read-only contract is correspondingly short.
+#:
+#: Three commands, and no more than the parser reads. `show version` carries the EOS
+#: release, the model and the serial in one response — on IOS those are three separate
+#: commands, which is why this list is a third the length of the Cisco one rather than
+#: a sign that something was forgotten.
+ARISTA_EOS = PlatformPolicy(
+    platform="arista_eos",
+    commands=(
+        CommandRule(
+            "terminal length 0", session_only=True, note="Disables paging for this session only"
+        ),
+        *_cmds(
+            "show running-config",
+            "show version",
+        ),
+    ),
+)
+
 # ──────────────────────────── F5 BIG-IP (SSH) ───────────────────────────────
 
 #: LTM and AFM, read through `tmsh`.
@@ -679,6 +700,7 @@ POLICIES: Final[dict[str, PlatformPolicy]] = {
         FORTIGATE,
         FORTIMANAGER,
         FORTIAUTHENTICATOR,
+        ARISTA_EOS,
         F5_BIGIP,
         JUNIPER_JUNOS,
         RADWARE_ALTEON,

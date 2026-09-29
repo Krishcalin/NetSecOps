@@ -587,6 +587,26 @@ CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
     ),
 )
 
+#: Arista EOS (SRS §1.3).
+#:
+#: Three commands, and `show version` is doing the work of three Cisco ones: EOS puts
+#: the release, the model and the serial in a single response.
+ARISTA_EOS_PROFILE: Final = CollectionProfile(
+    platform="arista_eos",
+    setup=("terminal length 0",),
+    commands=(
+        CollectionCommand(
+            "show running-config",
+            "The running configuration",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "show version", "EOS release, model and serial — all three, for FR-VUL-01"
+        ),
+    ),
+)
+
 #: F5 BIG-IP — LTM and the platform beneath it (SRS §1.3).
 #:
 #: Three commands, because `tmsh -q list` is the whole running configuration in one
@@ -721,6 +741,7 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     # No longer profile-less. A verified published `/cfg/dump` supplied the menu-path
     # format the parser is written against — see `parsers/radware/alteon.py`, which
     # records that it has still never met real hardware.
+    "arista_eos": ARISTA_EOS_PROFILE,
     "f5_bigip": F5_BIGIP_PROFILE,
     # One profile for SRX, MX and EX: the configuration format is a property of Junos,
     # not of the chassis, and the security commands simply return nothing on the two

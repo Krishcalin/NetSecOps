@@ -60,6 +60,10 @@ PLATFORM_DIRS: dict[str, str] = {
     # An ADC. No rulebase of its own, so the rule sweeps skip it — but the corpus is
     # also what proves a parser has not gone inert, which applies to every platform.
     "f5/bigip": "f5_bigip",
+    # EOS. In the sweep for the same reason as the rest, and with a particular edge of
+    # its own: it shares a base class with the IOS parser, so a change there can go
+    # inert here without any Cisco test noticing.
+    "arista/eos": "arista_eos",
 }
 
 

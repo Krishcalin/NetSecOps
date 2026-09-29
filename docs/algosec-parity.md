@@ -76,8 +76,11 @@ across each platform added, and coverage is the gap a customer measures first.
    fourteen platforms. Missing: Juniper (SRX, Netscreen, M/E, Junos Space), F5 BIG-IP
    LTM/AFM, Arista, VMware NSX, AWS, Azure, Cisco ACI and FirePower, Symantec Blue Coat,
    WatchGuard, McAfee Sidewinder. **Radware Alteon landed 2026-09-28; Barracuda WAF,
-   Juniper Junos (SRX, MX and EX on one platform key) and F5 BIG-IP on 2026-09-29.**
-   Arista is next, then VMware NSX, AWS, Azure, Cisco ACI/FirePower and Blue Coat.
+   Juniper Junos (SRX, MX and EX on one platform key), F5 BIG-IP and Arista EOS on
+   2026-09-29.** That leaves VMware NSX, AWS, Azure, Cisco ACI/FirePower and Blue Coat
+   — the cloud and SDN half of the list, which is a different kind of work from the
+   five above: none of them has a configuration file, and all four are read as
+   inventories over an API.
 2. **Matrices, DR sets, and group/matrix-level reports.** AlgoSec's cross-device
    constructs, and the "multi-device reasoning" gap the earlier competitive dossier
    identified as the only real engine-level one.
