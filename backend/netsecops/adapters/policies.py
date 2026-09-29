@@ -479,6 +479,32 @@ RADWARE_ALTEON = PlatformPolicy(
     ),
 )
 
+# ──────────────────────────── F5 BIG-IP (SSH) ───────────────────────────────
+
+#: LTM and AFM, read through `tmsh`.
+#:
+#: **`tmsh -q list` is the whole running configuration**, and it is one command rather
+#: than the fourteen an object-by-object read would need. tmsh's verbs separate cleanly:
+#: `list` and `show` read, `create`, `modify` and `delete` write, so a policy built from
+#: the two read verbs cannot express a write at all. `-q` suppresses the banner, which
+#: is the difference between a parseable capture and one with a page of preamble.
+#:
+#: Deliberately *not* `cat /config/bigip.conf`. It returns the same text and requires a
+#: shell rather than tmsh, and the Advanced Shell is exactly the privilege a read-only
+#: account on a BIG-IP should not have.
+F5_BIGIP = PlatformPolicy(
+    platform="f5_bigip",
+    commands=(
+        CommandRule(
+            "tmsh -q list",
+            note="The entire running configuration in tmsh format. `list` is a read "
+            "verb; `create`, `modify` and `delete` are the writes and none is here.",
+        ),
+        CommandRule("tmsh -q show sys version", note="Version and edition, for FR-VUL-01"),
+        CommandRule("tmsh -q show sys hardware", note="Chassis serial and platform"),
+    ),
+)
+
 # ───────────────────────── Juniper Junos (SSH) ──────────────────────────────
 
 #: SRX, MX and EX all run Junos and all answer these. One policy rather than three,
@@ -653,6 +679,7 @@ POLICIES: Final[dict[str, PlatformPolicy]] = {
         FORTIGATE,
         FORTIMANAGER,
         FORTIAUTHENTICATOR,
+        F5_BIGIP,
         JUNIPER_JUNOS,
         RADWARE_ALTEON,
         BARRACUDA_WAF,

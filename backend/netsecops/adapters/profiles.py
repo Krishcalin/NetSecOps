@@ -587,6 +587,30 @@ CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
     ),
 )
 
+#: F5 BIG-IP — LTM and the platform beneath it (SRS §1.3).
+#:
+#: Three commands, because `tmsh -q list` is the whole running configuration in one
+#: read. An object-by-object collection would be fourteen round trips for the same
+#: text, and each would be another allow-list entry to review.
+F5_BIGIP_PROFILE: Final = CollectionProfile(
+    platform="f5_bigip",
+    # `-q` on each command rather than a session setting: tmsh has no paging mode to
+    # turn off, and the banner it suppresses is per invocation.
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "tmsh -q list",
+            "The entire running configuration in tmsh format",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "tmsh -q show sys version", "Version and edition, without which no CVE matches"
+        ),
+        CollectionCommand("tmsh -q show sys hardware", "Chassis serial and platform name"),
+    ),
+)
+
 #: Juniper Junos — SRX, MX and EX (SRS §1.3).
 #:
 #: `| display set` rather than bare `show configuration`, and that is the substantive
@@ -697,6 +721,7 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     # No longer profile-less. A verified published `/cfg/dump` supplied the menu-path
     # format the parser is written against — see `parsers/radware/alteon.py`, which
     # records that it has still never met real hardware.
+    "f5_bigip": F5_BIGIP_PROFILE,
     # One profile for SRX, MX and EX: the configuration format is a property of Junos,
     # not of the chassis, and the security commands simply return nothing on the two
     # that have no `security` hierarchy.

@@ -1,0 +1,169 @@
+auth user admin {
+    description "Admin User"
+    encrypted-password $6$REDACTED
+    partition Common
+    partition-access {
+        all-partitions {
+            role admin
+        }
+    }
+    shell tmsh
+}
+auth user auditor {
+    description "Read only"
+    encrypted-password $6$REDACTED
+    partition Common
+    partition-access {
+        Common {
+            role guest
+        }
+    }
+    shell none
+}
+ltm pool /Common/pool_web {
+    load-balancing-mode least-connections-member
+    members {
+        /Common/10.20.0.11:8443 {
+            address 10.20.0.11
+            session monitor-enabled
+            state up
+        }
+        /Common/10.20.0.12:8443 {
+            address 10.20.0.12
+            session user-disabled
+            state up
+        }
+    }
+    monitor /Common/https
+}
+ltm pool /Common/pool_legacy {
+    members {
+        /Common/10.20.0.21:80 {
+            address 10.20.0.21
+            session monitor-enabled
+            state up
+        }
+    }
+    monitor /Common/http
+}
+ltm profile client-ssl /Common/clientssl-secure {
+    app-service none
+    cert /Common/site.crt
+    ciphers ECDHE+AES-GCM
+    defaults-from /Common/clientssl
+    key /Common/site.key
+    options { dont-insert-empty-fragments no-sslv3 no-tlsv1 no-tlsv1.1 }
+}
+ltm profile client-ssl /Common/clientssl-legacy {
+    app-service none
+    cert /Common/legacy.crt
+    ciphers DEFAULT
+    defaults-from /Common/clientssl
+    key /Common/legacy.key
+    options { dont-insert-empty-fragments no-sslv3 }
+}
+ltm virtual /Common/vs_web_https {
+    destination /Common/203.0.113.10:443
+    ip-protocol tcp
+    mask 255.255.255.255
+    pool /Common/pool_web
+    profiles {
+        /Common/clientssl-secure {
+            context clientside
+        }
+        /Common/http { }
+        /Common/tcp { }
+    }
+    source 0.0.0.0/0
+    translate-address enabled
+    translate-port enabled
+}
+ltm virtual /Common/vs_legacy_https {
+    destination /Common/203.0.113.20:443
+    ip-protocol tcp
+    mask 255.255.255.255
+    pool /Common/pool_legacy
+    profiles {
+        /Common/clientssl-legacy {
+            context clientside
+        }
+        /Common/http { }
+    }
+    source 0.0.0.0/0
+}
+ltm virtual /Common/vs_retired {
+    destination /Common/203.0.113.30:80
+    disabled
+    ip-protocol tcp
+    pool /Common/pool_legacy
+    profiles {
+        /Common/http { }
+    }
+    source 0.0.0.0/0
+}
+net route /Common/default {
+    gw 203.0.113.1
+    network default
+}
+net route /Common/internal {
+    gw 10.20.0.1
+    network 10.0.0.0/8
+}
+net self /Common/self-external {
+    address 203.0.113.2/24
+    allow-service none
+    traffic-group /Common/traffic-group-local-only
+    vlan external
+}
+net self /Common/self-internal {
+    address 10.20.0.2/24
+    allow-service default
+    traffic-group /Common/traffic-group-local-only
+    vlan internal
+}
+sys global-settings {
+    console-inactivity-timeout 900
+    gui-setup disabled
+    hostname bigip-edge-01.corp.example.net
+    mgmt-dhcp disabled
+}
+sys httpd {
+    auth-pam-idle-timeout 1200
+    ssl-ciphersuite ECDHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES128-GCM-SHA256
+    ssl-port 443
+}
+sys ntp {
+    servers { 10.10.0.10 10.10.0.11 }
+    timezone UTC
+}
+sys snmp {
+    agent-addresses { tcp6:161 udp6:161 }
+    communities {
+        /Common/comm-public {
+            community-name public
+            source default
+        }
+        /Common/comm-ops {
+            access rw
+            community-name Str0ngRW
+            source 10.10.0.0/24
+        }
+    }
+}
+sys sshd {
+    banner enabled
+    banner-text "Authorised access only."
+    inactivity-timeout 900
+}
+sys syslog {
+    remote-servers {
+        /Common/syslog1 {
+            host 10.10.0.20
+            remote-port 514
+        }
+        /Common/syslog2 {
+            host 10.10.0.21
+            remote-port 514
+        }
+    }
+}

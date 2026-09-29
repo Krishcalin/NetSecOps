@@ -18,6 +18,7 @@ from netsecops.parsers.cisco.ios import CiscoIosParser
 from netsecops.parsers.cisco.ise import CiscoIseParser
 from netsecops.parsers.cisco.nxos import CiscoNxosParser
 from netsecops.parsers.cisco.wlc import CiscoWlcParser
+from netsecops.parsers.f5.bigip import F5BigIpParser
 from netsecops.parsers.fortinet.fortiauthenticator import FortiAuthenticatorParser
 from netsecops.parsers.fortinet.fortios import FortiOsParser
 from netsecops.parsers.juniper.junos import JunosParser
@@ -51,6 +52,10 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     # platforms rather than one parser guessing which it was handed.
     "checkpoint_mgmt": CheckPointMgmtParser,
     "checkpoint_gaia": CheckPointGaiaParser,
+    # An ADC like Alteon, and it fills `load_balancer` the same way — but its brace
+    # tree has no statement terminators, so it reads with its own parser rather than
+    # the Junos one.
+    "f5_bigip": F5BigIpParser,
     # SRX, MX and EX share one key: the configuration format belongs to Junos rather
     # than to the chassis, and the parser reads either the brace form or `display set`.
     "juniper_junos": JunosParser,

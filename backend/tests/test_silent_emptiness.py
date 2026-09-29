@@ -57,6 +57,9 @@ PLATFORM_DIRS: dict[str, str] = {
     # SRX, MX and EX. The fixture is the brace form, which is the harder of the two
     # Junos formats and therefore the one worth sweeping.
     "juniper/junos": "juniper_junos",
+    # An ADC. No rulebase of its own, so the rule sweeps skip it — but the corpus is
+    # also what proves a parser has not gone inert, which applies to every platform.
+    "f5/bigip": "f5_bigip",
 }
 
 

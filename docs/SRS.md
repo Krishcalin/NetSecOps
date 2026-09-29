@@ -618,6 +618,23 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 > NX-OS allow-list and a profile may not widen one — this list is closed precisely so
 > that "it is only a show command" cannot grow it an entry at a time.
 
+> **Amendment, recorded 2026-09-29 — F5 BIG-IP added.** A new vendor family, read
+> through `tmsh`. Three commands: `tmsh -q list`, `tmsh -q show sys version` and
+> `tmsh -q show sys hardware`.
+>
+> **One command returns the whole running configuration**, which is why this entry is
+> three lines and not fourteen. An object-by-object read — virtuals, pools, profiles,
+> self IPs, routes, sshd, httpd, snmp, syslog, ntp, users — would be the same text in
+> fourteen round trips and fourteen allow-list entries for a reviewer to check.
+>
+> tmsh's verbs separate cleanly: `list` and `show` read; `create`, `modify` and
+> `delete` write. A policy built from the two read verbs cannot express a write, which
+> is a stronger guarantee than this list usually gets.
+>
+> Scope deliberately not taken: `cat /config/bigip.conf`. It returns the same text and
+> needs the Advanced Shell, which is exactly the privilege a read-only BIG-IP account
+> should not be granted — `docs/device-accounts.md` recommends `tmsh` only.
+
 > **Amendment, recorded 2026-09-29 — Juniper Junos added.** A new vendor family, and
 > the largest single device-coverage gap against the commercial comparators, which
 > onboard SRX, Netscreen, M/E routers and Junos Space. One platform key,
@@ -678,6 +695,9 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 
 **Cisco ASA**
 `terminal pager 0`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show interface ip brief`, `show nameif`, `show route`, `show access-list`, `show nat`, `show ssh`, `show ssh sessions`, `show snmp-server statistics`, `show aaa-server`, `show ntp associations`, `show logging`, `show crypto ca certificates`, `show crypto ikev1 sa`, `show crypto ikev2 sa`, `show failover`, `show context`, `show local-host` (bounded), `show run access-group`, `show run object`, `show run object-group`, `show run service-policy`, `show run policy-map`, `show run class-map`, `show run http`, `show run ssh`, `show run username`.
+
+**F5 BIG-IP (tmsh)**
+`tmsh -q list`, `tmsh -q show sys version`, `tmsh -q show sys hardware`.
 
 **Juniper Junos (SRX, MX, EX)**
 `show configuration | display set`, `show configuration`, `show version`, `show chassis hardware`, `show system uptime`, `show interfaces terse`, `show route`.
