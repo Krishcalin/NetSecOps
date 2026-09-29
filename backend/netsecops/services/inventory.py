@@ -866,10 +866,21 @@ class InventoryService:
         Manager platforms are the exception and are accepted: a FortiManager is
         enumerated for the devices it manages rather than collected from, so it has no
         collection profile by design.
+
+        **A parser is now a third way to be usable**, and that is not a loosening. Since
+        FR-COL-11 gained supporting captures, a platform with a parser and no profile can
+        be assessed from an uploaded export — which is the whole point of the offline
+        path, and the only way some platforms will ever be read. NSX, ACI and the two
+        cloud providers arrive that way: their exports are JSON somebody can produce
+        without NetSecOps holding a credential at all.
+
+        What is still refused is a platform with none of the three, where a device would
+        pass validation here and then have nothing that could ever look at it.
         """
         from netsecops.adapters.children import INTERPRETERS
         from netsecops.adapters.policies import POLICIES
         from netsecops.adapters.profiles import PROFILES
+        from netsecops.parsers.registry import PARSERS
 
         if platform not in POLICIES:
             raise ValidationProblem(
@@ -877,11 +888,12 @@ class InventoryService:
                 known_platforms=sorted(POLICIES),
             )
 
-        usable = sorted(set(PROFILES) | set(INTERPRETERS))
+        usable = sorted(set(PROFILES) | set(INTERPRETERS) | set(PARSERS))
         if platform not in usable:
             raise ValidationProblem(
                 f"'{platform}' has a read-only policy but nothing that can collect from "
-                "it: no collection profile and no manager enumerator. A device set to it "
+                "it: no collection profile, no manager enumerator and no parser, so it "
+                "cannot be read live or from an uploaded export. A device set to it "
                 "would pass validation here and fail at its first collection.",
                 known_platforms=usable,
             )

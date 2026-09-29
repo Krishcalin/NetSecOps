@@ -587,56 +587,43 @@ CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
     ),
 )
 
-#: Cisco Firepower via its management centre (SRS §1.3).
-#:
-#: The object endpoints are not optional and are the reason this list is not three
-#: entries. A rule names an address object; without the catalogue that name resolves to
-#: the empty set and the rule can never match a packet — which is not an error anybody
-#: sees, it is a rulebase that quietly analyses as inert.
-#:
-#: `{domain}` and `{policy}` are expanded by the collector: FMC scopes every
-#: configuration endpoint by domain UUID, and access rules by the policy they belong to.
-CISCO_FMC_PROFILE: Final = CollectionProfile(
-    platform="cisco_ftd_fmc",
+#: Symantec Blue Coat ProxySG, SGOS (SRS §1.3).
+SYMANTEC_PROXYSG_PROFILE: Final = CollectionProfile(
+    platform="symantec_proxysg",
     setup=(),
-    transport=Transport.HTTP,
-    bundled=True,
     commands=(
         CollectionCommand(
-            "GET /api/fmc_config/v1/domain/{domain}/policy/accesspolicies/{policy}/accessrules",
-            "The access rules — the rulebase itself",
+            "show configuration",
+            "The running configuration, with private keys elided by the appliance",
             required=True,
             yields_config=True,
         ),
+        CollectionCommand("show version", "SGOS release and serial, for FR-VUL-01"),
         CollectionCommand(
-            "GET /api/fmc_platform/v1/info/serverversion", "FMC version, for FR-VUL-01"
-        ),
-        CollectionCommand(
-            "GET /api/fmc_config/v1/domain/{domain}/devices/devicerecords",
-            "The sensors this centre manages, and their models",
-        ),
-        CollectionCommand(
-            "GET /api/fmc_config/v1/domain/{domain}/policy/accesspolicies",
-            "Which access policies exist, so their rules can be fetched",
-        ),
-        CollectionCommand(
-            "GET /api/fmc_config/v1/domain/{domain}/object/networks",
-            "Network objects a rule's members resolve against",
-        ),
-        CollectionCommand(
-            "GET /api/fmc_config/v1/domain/{domain}/object/hosts", "Host objects"
-        ),
-        CollectionCommand(
-            "GET /api/fmc_config/v1/domain/{domain}/object/networkgroups", "Network groups"
-        ),
-        CollectionCommand(
-            "GET /api/fmc_config/v1/domain/{domain}/object/ports", "Port objects"
-        ),
-        CollectionCommand(
-            "GET /api/fmc_config/v1/domain/{domain}/object/portobjectgroups", "Port groups"
+            "show licenses",
+            "Which features are licensed — an unlicensed proxy is not intercepting",
         ),
     ),
 )
+
+#: **Cisco Firepower and Barracuda have parsers and deliberately no profile.**
+#:
+#: Both were written with one, and both were wrong. Their endpoints are templated per
+#: object — FMC scopes every configuration path by domain UUID and access rules by the
+#: policy they belong to; Barracuda scopes `basic-security`, `ssl-security` and
+#: `servers` by service name — and **the collector has no mechanism to expand a path
+#: per discovered object**. `scoped_by` comes close and does not reach: it scopes an RPC
+#: *body* parameter, not a path segment.
+#:
+#: Worse, `key_in_bundle()` defaults to the last path segment, so every service's
+#: `basic-security` would be filed under the same key and all but one discarded — which
+#: on a WAF means every service but one losing the field that says whether it blocks.
+#:
+#: `test_bundled_collection_shape` found both. Until the collector can expand a path
+#: per object they are read from an export like NSX, ACI, AWS and Azure, and the
+#: endpoint lists live in `policies.py` and SRS §8.2 where a reviewer can still read
+#: them. A profile that cannot be executed is worse than none: it reads as a capability
+#: the product has.
 
 #: Arista EOS (SRS §1.3).
 #:
@@ -739,43 +726,6 @@ RADWARE_ALTEON_PROFILE: Final = CollectionProfile(
     ),
 )
 
-#: Barracuda Web Application Firewall, over the v3.2 REST API (SRS §1.3.1).
-#:
-#: The per-service endpoints are the point. `GET /services` says what the appliance
-#: publishes; it does not say whether any of it is *protected*. `basic-security` carries
-#: `mode` — `Active` blocks, `Passive` only logs — and a WAF in passive mode reports
-#: attacks in exactly the way an enforcing one does, so nothing else in the collection
-#: can tell them apart.
-#:
-#: They are templated per service and the collector expands them, which is why the
-#: bundle this parser reads is keyed by the *expanded* path.
-BARRACUDA_WAF_PROFILE: Final = CollectionProfile(
-    platform="barracuda_waf",
-    setup=(),
-    transport=Transport.HTTP,
-    bundled=True,
-    commands=(
-        CollectionCommand(
-            "GET /restapi/v3.2/services",
-            "Every published web application: address, port, type and whether it is on",
-            required=True,
-            yields_config=True,
-        ),
-        CollectionCommand(
-            "GET /restapi/v3.2/services/{service}/basic-security",
-            "Whether the service blocks or only logs, and which policy it applies",
-        ),
-        CollectionCommand(
-            "GET /restapi/v3.2/services/{service}/ssl-security",
-            "TLS versions the listener accepts, HSTS and the cipher posture",
-        ),
-        CollectionCommand(
-            "GET /restapi/v3.2/services/{service}/servers",
-            "The back ends behind the service, and which are in service",
-        ),
-    ),
-)
-
 #: IOS-XE shares IOS's configuration syntax and its command set.
 PROFILES: Final[dict[str, CollectionProfile]] = {
     "cisco_ios": CISCO_IOS_PROFILE,
@@ -793,17 +743,16 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     # format the parser is written against — see `parsers/radware/alteon.py`, which
     # records that it has still never met real hardware.
     "arista_eos": ARISTA_EOS_PROFILE,
-    "cisco_ftd_fmc": CISCO_FMC_PROFILE,
+    "symantec_proxysg": SYMANTEC_PROXYSG_PROFILE,
     "f5_bigip": F5_BIGIP_PROFILE,
     # One profile for SRX, MX and EX: the configuration format is a property of Junos,
     # not of the chassis, and the security commands simply return nothing on the two
     # that have no `security` hierarchy.
     "juniper_junos": JUNIPER_JUNOS_PROFILE,
     "radware_alteon": RADWARE_ALTEON_PROFILE,
-    # No longer profile-less either. Barracuda publish the v3.2 OpenAPI specification in
-    # their own repository, which names `mode: Active|Passive` — the field the earlier
-    # note said public documentation did not have.
-    "barracuda_waf": BARRACUDA_WAF_PROFILE,
+    # `barracuda_waf` and `cisco_ftd_fmc` are deliberately absent — see the note above
+    # the profile list. Both have parsers; neither can be collected until the runner can
+    # expand a path per discovered object.
     "checkpoint_mgmt": CHECKPOINT_MGMT_PROFILE,
     "checkpoint_gaia": CHECKPOINT_GAIA_PROFILE,
     "fortiauthenticator": FORTIAUTHENTICATOR_PROFILE,

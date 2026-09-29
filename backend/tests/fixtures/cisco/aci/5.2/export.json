@@ -1,0 +1,111 @@
+{
+  "/api/node/class/firmwareCtrlrRunning.json": {
+    "totalCount": "1",
+    "imdata": [
+      { "firmwareCtrlrRunning": { "attributes": { "version": "5.2(7f)", "dn": "topology/pod-1/node-1/sys/ctrlrfwstatuscont/ctrlrrunning" } } }
+    ]
+  },
+  "/api/node/class/fvSubnet.json": {
+    "totalCount": "2",
+    "imdata": [
+      { "fvSubnet": { "attributes": { "dn": "uni/tn-Production/BD-web/subnet-[10.20.0.1/24]", "ip": "10.20.0.1/24" } } },
+      { "fvSubnet": { "attributes": { "dn": "uni/tn-Production/BD-db/subnet-[10.30.0.1/24]", "ip": "10.30.0.1/24" } } }
+    ]
+  },
+  "/api/node/class/fvAEPg.json": {
+    "totalCount": "3",
+    "imdata": [
+      {
+        "fvAEPg": {
+          "attributes": { "dn": "uni/tn-Production/ap-App/epg-Web", "name": "Web" },
+          "children": [{ "fvRsBd": { "attributes": { "tnFvBDName": "web" } } }]
+        }
+      },
+      {
+        "fvAEPg": {
+          "attributes": { "dn": "uni/tn-Production/ap-App/epg-Db", "name": "Db" },
+          "children": [{ "fvRsBd": { "attributes": { "tnFvBDName": "db" } } }]
+        }
+      },
+      {
+        "fvAEPg": {
+          "attributes": { "dn": "uni/tn-Production/ap-App/epg-L2Only", "name": "L2Only" },
+          "children": [{ "fvRsBd": { "attributes": { "tnFvBDName": "l2seg" } } }]
+        }
+      }
+    ]
+  },
+  "/api/node/class/vzFilter.json": {
+    "totalCount": "2",
+    "imdata": [
+      {
+        "vzFilter": {
+          "attributes": { "dn": "uni/tn-Production/flt-mysql", "name": "mysql" },
+          "children": [
+            { "vzEntry": { "attributes": { "name": "mysql", "prot": "tcp", "dFromPort": "3306", "dToPort": "3306" } } }
+          ]
+        }
+      },
+      {
+        "vzFilter": {
+          "attributes": { "dn": "uni/tn-Production/flt-any", "name": "any-traffic" },
+          "children": [
+            { "vzEntry": { "attributes": { "name": "any", "prot": "unspecified", "dFromPort": "unspecified", "dToPort": "unspecified" } } }
+          ]
+        }
+      }
+    ]
+  },
+  "/api/node/class/vzBrCP.json": {
+    "totalCount": "2",
+    "imdata": [
+      {
+        "vzBrCP": {
+          "attributes": { "dn": "uni/tn-Production/brc-web-to-db", "name": "web-to-db", "scope": "context" },
+          "children": [
+            {
+              "vzSubj": {
+                "attributes": { "name": "mysql-subject", "revFltPorts": "yes" },
+                "children": [
+                  { "vzRsSubjFiltAtt": { "attributes": { "tnVzFilterName": "mysql" } } }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "vzBrCP": {
+          "attributes": { "dn": "uni/tn-Production/brc-orphan", "name": "orphan-contract", "scope": "context" },
+          "children": [
+            {
+              "vzSubj": {
+                "attributes": { "name": "any-subject", "revFltPorts": "no" },
+                "children": [
+                  { "vzRsSubjFiltAtt": { "attributes": { "tnVzFilterName": "any-traffic" } } }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "/api/node/class/fvRsCons.json": {
+    "totalCount": "1",
+    "imdata": [
+      { "fvRsCons": { "attributes": { "dn": "uni/tn-Production/ap-App/epg-Web/rscons-web-to-db", "tnVzBrCPName": "web-to-db" } } }
+    ]
+  },
+  "/api/node/class/fvRsProv.json": {
+    "totalCount": "2",
+    "imdata": [
+      { "fvRsProv": { "attributes": { "dn": "uni/tn-Production/ap-App/epg-Db/rsprov-web-to-db", "tnVzBrCPName": "web-to-db" } } },
+      { "fvRsProv": { "attributes": { "dn": "uni/tn-Production/ap-App/epg-Db/rsprov-orphan", "tnVzBrCPName": "orphan-contract" } } }
+    ]
+  },
+  "/api/node/class/fvTenant.json": {
+    "totalCount": "1",
+    "imdata": [{ "fvTenant": { "attributes": { "dn": "uni/tn-Production", "name": "Production" } } }]
+  }
+}

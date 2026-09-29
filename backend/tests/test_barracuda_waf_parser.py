@@ -52,25 +52,45 @@ def listener(ncm: NormalisedConfig, name: str):
 # ───────────────────── the commands are issued ──────────────────────────
 
 
-class TestTheProfileExists:
-    def test_the_platform_has_a_profile(self) -> None:
-        assert "barracuda_waf" in PROFILES
+class TestItIsReadFromAnExport:
+    """This class asserted a collection profile existed, and the profile was wrong.
 
-    def test_it_asks_the_question_that_was_blocking_this(self) -> None:
-        # `GET /services` says what the appliance publishes. It does not say whether any
-        # of it is protected, and that is the endpoint this platform exists to read.
-        issued = list(PROFILES["barracuda_waf"].all_commands())
-        assert any("basic-security" in command for command in issued)
+    Barracuda scopes `basic-security`, `ssl-security` and `servers` by service name, and
+    **the runner cannot expand a path per discovered object**. Worse,
+    `key_in_bundle()` defaults to the last path segment, so every service's
+    `basic-security` would have been filed under one key and all but one discarded —
+    which on a WAF means every service but one losing the field that says whether it
+    blocks. `test_bundled_collection_shape` found it on the first full-suite run after
+    the platform landed.
 
-    def test_every_command_it_issues_is_approved(self) -> None:
-        # Through the guard, which is the thing that actually runs before a request
-        # leaves — asserting against the policy data alone would prove the list and not
-        # the enforcement. The templated `{service}` is substituted because the guard
-        # sees the expanded path.
+    The parser is unaffected and the endpoints stay approved; what went is the claim
+    that they could be collected today.
+    """
+
+    def test_there_is_deliberately_no_profile(self) -> None:
+        assert "barracuda_waf" not in PROFILES
+
+    def test_the_endpoints_a_collector_will_need_are_still_approved(self) -> None:
+        # The contract survives: a reviewer can still see exactly what this product may
+        # ever ask a WAF for, including the per-service security objects.
         guard = ReadOnlyGuard(get_policy("barracuda_waf"))
-        for command in PROFILES["barracuda_waf"].all_commands():
-            method, _, path = command.partition(" ")
-            guard.check_request(method, path.replace("{service}", "corp-www"))
+        for path in (
+            "/restapi/v3.2/services",
+            "/restapi/v3.2/services/corp-www/basic-security",
+            "/restapi/v3.2/services/corp-www/ssl-security",
+            "/restapi/v3.2/services/corp-www/servers",
+        ):
+            guard.check_request("GET", path)
+
+    def test_login_is_still_the_only_post(self) -> None:
+        from netsecops.core.errors import ReadOnlyViolationError
+
+        guard = ReadOnlyGuard(get_policy("barracuda_waf"))
+        guard.check_request(
+            "POST", "/restapi/v3.2/login", body={"username": "x", "password": "y"}
+        )
+        with pytest.raises(ReadOnlyViolationError):
+            guard.check_request("POST", "/restapi/v3.2/services")
 
 
 # ───────────────────────── the envelope ─────────────────────────────────

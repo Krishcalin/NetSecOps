@@ -1,0 +1,63 @@
+!- BEGIN general
+hostname proxy-edge-01
+console-timeout 15
+banner login "Authorised access only. Activity is monitored."
+!- END general
+!- BEGIN ssh-console
+ssh-console
+inline sshd-keypair "end-12345"
+...
+end-12345
+exit
+!- END ssh-console
+!- BEGIN https-console
+https-console
+port 8082
+exit
+!- END https-console
+!- BEGIN snmp
+snmp
+community-string ro public
+community-string rw Str0ngRW
+trap-target 10.10.0.30
+enable
+exit
+!- END snmp
+!- BEGIN ntp
+ntp
+ntp-server 10.10.0.10
+ntp-server 10.10.0.11
+exit
+!- END ntp
+!- BEGIN event-log
+event-log
+syslog-host 10.10.0.20
+syslog-host 10.10.0.21
+exit
+!- END event-log
+!- BEGIN security
+security
+username admin
+username auditor
+exit
+!- END security
+!- BEGIN radius
+security radius
+primary-host 10.10.0.30
+primary-secret "end-99999"
+...
+end-99999
+exit
+!- END radius
+!- BEGIN ssl
+ssl
+ssl-versions tlsv1.2
+ssl-versions tlsv1.3
+verify-peer no
+exit
+!- END ssl
+!- BEGIN forwarding
+forwarding
+create host upstream-proxy 10.40.0.5 http=8080
+exit
+!- END forwarding

@@ -160,15 +160,66 @@ class TestProfilesStayInsideThePolicy:
         assert PROFILES[platform].commands[0].yields_config
 
 
+#: Parsers that deliberately have no collection profile, and why.
+#:
+#: **Each is read from an uploaded export rather than collected** (FR-COL-11). Every one
+#: needs a credential type and a transport this product does not have — SigV4, OAuth
+#: service principals, pagination — and a parser wired to a collector that does not
+#: exist is the capability-with-no-surface pattern. Building the parser first is the
+#: deliberate order: an export can be assessed today, and the collector arrives in its
+#: own slice with its own credential design.
+#:
+#: Listed here rather than the check being relaxed, so that adding a fifth is a decision
+#: somebody records rather than a divergence nobody notices.
+PARSERS_READ_FROM_AN_EXPORT: dict[str, str] = {
+    "vmware_nsx": "NSX Policy API needs a credential type and pagination that do not exist yet.",
+    "cisco_aci": "APIC needs a token transport that does not exist yet.",
+    "aws_vpc": "NetSecOps holds no AWS credential; the allow-list is empty on purpose.",
+    "azure_nsg": "NetSecOps holds no Azure credential; the allow-list is empty on purpose.",
+    # These two are here for a different reason, and a sharper one: both *had* profiles,
+    # and both profiles were wrong. Their endpoints are templated per object — FMC by
+    # domain and access policy, Barracuda by service — and the runner cannot expand a
+    # path per discovered object. `key_in_bundle()` defaults to the last path segment,
+    # so every service's `basic-security` would be filed under one key and all but one
+    # discarded. `test_bundled_collection_shape` found it.
+    "barracuda_waf": "Per-service endpoints need path expansion the collector lacks.",
+    "cisco_ftd_fmc": "Per-domain and per-policy endpoints need path expansion the collector lacks.",
+}
+
+
 class TestProfileRegistry:
     def test_every_platform_with_a_parser_has_a_profile(self) -> None:
         """A parser with no profile can never be reached from a live collection; a
-        profile with no parser collects a configuration nothing can read."""
-        assert set(supported_platforms()) == set(PROFILES), (
+        profile with no parser collects a configuration nothing can read.
+
+        The export-read platforms are the stated exception: they are reached through
+        FR-COL-11 instead, which is a way to be read that did not exist when this check
+        was written.
+        """
+        parsers = set(supported_platforms()) - set(PARSERS_READ_FROM_AN_EXPORT)
+
+        assert parsers == set(PROFILES), (
             "parsers and collection profiles have diverged: "
-            f"parsers only = {set(supported_platforms()) - set(PROFILES)}, "
-            f"profiles only = {set(PROFILES) - set(supported_platforms())}"
+            f"parsers only = {parsers - set(PROFILES)}, "
+            f"profiles only = {set(PROFILES) - parsers}"
         )
+
+    def test_no_export_read_declaration_is_stale(self) -> None:
+        """A platform that gained a profile must lose its declaration.
+
+        The same rule `test_unconsumed_capability` applies to its own backlog: a
+        declaration that outlives the thing it explains makes the list look considered
+        when it is out of date.
+        """
+        stale = sorted(p for p in PARSERS_READ_FROM_AN_EXPORT if p in PROFILES)
+
+        assert stale == [], f"these now have a profile; delete the declarations: {stale}"
+
+    def test_every_export_read_platform_actually_has_a_parser(self) -> None:
+        """The other direction: a declaration for a platform nothing can read either."""
+        missing = sorted(p for p in PARSERS_READ_FROM_AN_EXPORT if p not in supported_platforms())
+
+        assert missing == [], f"declared as export-read and has no parser: {missing}"
 
     def test_unknown_platform_raises(self) -> None:
         with pytest.raises(NoProfileError, match="No collection profile"):

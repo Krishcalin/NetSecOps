@@ -1,0 +1,126 @@
+{
+  "/api/v1/node/version": {
+    "product_version": "4.1.2.3.0",
+    "product_name": "NSX"
+  },
+  "/policy/api/v1/infra/domains/default/groups": {
+    "results": [
+      {
+        "id": "web-servers",
+        "display_name": "web-servers",
+        "expression": [
+          {
+            "resource_type": "IPAddressExpression",
+            "ip_addresses": ["10.20.0.0/24"]
+          }
+        ]
+      },
+      {
+        "id": "db-servers",
+        "display_name": "db-servers",
+        "expression": [
+          {
+            "resource_type": "IPAddressExpression",
+            "ip_addresses": ["10.30.0.0/24"]
+          }
+        ]
+      },
+      {
+        "id": "prod-tagged",
+        "display_name": "prod-tagged",
+        "expression": [
+          {
+            "resource_type": "Condition",
+            "member_type": "VirtualMachine",
+            "key": "Tag",
+            "operator": "EQUALS",
+            "value": "env|prod"
+          }
+        ]
+      }
+    ],
+    "result_count": 3
+  },
+  "/policy/api/v1/infra/services": {
+    "results": [
+      {
+        "id": "HTTPS",
+        "display_name": "HTTPS",
+        "service_entries": [
+          { "resource_type": "L4PortSetServiceEntry", "l4_protocol": "TCP", "destination_ports": ["443"] }
+        ]
+      },
+      {
+        "id": "MySQL",
+        "display_name": "MySQL",
+        "service_entries": [
+          { "resource_type": "L4PortSetServiceEntry", "l4_protocol": "TCP", "destination_ports": ["3306"] }
+        ]
+      }
+    ]
+  },
+  "/policy/api/v1/infra/domains/default/security-policies": {
+    "results": [
+      {
+        "id": "app-tier",
+        "display_name": "app-tier",
+        "sequence_number": 20,
+        "rules": [
+          {
+            "id": "web-to-db",
+            "display_name": "web-to-db",
+            "sequence_number": 10,
+            "action": "ALLOW",
+            "source_groups": ["/infra/domains/default/groups/web-servers"],
+            "destination_groups": ["/infra/domains/default/groups/db-servers"],
+            "services": ["/infra/services/MySQL"],
+            "scope": ["/infra/domains/default/groups/db-servers"],
+            "direction": "IN_OUT",
+            "logged": true
+          },
+          {
+            "id": "deny-app",
+            "display_name": "deny-app",
+            "sequence_number": 20,
+            "action": "DROP",
+            "source_groups": ["ANY"],
+            "destination_groups": ["ANY"],
+            "services": ["ANY"],
+            "logged": true
+          }
+        ]
+      },
+      {
+        "id": "emergency",
+        "display_name": "emergency",
+        "sequence_number": 10,
+        "rules": [
+          {
+            "id": "quarantine",
+            "display_name": "quarantine",
+            "sequence_number": 10,
+            "action": "DROP",
+            "source_groups": ["/infra/domains/default/groups/prod-tagged"],
+            "destination_groups": ["ANY"],
+            "services": ["ANY"],
+            "disabled": true,
+            "logged": true
+          },
+          {
+            "id": "observe-all",
+            "display_name": "observe-all",
+            "sequence_number": 5,
+            "action": "JUMP_TO_APPLICATION",
+            "source_groups": [],
+            "destination_groups": [],
+            "services": [],
+            "logged": true
+          }
+        ]
+      }
+    ]
+  },
+  "/policy/api/v1/infra/tier-1s": {
+    "results": [{ "id": "t1-prod", "display_name": "t1-prod" }]
+  }
+}

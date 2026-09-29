@@ -479,6 +479,103 @@ RADWARE_ALTEON = PlatformPolicy(
     ),
 )
 
+# ───────────────────── Symantec Blue Coat ProxySG (SSH) ─────────────────────
+
+#: SGOS, SRS §1.3. A forward proxy rather than a firewall, and its security posture is
+#: mostly in the management plane and the SSL interception settings.
+#:
+#: `show configuration` is the whole read. SGOS also has `show configuration post-setup`
+#: and `show configuration brief`; the plain form is a superset of both, and approving
+#: three spellings of one command is three things for a reviewer to check and one thing
+#: to collect.
+#:
+#: **Deliberately not `show configuration expanded`.** That form includes the
+#: appliance's private keys inline. The plain form emits them as `...` placeholders,
+#: which is the same posture as preferring Alteon's `cc` over `/cfg/dump`.
+SYMANTEC_PROXYSG = PlatformPolicy(
+    platform="symantec_proxysg",
+    commands=(
+        CommandRule(
+            "show configuration",
+            note="The running configuration with keys elided. `expanded` includes them "
+            "inline and is deliberately not approved.",
+        ),
+        *_cmds("show version", "show licenses"),
+    ),
+)
+
+# ──────────────────────── Cloud providers (offline) ─────────────────────────
+
+#: AWS and Azure, SRS §1.3. **Both allow-lists are deliberately empty, and an empty one
+#: is a statement rather than an omission: this product may send these platforms
+#: nothing at all.**
+#:
+#: They are read from an export — `aws ec2 describe-security-groups`,
+#: `az network nsg list` — through FR-COL-11, and NetSecOps never holds a cloud
+#: credential. That is the strongest read-only guarantee on this page: not "we only
+#: send reads", but "we have no way to send anything", enforced by there being no rule
+#: for `check_request` to match.
+#:
+#: Why they are in scope at all, given a CNAPP already scans both: a security group is a
+#: firewall rule on a path, and a query that crosses from a data centre into a VPC is
+#: the one nothing else in the estate can answer. `docs/algosec-parity.md` records the
+#: boundary.
+AWS_VPC = PlatformPolicy(platform="aws_vpc", offline_only=True)
+
+AZURE_NSG = PlatformPolicy(platform="azure_nsg", offline_only=True)
+
+# ─────────────────── VMware NSX-T Policy API (GET only) ─────────────────────
+
+#: SRS §1.3. **Read-only, and deliberately not collected from yet.**
+#:
+#: NSX has a policy and a parser and no collection profile. The Policy API needs a
+#: credential type and a pagination-aware transport this product does not have, and a
+#: parser wired to a collector that does not exist is exactly the
+#: capability-with-no-surface pattern `test_unconsumed_capability` was written to find.
+#: What it has instead is FR-COL-11: somebody exports the JSON and uploads it, which is
+#: how a read-restricted vSphere estate was always going to be assessed.
+#:
+#: The allow-list is here now rather than with the collector because it is the *contract*
+#: — what this product may ever send an NSX manager — and a reviewer should be able to
+#: read it before any code can act on it.
+VMWARE_NSX = PlatformPolicy(
+    platform="vmware_nsx",
+    http=(
+        HttpRule(
+            "GET",
+            "/policy/api/v1/",
+            reason="The declarative Policy API. Reads only; every write is PUT, PATCH "
+            "or DELETE, and those are refused for every platform.",
+        ),
+        HttpRule("GET", "/api/v1/node/version", reason="Manager version, for FR-VUL-01"),
+    ),
+)
+
+# ─────────────────────── Cisco ACI APIC (GET only) ──────────────────────────
+
+#: SRS §1.3. Same position as NSX: policy and parser now, collector later.
+#:
+#: **`/api/node/class/<class>.json` is the whole read surface.** APIC's object model is
+#: uniform — every managed object is fetched by class or by distinguished name through
+#: the same two paths — so the allow-list is two entries rather than one per object
+#: type, and narrowing it further would mean enumerating the two hundred classes ACI
+#: defines.
+#:
+#: `aaaLogin` is the one POST, permitted under SRS §8.1.3 for authentication only.
+CISCO_ACI = PlatformPolicy(
+    platform="cisco_aci",
+    http=(
+        HttpRule(
+            "POST",
+            "/api/aaaLogin.json",
+            reason="Token generation only (SRS §8.1.3e)",
+            body_predicate="auth_only",
+        ),
+        HttpRule("GET", "/api/node/class/"),
+        HttpRule("GET", "/api/node/mo/", reason="A single managed object by DN"),
+    ),
+)
+
 # ──────────────────────────── Arista EOS (SSH) ──────────────────────────────
 
 #: EOS is deliberately IOS-like, and its read-only contract is correspondingly short.
@@ -701,6 +798,11 @@ POLICIES: Final[dict[str, PlatformPolicy]] = {
         FORTIMANAGER,
         FORTIAUTHENTICATOR,
         ARISTA_EOS,
+        AWS_VPC,
+        AZURE_NSG,
+        CISCO_ACI,
+        VMWARE_NSX,
+        SYMANTEC_PROXYSG,
         F5_BIGIP,
         JUNIPER_JUNOS,
         RADWARE_ALTEON,

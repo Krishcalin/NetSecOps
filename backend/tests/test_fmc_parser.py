@@ -52,28 +52,46 @@ def rule(ncm: NormalisedConfig, name: str):
 
 
 class TestThePlatformIsWired:
-    def test_policy_profile_and_parser(self) -> None:
+    def test_it_has_a_policy_and_a_parser(self) -> None:
         from netsecops.parsers.registry import PARSERS
 
         assert get_policy("cisco_ftd_fmc") is not None
-        assert "cisco_ftd_fmc" in PROFILES
         assert "cisco_ftd_fmc" in PARSERS
 
-    def test_every_endpoint_it_issues_is_approved(self) -> None:
-        guard = ReadOnlyGuard(get_policy("cisco_ftd_fmc"))
-        for command in PROFILES["cisco_ftd_fmc"].all_commands():
-            method, _, path = command.partition(" ")
-            guard.check_request(
-                method, path.replace("{domain}", "e276abec").replace("{policy}", "pol-0001")
-            )
+    def test_and_deliberately_no_collection_profile(self) -> None:
+        """This asserted the opposite for about an hour, and the profile was wrong.
 
-    def test_the_object_endpoints_are_collected(self) -> None:
-        # Not optional. A rule names an address object; without the catalogue that name
-        # resolves to the empty set and the rule can never match a packet — which is not
-        # an error anybody sees, it is a rulebase that quietly analyses as inert.
-        issued = " ".join(PROFILES["cisco_ftd_fmc"].all_commands())
-        for objects in ("object/networks", "object/hosts", "object/networkgroups"):
-            assert objects in issued
+        FMC scopes every configuration endpoint by domain UUID and access rules by the
+        policy they belong to, and **the runner cannot expand a path per discovered
+        object**. Worse, `key_in_bundle()` defaults to the last path segment, so every
+        policy's `accessrules` would have been filed under one key and all but one
+        discarded. `test_bundled_collection_shape` found it on the first full-suite run.
+
+        So FMC is read from an export like NSX and ACI until the collector gains path
+        expansion. The endpoint list stays in `policies.py` and SRS §8.2 where a
+        reviewer can read it.
+        """
+        assert "cisco_ftd_fmc" not in PROFILES
+
+    def test_the_endpoints_a_collector_will_need_are_still_approved(self) -> None:
+        # The contract survives the profile's removal: a reviewer can still see exactly
+        # what this product may ever ask an FMC for.
+        guard = ReadOnlyGuard(get_policy("cisco_ftd_fmc"))
+        for path in (
+            "/api/fmc_platform/v1/info/serverversion",
+            "/api/fmc_config/v1/domain/e276abec/policy/accesspolicies/pol-0001/accessrules",
+            "/api/fmc_config/v1/domain/e276abec/object/networkgroups",
+        ):
+            guard.check_request("GET", path)
+
+    def test_a_write_to_the_same_api_is_refused(self) -> None:
+        from netsecops.core.errors import ReadOnlyViolationError
+
+        guard = ReadOnlyGuard(get_policy("cisco_ftd_fmc"))
+        with pytest.raises(ReadOnlyViolationError):
+            guard.check_request(
+                "POST", "/api/fmc_config/v1/domain/e276abec/policy/accesspolicies"
+            )
 
 
 # ─────────────────── MONITOR, which decides nothing ─────────────────────

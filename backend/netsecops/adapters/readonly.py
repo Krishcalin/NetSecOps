@@ -188,6 +188,18 @@ class PlatformPolicy:
     #: FortiGate SSH must never pipe (SRS §8.2); other platforms legitimately do.
     forbid_pipe: bool = False
 
+    #: This platform is **never contacted**. It is assessed from an uploaded export
+    #: (FR-COL-11) and NetSecOps holds no credential for it.
+    #:
+    #: A flag rather than an inferred property of two empty tuples, because the two
+    #: states look identical and mean opposite things: an empty allow-list that nobody
+    #: meant is a policy somebody forgot to fill in, and `test_every_policy_declares_
+    #: something` exists to catch exactly that. Setting this says the emptiness is the
+    #: point — which is a stronger read-only guarantee than any list of reads, since
+    #: there is no rule for `check_request` to match and therefore nothing that can be
+    #: sent at all.
+    offline_only: bool = False
+
     _compiled: list[tuple[CommandRule, re.Pattern[str]]] = field(
         default_factory=list, init=False, repr=False, compare=False
     )
@@ -203,6 +215,12 @@ class PlatformPolicy:
 
     def describe(self) -> list[str]:
         """Human-readable allow-list, for ``netsecops-cli audit-commands`` (SRS §8.1.7)."""
+        if self.offline_only:
+            return [
+                "(nothing — this platform is never contacted; it is assessed from an "
+                "uploaded export, and no credential for it is held)"
+            ]
+
         lines: list[str] = []
         for command_rule in self.commands:
             suffix = "   [session-only]" if command_rule.session_only else ""

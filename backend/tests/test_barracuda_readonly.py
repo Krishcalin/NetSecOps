@@ -123,14 +123,26 @@ class TestItIsCollectableNow:
     old note said nothing named.
     """
 
-    def test_the_platform_is_now_fully_wired(self) -> None:
+    def test_it_has_a_policy_and_a_parser(self) -> None:
         assert "barracuda_waf" in POLICIES
-        assert "barracuda_waf" in PROFILES
         assert "barracuda_waf" in PARSERS
 
-    def test_the_profile_reads_the_field_that_was_missing(self) -> None:
-        # The specific thing whose absence blocked this platform. A WAF that publishes
-        # services and cannot say whether any of them enforce is not worth collecting.
-        assert any(
-            "basic-security" in command for command in PROFILES["barracuda_waf"].all_commands()
+    def test_and_no_profile_yet(self) -> None:
+        """A second correction on top of the first, and worth keeping both visible.
+
+        The evidence problem this class was written about — nothing naming the field
+        that says whether a service blocks — was solved by Barracuda's own v3.2 OpenAPI
+        specification. A *collection* problem replaced it: the per-service endpoints
+        need path expansion the runner does not have, so the platform is read from an
+        export. See `tests/test_profiles.py::PARSERS_READ_FROM_AN_EXPORT`.
+        """
+        assert "barracuda_waf" not in PROFILES
+
+    def test_the_endpoint_carrying_that_field_is_still_approved(self) -> None:
+        # The specific thing whose absence blocked this platform. It stays on the
+        # allow-list so the contract is reviewable before a collector exists to use it.
+        from netsecops.adapters.readonly import ReadOnlyGuard
+
+        ReadOnlyGuard(POLICIES["barracuda_waf"]).check_request(
+            "GET", "/restapi/v3.2/services/corp-www/basic-security"
         )

@@ -181,6 +181,42 @@ DECLARED_UNISSUED: dict[tuple[str, str], str] = {
 POLICIES_WITHOUT_A_PROFILE: dict[str, str] = {
     "cisco_iosxr": "Approved in SRS §1.3 and never built. No parser either.",
     "fortimanager": "Used for child enumeration (children.py), which is not a collection.",
+    # The four read from an export. Each *has* a parser — they are assessed through
+    # FR-COL-11 — so this is not the usual "approved and unbuilt" entry. What is missing
+    # is a collector, and it is missing because each needs a credential type and a
+    # transport this product does not have. Building the parser first is deliberate:
+    # an export can be assessed today, and the collector arrives in its own slice.
+    "vmware_nsx": (
+        "Deliberate, 2026-09-29. Parser built; the Policy API needs a credential type "
+        "and a pagination-aware transport that do not exist yet. Read from an export."
+    ),
+    "cisco_aci": (
+        "Deliberate, 2026-09-29. Parser built; the APIC collector needs a token "
+        "transport that does not exist yet. Read from an export."
+    ),
+    "aws_vpc": (
+        "Deliberate, 2026-09-29. Parser built and the allow-list is empty on purpose — "
+        "NetSecOps holds no cloud credential and can send AWS nothing at all. Read from "
+        "`aws ec2 describe-security-groups`."
+    ),
+    "azure_nsg": (
+        "Deliberate, 2026-09-29. Parser built and the allow-list is empty on purpose — "
+        "NetSecOps holds no cloud credential. Read from `az network nsg list`."
+    ),
+    # These two had profiles for a few hours and lost them, which is a different reason
+    # from the four above: the profiles were unexecutable. FMC scopes its endpoints by
+    # domain and access policy, Barracuda by service, and the runner cannot expand a
+    # path per discovered object — so every policy's `accessrules` and every service's
+    # `basic-security` would have been filed under one bundle key and all but one
+    # discarded. `test_bundled_collection_shape` found it.
+    "barracuda_waf": (
+        "Deliberate, 2026-09-29. Parser built; the per-service endpoints need path "
+        "expansion the collector lacks. Read from an export until it has it."
+    ),
+    "cisco_ftd_fmc": (
+        "Deliberate, 2026-09-29. Parser built; the per-domain and per-policy endpoints "
+        "need path expansion the collector lacks. Read from an export until it has it."
+    ),
     # `radware_alteon` and `barracuda_waf` were both here, and both left within a day of
     # each other once the evidence turned up — a verified published `/cfg/dump` for one,
     # and Barracuda's own v3.2 OpenAPI specification for the other. Each now has a

@@ -14,12 +14,15 @@ from netsecops.parsers.barracuda.waf import BarracudaWafParser
 from netsecops.parsers.base import ConfigParser
 from netsecops.parsers.checkpoint.gaia import CheckPointGaiaParser
 from netsecops.parsers.checkpoint.mgmt import CheckPointMgmtParser
+from netsecops.parsers.cisco.aci import CiscoAciParser
 from netsecops.parsers.cisco.asa import CiscoAsaParser
 from netsecops.parsers.cisco.fmc import CiscoFmcParser
 from netsecops.parsers.cisco.ios import CiscoIosParser
 from netsecops.parsers.cisco.ise import CiscoIseParser
 from netsecops.parsers.cisco.nxos import CiscoNxosParser
 from netsecops.parsers.cisco.wlc import CiscoWlcParser
+from netsecops.parsers.cloud.aws import AwsParser
+from netsecops.parsers.cloud.azure import AzureNsgParser
 from netsecops.parsers.f5.bigip import F5BigIpParser
 from netsecops.parsers.fortinet.fortiauthenticator import FortiAuthenticatorParser
 from netsecops.parsers.fortinet.fortios import FortiOsParser
@@ -28,6 +31,8 @@ from netsecops.parsers.linux.freeradius import FreeRadiusParser
 from netsecops.parsers.linux.tacplus import TacPlusParser
 from netsecops.parsers.paloalto.panos import PanOsParser
 from netsecops.parsers.radware.alteon import RadwareAlteonParser
+from netsecops.parsers.symantec.proxysg import SymantecProxySgParser
+from netsecops.parsers.vmware.nsx import VmwareNsxParser
 
 PARSERS: Final[dict[str, type[ConfigParser]]] = {
     "cisco_ios": CiscoIosParser,
@@ -49,6 +54,21 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     # Firepower through its management centre. A bundle of REST responses rather than a
     # configuration, and the first platform to emit a non-terminating rule action.
     "cisco_ftd_fmc": CiscoFmcParser,
+    # A forward proxy. No rulebase — SGOS policy is CPL in a separate file that
+    # `show configuration` does not emit — so `firewall.security_rules` stays empty and
+    # a rulebase check reports Not Evaluated rather than a clean device.
+    "symantec_proxysg": SymantecProxySgParser,
+    # ── read from an export, with no collection profile ──────────────────────
+    # These four have a parser and deliberately no profile. Each needs a credential
+    # type and a transport this product does not have, and a parser wired to a
+    # collector that does not exist is the capability-with-no-surface pattern. They are
+    # ingested through FR-COL-11 instead, which is how a read-restricted cloud or
+    # vSphere estate was always going to be assessed. The collectors are their own
+    # slice, with their own credential design.
+    "cisco_aci": CiscoAciParser,
+    "vmware_nsx": VmwareNsxParser,
+    "aws_vpc": AwsParser,
+    "azure_nsg": AzureNsgParser,
     "fortios": FortiOsParser,
     "panos": PanOsParser,
     # Check Point splits in two: the security policy lives on the management server and

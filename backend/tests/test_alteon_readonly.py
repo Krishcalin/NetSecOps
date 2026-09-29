@@ -130,11 +130,23 @@ class TestTheAllowListIsLayerTwo:
         assert not [rule for rule in POLICIES["radware_alteon"].commands if rule.session_only]
 
 
-class TestItIsNotCollectableYet:
-    def test_the_platform_has_a_policy_and_no_profile(self) -> None:
-        """Deliberate, and the registries permit it — `cisco_iosxr` and `fortimanager`
-        are in the same state. A profile implies a parser, and there is no sample of
-        `cc` output in public documentation to write one against."""
+class TestItIsCollectableNow:
+    """This class asserted the opposite until 2026-09-28, and the reason it did was
+    sound: a profile implies a parser, and no sample of Alteon's `cc` output existed in
+    public documentation to write one against.
+
+    What changed is the evidence, not the standard. A verified published `/cfg/dump`
+    supplied the menu-path format, and `parsers/radware/alteon.py` is written against
+    it — still never having met real hardware, which the parser records.
+    """
+
+    def test_the_platform_is_now_fully_wired(self) -> None:
         assert "radware_alteon" in POLICIES
-        assert "radware_alteon" not in PROFILES
-        assert "radware_alteon" not in PARSERS
+        assert "radware_alteon" in PROFILES
+        assert "radware_alteon" in PARSERS
+
+    def test_the_profile_prefers_the_redacting_dump(self) -> None:
+        # `cc` is Radware's "configuration dump without keys and certificates", so the
+        # appliance redacts before the data leaves it. `/cfg/dump` stays approved as the
+        # fallback for firmware too old to offer it.
+        assert next(iter(PROFILES["radware_alteon"].all_commands())) == "cc"

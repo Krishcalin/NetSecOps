@@ -67,6 +67,16 @@ PLATFORM_DIRS: dict[str, str] = {
     # Firepower through its management centre. A bundle of REST responses, and the one
     # platform in the corpus whose rulebase carries a non-terminating action.
     "cisco/fmc": "cisco_ftd_fmc",
+    # The four read from an export rather than collected. They belong in the sweep more
+    # than most: each flattens a model that is not an ordered rulebase into one, and an
+    # empty match set is the specific way that flattening goes wrong.
+    "vmware/nsx": "vmware_nsx",
+    "cisco/aci": "cisco_aci",
+    "cloud/aws": "aws_vpc",
+    "cloud/azure": "azure_nsg",
+    # A forward proxy. It has no rulebase — SGOS policy is CPL in a separate file — so
+    # the rule sweeps skip it, and the populated-NCM sweep is the one that matters here.
+    "symantec/proxysg": "symantec_proxysg",
 }
 
 
@@ -165,6 +175,37 @@ class TestTheResolverRefusesRatherThanReturningNothing:
         assert rule.source
 
 
+#: Object types whose membership is **defined outside the configuration** and never
+#: appears in an export, however complete.
+#:
+#: This is a narrow, typed exception to the rule below, and it exists because the four
+#: export-read platforms made the distinction unavoidable: an AWS security group stands
+#: for the instances attached to it, an NSX dynamic group for whatever currently carries
+#: a tag, an Azure service tag for ranges Microsoft publishes and changes, an ACI L2-only
+#: EPG for a bridge domain with no gateway. None of them is a parser that failed to read
+#: something — they are sets whose contents live somewhere this product is not looking.
+#:
+#: **The distinction is the point, not the exemption.** An object that resolves to
+#: nothing because the parser could not read it is a defect. An object that resolves to
+#: nothing because its membership is elsewhere is a limitation, and it is one a path
+#: query should eventually report rather than silently treat as "no match". Recorded
+#: here so the difference is enforced by a type the parser had to set on purpose, rather
+#: than by a platform being quietly skipped.
+EXTERNALLY_RESOLVED: frozenset[str] = frozenset(
+    {"security-group", "prefix-list", "dynamic-group", "epg-no-subnet", "service-tag"}
+)
+
+
+def externally_resolved(firewall: dict) -> set[str]:
+    """Names in this rulebase whose membership is not in the configuration."""
+    return {
+        str(obj.get("name"))
+        for kind in ("address_objects", "address_groups", "service_objects")
+        for obj in firewall.get(kind) or []
+        if obj.get("type") in EXTERNALLY_RESOLVED and obj.get("name")
+    }
+
+
 @pytest.mark.parametrize(("relative", "platform"), CASES, ids=[c[0] for c in CASES])
 class TestNothingIsSilentlyEmpty:
     def test_it_parses_into_a_populated_ncm(self, relative: str, platform: str) -> None:
@@ -191,21 +232,27 @@ class TestNothingIsSilentlyEmpty:
             pytest.skip("no rulebase on this platform")
 
         rules, _ = resolve_rulebase(firewall)
-        inert = [
-            f"{rule.name} (empty "
-            + "+".join(
+        external = externally_resolved(firewall)
+        raw_rules = firewall.get("security_rules") or []
+
+        inert: list[str] = []
+        for index, rule in enumerate(rules):
+            raw = raw_rules[index] if index < len(raw_rules) else {}
+            sides = [
                 side
-                for side, value in (
-                    ("source", rule.source),
-                    ("destination", rule.destination),
-                    ("service", rule.services),
+                for side, value, members in (
+                    ("source", rule.source, raw.get("src") or []),
+                    ("destination", rule.destination, raw.get("dst") or []),
+                    ("service", rule.services, raw.get("services") or []),
                 )
-                if not value
-            )
-            + ")"
-            for rule in rules
-            if not rule.source or not rule.destination or not rule.services
-        ]
+                # Empty *and* not empty merely because every name it holds stands for a
+                # set defined outside the configuration. A rule pointing at an AWS
+                # security group is not a broken rule; it is one this export cannot
+                # resolve, and the two must not read the same.
+                if not value and not (members and all(m in external for m in members))
+            ]
+            if sides:
+                inert.append(f"{rule.name} (empty {'+'.join(sides)})")
 
         assert inert == [], f"{relative}: {len(inert)}/{len(rules)} rules can never match: {inert}"
 
@@ -223,6 +270,11 @@ class TestNothingIsSilentlyEmpty:
             for obj in firewall.get(kind) or []:
                 name = str(obj.get("name") or "")
                 if not name:
+                    continue
+                # An object whose membership is defined outside the configuration is not
+                # an object the parser failed to read. The type had to be set on purpose
+                # for it to be exempt here.
+                if obj.get("type") in EXTERNALLY_RESOLVED:
                     continue
                 resolved, missing = resolver.resolve_addresses([name])
                 if missing or (not resolved and not resolved.is_any):

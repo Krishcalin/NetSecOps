@@ -33,6 +33,21 @@ moved to :data:`NO_DICTIONARY_ENTRY`:
 
 Both were silently matching nothing before, which is the failure this module opens by
 describing. They now match nothing *visibly*, which is the point of the distinction.
+
+**Eleven more verified on 2026-09-29**, as eleven platforms were added. Two would have
+been wrong if the strings had been written from memory rather than queried, and both in
+the same direction — a product that exists, matches the CPE syntax, and is deprecated:
+
+* `cisco:firepower_management_center` has 393 entries and every one is superseded by
+  `cisco:secure_firewall_management_center`. Matching the old name finds nothing, and
+  finding nothing is indistinguishable from an appliance with no advisories.
+* `vmware:nsx-t_data_center` is likewise deprecated in favour of
+  `broadcom:vmware_nsx` after the acquisition.
+
+One is honest but nearly empty: `barracuda:web_application_firewall` has a single entry,
+for 7.8.1.013. A modern appliance will match nothing — a coverage gap in the dictionary
+rather than a mistake here, and one that shows as "no advisories" rather than as an
+unassessable device.
 """
 
 from __future__ import annotations
@@ -89,6 +104,39 @@ PRODUCTS: Final[dict[str, ProductName]] = {
     "fortiauthenticator": ProductName(Part.APPLICATION, "fortinet", "fortiauthenticator"),
     "checkpoint_gaia": ProductName(Part.OS, "checkpoint", "gaia_os"),
     "freeradius": ProductName(Part.APPLICATION, "freeradius", "freeradius"),
+    # ── verified against the live NVD CPE API on 2026-09-29 ──────────────────
+    # A Catalyst 9800 runs IOS-XE, so it shares that product. It has been in the parser
+    # registry since Phase 5 with no entry here, which `test_vuln_cpe` has been failing
+    # on ever since — found by running the whole suite rather than the parts touched.
+    "cisco_c9800": ProductName(Part.OS, "cisco", "ios_xe"),
+    "arista_eos": ProductName(Part.OS, "arista", "eos"),  # 174 entries
+    "juniper_junos": ProductName(Part.OS, "juniper", "junos"),  # 1,154 entries
+    # BIG-IP is catalogued per module rather than as one product. LTM carries the
+    # traffic-management CVEs, which is the module this parser reads; AFM, APM and ASM
+    # are separate products and a device running them needs its own entry.
+    "f5_bigip": ProductName(Part.APPLICATION, "f5", "big-ip_local_traffic_manager"),  # 274
+    # **Not `firepower_management_center`.** Those 393 entries are all deprecated in
+    # favour of this one, and matching a deprecated product finds nothing while looking
+    # exactly like a device with no advisories.
+    "cisco_ftd_fmc": ProductName(
+        Part.APPLICATION, "cisco", "secure_firewall_management_center"
+    ),  # 240
+    "cisco_aci": ProductName(
+        Part.APPLICATION, "cisco", "application_policy_infrastructure_controller"
+    ),  # 308
+    # **Not `vmware:nsx-t_data_center`.** Those are deprecated too, superseded by
+    # Broadcom's namespace after the acquisition.
+    "vmware_nsx": ProductName(Part.APPLICATION, "broadcom", "vmware_nsx"),  # 34
+    # `bluecoat`, not `symantec` or `broadcom`: NVD kept the original vendor string
+    # through both acquisitions and every SGOS entry is still filed under it.
+    "symantec_proxysg": ProductName(Part.OS, "bluecoat", "sgos"),  # 29
+    # One entry, for 7.8.1.013. Real but nearly empty, so a modern appliance will match
+    # nothing — which is a coverage gap rather than a mapping error, and is visible as
+    # "no advisories" rather than as an unassessable device.
+    "barracuda_waf": ProductName(Part.APPLICATION, "barracuda", "web_application_firewall"),
+    # Split across `alteon` and `alteon_firmware` in the dictionary. The former carries
+    # a versioned OS entry, which is what a parsed version string can match.
+    "radware_alteon": ProductName(Part.OS, "radware", "alteon"),
 }
 
 #: Platforms NetSecOps parses that the NVD dictionary has no product for, and why.
@@ -108,6 +156,16 @@ NO_DICTIONARY_ENTRY: Final[dict[str, str]] = {
         "There is no `shrubbery` vendor in NVD. `tac_plus` exists as cisco:tac_plus and "
         "facebook:tac_plus, separate forks with their own version schemes, and a parsed "
         "config does not say which fork produced it."
+    ),
+    "aws_vpc": (
+        "A security group is a rule in a service, not a product. There is no version to "
+        "match and no CPE to match it against — CVEs are filed against the software "
+        "running on an instance, which is a different device this product does not see. "
+        "The absence is the honest answer rather than a gap to close."
+    ),
+    "azure_nsg": (
+        "Same as aws_vpc: a network security group is configuration in a managed "
+        "service, with no version and no dictionary entry."
     ),
 }
 

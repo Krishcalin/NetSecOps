@@ -72,15 +72,41 @@ Assessed against the code on 2026-09-28, not assumed:
 Agreed 2026-09-28: **device breadth first**, because every engine above multiplies
 across each platform added, and coverage is the gap a customer measures first.
 
-1. **Device breadth.** AlgoSec onboards roughly twenty vendor families. We have
-   fourteen platforms. Missing: Juniper (SRX, Netscreen, M/E, Junos Space), F5 BIG-IP
-   LTM/AFM, Arista, VMware NSX, AWS, Azure, Cisco ACI and FirePower, Symantec Blue Coat,
-   WatchGuard, McAfee Sidewinder. **Radware Alteon landed 2026-09-28; Barracuda WAF,
-   Juniper Junos (SRX, MX and EX on one platform key), F5 BIG-IP and Arista EOS on
-   2026-09-29.** That leaves VMware NSX, AWS, Azure, Cisco ACI/FirePower and Blue Coat
-   — the cloud and SDN half of the list, which is a different kind of work from the
-   five above: none of them has a configuration file, and all four are read as
-   inventories over an API.
+1. **Device breadth — closed, 2026-09-29.** AlgoSec onboards roughly twenty vendor
+   families. We had fourteen platforms; we now have twenty-five.
+
+   Added over two days: Radware Alteon, Barracuda WAF, Juniper Junos (SRX, MX and EX on
+   one platform key), F5 BIG-IP, Arista EOS, Cisco Firepower via FMC, VMware NSX-T,
+   Cisco ACI, AWS, Azure and Symantec ProxySG.
+
+   **Six of them are read from an export rather than collected.** For NSX, ACI, AWS and
+   Azure that is a design decision: each needs a credential type and a transport this
+   product does not have, FR-COL-11 carries them today, and the collectors are their own
+   slice. The two cloud allow-lists are deliberately empty — NetSecOps holds no cloud
+   credential and can send those platforms nothing at all.
+
+   For **Firepower and Barracuda it was a correction**. Both shipped with a collection
+   profile that could not be executed, because their endpoints are templated per object
+   and the runner cannot expand a path per discovered object. Found by
+   `test_bundled_collection_shape` on the first full-suite run after they landed.
+
+   **A collector that can expand a path per discovered object would unblock four
+   platforms at once** — FMC, Barracuda, NSX and ACI all want the same mechanism. It is
+   the highest-leverage piece of collection work outstanding.
+
+   Still absent against AlgoSec's list: Juniper Netscreen and Junos Space, WatchGuard,
+   McAfee Sidewinder, Cisco CSM. All are legacy or manager-tier; none is a gap a
+   customer has asked about.
+
+   **One limitation worth stating, because it is structural rather than unfinished.**
+   The four export-read platforms carry objects whose membership is not in the export
+   and never will be: an AWS security group stands for the instances attached to it, an
+   NSX dynamic group for whatever currently carries a tag, an Azure service tag for
+   ranges Microsoft publishes, an ACI L2-only EPG for a bridge domain with no gateway.
+   Those are typed so the difference from a parser failure is legible
+   (`EXTERNALLY_RESOLVED` in `test_silent_emptiness.py`), but a path query crossing such
+   a rule cannot resolve it and currently treats it as no match. Reporting "cannot
+   evaluate" instead is the right behaviour and is not built.
 2. **Matrices, DR sets, and group/matrix-level reports.** AlgoSec's cross-device
    constructs, and the "multi-device reasoning" gap the earlier competitive dossier
    identified as the only real engine-level one.

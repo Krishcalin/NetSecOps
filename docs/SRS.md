@@ -618,6 +618,44 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 > NX-OS allow-list and a profile may not widen one — this list is closed precisely so
 > that "it is only a show command" cannot grow it an entry at a time.
 
+> **Amendment, recorded 2026-09-29 — six platforms, and a new kind of entry.** VMware
+> NSX-T, Cisco ACI, AWS, Azure and Symantec ProxySG join the list; Cisco Firepower was
+> already on it and is now built.
+>
+> **Six of them are read from an export and have no collection profile**, which is a
+> position this section has not had to describe before. NSX, ACI, AWS and Azure each
+> need a credential type and a transport this product does not have — SigV4, OAuth
+> service principals, pagination — and a parser wired to a collector that does not exist
+> is the pattern `test_unconsumed_capability` was written to find. They are assessed
+> through FR-COL-11 instead: somebody exports the JSON and uploads it. The collectors
+> are their own slice, with their own credential design.
+>
+> **Firepower and Barracuda joined them, and that was a correction rather than a plan.**
+> Both shipped with a collection profile, and both profiles were unexecutable: their
+> endpoints are templated per object — FMC by domain and access policy, Barracuda by
+> service — and the runner cannot expand a path per discovered object. Worse,
+> `key_in_bundle()` defaults to the last path segment, so every service's
+> `basic-security` would have been filed under one key and all but one discarded, which
+> on a WAF means losing the field that says whether it blocks. `test_bundled_collection_shape`
+> found it. Their endpoint lists stay in §8.2 and `policies.py` where a reviewer can
+> read them; the profiles return when the collector can expand a path.
+>
+> **The two cloud allow-lists are empty, and an empty list is a statement.** NetSecOps
+> holds no AWS or Azure credential and has no rule for `check_request` to match, so it
+> cannot send those platforms anything at all. That is a stronger guarantee than "we
+> only send reads", and it is the reason those two are safe to add without a collector
+> design first.
+>
+> NSX and ACI do carry contracts, because they will get collectors: `GET /policy/api/v1/`
+> and `GET /api/v1/node/version` for NSX; `GET /api/node/class/`, `GET /api/node/mo/`
+> and the `aaaLogin` POST for ACI. The contract is written now so a reviewer can read it
+> before any code can act on it.
+>
+> ProxySG is an ordinary SSH platform: `show configuration`, `show version`,
+> `show licenses`. **`show configuration expanded` is deliberately not approved** — it
+> inlines the appliance's private keys, where the plain form emits placeholders. Same
+> posture as preferring Alteon's `cc` over `/cfg/dump`.
+
 > **Amendment, recorded 2026-09-29 — Arista EOS added.** Three entries:
 > `terminal length 0` (session-only), `show running-config` and `show version`.
 >
@@ -712,6 +750,18 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 
 **Arista EOS**
 `terminal length 0` (session-only; allowed exception), `show running-config`, `show version`.
+
+**Symantec Blue Coat ProxySG (SGOS)**
+`show configuration`, `show version`, `show licenses`. `show configuration expanded` is deliberately excluded — it inlines private keys.
+
+**VMware NSX-T (Policy API, GET only)**
+`GET /policy/api/v1/...`, `GET /api/v1/node/version`. Read from an export today; no collector yet.
+
+**Cisco ACI (APIC, GET only)**
+`POST /api/aaaLogin.json` (auth only), `GET /api/node/class/...`, `GET /api/node/mo/...`. Read from an export today; no collector yet.
+
+**AWS and Azure**
+Nothing. Both allow-lists are deliberately empty: NetSecOps holds no cloud credential and can send neither platform anything. Read from `aws ec2 describe-security-groups` and `az network nsg list` exports through FR-COL-11.
 
 **F5 BIG-IP (tmsh)**
 `tmsh -q list`, `tmsh -q show sys version`, `tmsh -q show sys hardware`.

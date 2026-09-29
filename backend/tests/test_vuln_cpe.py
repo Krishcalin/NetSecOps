@@ -147,8 +147,22 @@ class TestSoftwareCpeRefusals:
         assert software_cpe(device_ncm(platform="panos", version="   ")) is None
 
     def test_an_unmapped_platform_yields_nothing(self) -> None:
-        """Not a guess. A wrong product name matches nothing and looks like a pass."""
-        assert software_cpe(device_ncm(platform="juniper_junos", version="21.4R3")) is None
+        """Not a guess. A wrong product name matches nothing and looks like a pass.
+
+        The example is deliberately fictional. This test used `juniper_junos` until
+        Juniper was added on 2026-09-29, at which point it asserted the opposite of the
+        truth — a test that goes stale the moment the thing it names stops being an
+        example is a test that has to be rewritten instead of read.
+        """
+        assert software_cpe(device_ncm(platform="acme_router_9000", version="1.0")) is None
+
+    def test_a_platform_known_to_have_no_entry_yields_nothing(self) -> None:
+        """And the real case: a platform NetSecOps parses and NVD has no product for.
+
+        `aws_vpc` is a rule in a managed service, with no version and no CPE. It must
+        produce nothing rather than a confident match against something adjacent.
+        """
+        assert software_cpe(device_ncm(platform="aws_vpc", version="2026-09")) is None
 
     def test_no_platform_yields_nothing(self) -> None:
         assert software_cpe(device_ncm(version="15.2(7)E3")) is None

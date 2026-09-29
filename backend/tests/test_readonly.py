@@ -90,8 +90,36 @@ class TestShippedPoliciesAreCoherent:
             get_policy("acme_router_9000")
 
     def test_every_policy_declares_something(self) -> None:
+        """Or says outright that it declares nothing.
+
+        An empty allow-list nobody meant is a policy somebody forgot to fill in, and
+        that is what this catches. `offline_only` is how a platform says the emptiness
+        is deliberate — it is never contacted, we hold no credential for it, and it is
+        assessed from an uploaded export. The two states look identical and mean
+        opposite things, which is why it is a flag rather than an inference.
+        """
         for platform, policy in POLICIES.items():
+            if policy.offline_only:
+                assert not policy.commands and not policy.http, (
+                    f"{platform} is declared offline-only and still permits something"
+                )
+                continue
             assert policy.commands or policy.http, f"{platform} permits nothing at all"
+
+    def test_an_offline_only_platform_can_be_sent_nothing(self) -> None:
+        """The guarantee the flag is making, tested rather than asserted in prose."""
+        from netsecops.adapters.readonly import ReadOnlyGuard
+        from netsecops.core.errors import ReadOnlyViolationError
+
+        offline = [policy for policy in POLICIES.values() if policy.offline_only]
+        assert offline, "no platform declares itself offline-only; this test proves nothing"
+
+        for policy in offline:
+            guard = ReadOnlyGuard(policy)
+            with pytest.raises(ReadOnlyViolationError):
+                guard.check_command("show version")
+            with pytest.raises(ReadOnlyViolationError):
+                guard.check_request("GET", "/")
 
 
 def _example_for(rule: CommandRule) -> str:

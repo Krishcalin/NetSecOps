@@ -60,6 +60,22 @@ CORPUS: dict[str, list[Path]] = {
     "panos": sorted((FIXTURES / "paloalto/panos").rglob("*.xml")),
     "checkpoint_mgmt": sorted((FIXTURES / "checkpoint/mgmt").rglob("*.json")),
     "checkpoint_gaia": sorted((FIXTURES / "checkpoint/gaia").rglob("*.txt")),
+    # ── added 2026-09-29 ─────────────────────────────────────────────────────
+    # `cisco_c9800` is absent deliberately: it shares `CiscoIosParser`, and the check
+    # above exempts aliases because a second identical fixture is only a second thing to
+    # keep in step.
+    "juniper_junos": sorted((FIXTURES / "juniper/junos").rglob("*.txt")),
+    "arista_eos": sorted((FIXTURES / "arista/eos").rglob("*.txt")),
+    "f5_bigip": sorted((FIXTURES / "f5/bigip").rglob("*.txt")),
+    "radware_alteon": sorted((FIXTURES / "radware/alteon").rglob("*.txt")),
+    "symantec_proxysg": sorted((FIXTURES / "symantec/proxysg").rglob("*.txt")),
+    # Read as bundles of API responses, like ISE and the Check Point management server.
+    "barracuda_waf": sorted((FIXTURES / "barracuda/waf").rglob("*.json")),
+    "cisco_ftd_fmc": sorted((FIXTURES / "cisco/fmc").rglob("*.json")),
+    "cisco_aci": sorted((FIXTURES / "cisco/aci").rglob("*.json")),
+    "vmware_nsx": sorted((FIXTURES / "vmware/nsx").rglob("*.json")),
+    "aws_vpc": sorted((FIXTURES / "cloud/aws").rglob("*.json")),
+    "azure_nsg": sorted((FIXTURES / "cloud/azure").rglob("*.json")),
 }
 
 

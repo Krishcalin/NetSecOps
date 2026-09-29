@@ -1,0 +1,65 @@
+{
+  "SecurityGroups": [
+    {
+      "GroupId": "sg-0aaa1111",
+      "GroupName": "web-tier",
+      "Description": "Public web servers",
+      "VpcId": "vpc-01234567",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 443,
+          "ToPort": 443,
+          "IpRanges": [{ "CidrIp": "0.0.0.0/0" }],
+          "Ipv6Ranges": [{ "CidrIpv6": "::/0" }],
+          "UserIdGroupPairs": [],
+          "PrefixListIds": []
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 22,
+          "ToPort": 22,
+          "IpRanges": [{ "CidrIp": "10.10.0.0/24" }],
+          "UserIdGroupPairs": []
+        }
+      ],
+      "IpPermissionsEgress": [
+        {
+          "IpProtocol": "-1",
+          "IpRanges": [{ "CidrIp": "0.0.0.0/0" }],
+          "UserIdGroupPairs": []
+        }
+      ]
+    },
+    {
+      "GroupId": "sg-0bbb2222",
+      "GroupName": "db-tier",
+      "Description": "Database servers",
+      "VpcId": "vpc-01234567",
+      "IpPermissions": [
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 3306,
+          "ToPort": 3306,
+          "IpRanges": [],
+          "UserIdGroupPairs": [{ "GroupId": "sg-0aaa1111", "UserId": "123456789012" }]
+        },
+        {
+          "IpProtocol": "tcp",
+          "FromPort": 0,
+          "ToPort": 65535,
+          "IpRanges": [{ "CidrIp": "10.30.0.0/16" }]
+        }
+      ],
+      "IpPermissionsEgress": []
+    },
+    {
+      "GroupId": "sg-0ccc3333",
+      "GroupName": "unused",
+      "Description": "Nothing attached",
+      "VpcId": "vpc-89abcdef",
+      "IpPermissions": [],
+      "IpPermissionsEgress": []
+    }
+  ]
+}

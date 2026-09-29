@@ -1,0 +1,84 @@
+[
+  {
+    "name": "nsg-web",
+    "location": "uksouth",
+    "properties": {
+      "securityRules": [
+        {
+          "name": "allow-https",
+          "properties": {
+            "priority": 200,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "sourceAddressPrefix": "Internet",
+            "destinationAddressPrefix": "*",
+            "destinationPortRange": "443"
+          }
+        },
+        {
+          "name": "allow-mgmt",
+          "properties": {
+            "priority": 100,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "Tcp",
+            "sourceAddressPrefixes": ["10.10.0.0/24", "10.11.0.0/24"],
+            "destinationAddressPrefix": "*",
+            "destinationPortRanges": ["22", "3389"]
+          }
+        },
+        {
+          "name": "deny-db-out",
+          "properties": {
+            "priority": 300,
+            "direction": "Outbound",
+            "access": "Deny",
+            "protocol": "*",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "10.30.0.0/16",
+            "destinationPortRange": "*"
+          }
+        }
+      ],
+      "defaultSecurityRules": [
+        {
+          "name": "AllowVnetInBound",
+          "properties": {
+            "priority": 65000,
+            "direction": "Inbound",
+            "access": "Allow",
+            "protocol": "*",
+            "sourceAddressPrefix": "VirtualNetwork",
+            "destinationAddressPrefix": "VirtualNetwork",
+            "destinationPortRange": "*"
+          }
+        },
+        {
+          "name": "DenyAllInBound",
+          "properties": {
+            "priority": 65500,
+            "direction": "Inbound",
+            "access": "Deny",
+            "protocol": "*",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "*",
+            "destinationPortRange": "*"
+          }
+        },
+        {
+          "name": "DenyAllOutBound",
+          "properties": {
+            "priority": 65500,
+            "direction": "Outbound",
+            "access": "Deny",
+            "protocol": "*",
+            "sourceAddressPrefix": "*",
+            "destinationAddressPrefix": "*",
+            "destinationPortRange": "*"
+          }
+        }
+      ]
+    }
+  }
+]
