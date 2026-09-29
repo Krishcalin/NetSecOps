@@ -190,6 +190,25 @@ MATRIX: list[Case] = [
         _DEVICE_WRITERS,
         body={"parent_id": None},
     ),
+    # ── Disaster-recovery sets (Slice A) ────────────────────────────────────
+    # A DR set is a statement about the estate's shape, so it sits with the devices it
+    # names: reading the sets and the HA-derived suggestions is a device read, declaring
+    # or removing one is device authorship.
+    Case("GET", "/api/v1/dr-sets", _DEVICE_READERS),
+    Case("GET", "/api/v1/dr-sets/suggestions", _DEVICE_READERS),
+    Case(
+        "POST",
+        "/api/v1/dr-sets",
+        _DEVICE_WRITERS,
+        body={
+            "name": "matrix-dr-set",
+            "members": [
+                {"device_id": "00000000-0000-0000-0000-000000000001", "role": "primary"},
+                {"device_id": "00000000-0000-0000-0000-000000000002", "role": "standby"},
+            ],
+        },
+    ),
+    Case("DELETE", "/api/v1/dr-sets/{dr_set_id}", _DEVICE_WRITERS),
     Case("GET", "/api/v1/sites", _DEVICE_READERS),
     Case("POST", "/api/v1/sites", _DEVICE_WRITERS, body={"name": "matrix-site"}),
     Case("GET", "/api/v1/tags", _DEVICE_READERS),
@@ -610,6 +629,7 @@ def _resolve(path: str, target: User) -> str:
         .replace("{scope_id}", str(uuid.uuid4()))
         .replace("{host_id}", str(uuid.uuid4()))
         .replace("{report_id}", str(uuid.uuid4()))
+        .replace("{dr_set_id}", str(uuid.uuid4()))
     )
 
 
