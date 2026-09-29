@@ -28,6 +28,11 @@ from netsecops.db.models.discovery import (
     DiscoveryRunStatus,
     DiscoveryScope,
 )
+from netsecops.db.models.dr import (
+    DrRole,
+    DrSet,
+    DrSetMember,
+)
 from netsecops.db.models.inventory import (
     Credential,
     CredentialAssignment,
@@ -129,6 +134,9 @@ __all__ = [
     "DiscoveryRun",
     "DiscoveryRunStatus",
     "DiscoveryScope",
+    "DrRole",
+    "DrSet",
+    "DrSetMember",
     "EolRecordRow",
     "ErrorClass",
     "ExceptionScope",
