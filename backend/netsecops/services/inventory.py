@@ -333,8 +333,24 @@ class InventoryService:
             details={"mgmt_ip": mgmt_ip},
         )
 
-    async def record_facts(self, device: Device, facts: dict[str, Any]) -> Device:
-        """Refresh device facts after a successful collection (FR-INV-05)."""
+    async def record_facts(
+        self, device: Device, facts: dict[str, Any], *, contacted: bool = True
+    ) -> Device:
+        """Refresh device facts from a parsed configuration (FR-INV-05).
+
+        **This existed and was called by nothing.** Found on 2026-09-29: all 653 devices
+        had `os_version = NULL` while 622 of their snapshots carried a version in the
+        parsed NCM. `software_cpe` returns None without a version, so the entire
+        vulnerability engine — feeds, CPE matching, KEV, EoL — could never produce a
+        row, and the result read as a device with no advisories rather than a device
+        nothing could assess.
+
+        ``contacted`` separates the two things this used to conflate. Facts come from a
+        configuration however it arrived; `last_collected_at` means *we talked to the
+        device*, and setting it for an uploaded file would report a device that has
+        never been reachable as recently collected — which `topology.py` already works
+        around by keying on the snapshot instead.
+        """
         from datetime import UTC, datetime
 
         device.facts = {**device.facts, **facts}
@@ -347,8 +363,10 @@ class InventoryService:
             if value := facts.get(key):
                 setattr(device, column, str(value))
 
-        device.last_collected_at = datetime.now(UTC)
-        device.last_seen_at = device.last_collected_at
+        if contacted:
+            device.last_collected_at = datetime.now(UTC)
+            device.last_seen_at = device.last_collected_at
+
         await self.session.flush()
         return device
 

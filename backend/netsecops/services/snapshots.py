@@ -53,6 +53,7 @@ from netsecops.ncm.models import NCM_VERSION, NormalisedConfig
 from netsecops.parsers.base import ParseContext
 from netsecops.parsers.registry import NoParserError, get_parser
 from netsecops.services.audit import AuditService
+from netsecops.services.inventory import InventoryService
 
 log = get_logger(__name__)
 
@@ -546,6 +547,10 @@ class SnapshotService:
             artifact_id=artifact.id,
             command=f"upload:{filename}",
             supporting=captures,
+            # Nothing was contacted. The facts are still real — they came from the
+            # device's own configuration — but `last_collected_at` would claim a
+            # conversation that never happened.
+            contacted=False,
         )
 
         drift = await self.detect_drift(device, snapshot)
@@ -596,6 +601,7 @@ class SnapshotService:
         artifact_id: uuid.UUID | None = None,
         command: str | None = None,
         supporting: Mapping[str, str] | None = None,
+        contacted: bool = True,
     ) -> Snapshot:
         """Parse a configuration and store it, de-duplicating identical ones.
 
@@ -629,6 +635,35 @@ class SnapshotService:
                 command=command,
                 supporting=dict(supporting or {}),
             )
+        )
+
+        # **FR-INV-05, which was written and never called.** Both routes into this
+        # method — the collection runner and the offline upload — build an NCM carrying
+        # the device's hostname, version, model and serial, and neither copied any of it
+        # onto the device. The consequence was total rather than partial: `software_cpe`
+        # returns None without a version, so no CPE was ever built, nothing matched a
+        # feed, and every device read as having no advisories instead of as one nothing
+        # could assess.
+        #
+        # Recorded here rather than in the two callers because putting it in the callers
+        # is what produced the gap: one of them would always forget, and this is the one
+        # place that holds both the device and the freshly parsed facts.
+        #
+        # Before the dedup branch below, so a re-upload that finally carries
+        # `show version` updates the device even though the configuration is unchanged.
+        await InventoryService(self.session).record_facts(
+            device,
+            {
+                key: value
+                for key, value in (
+                    ("hostname", ncm.device.hostname),
+                    ("version", ncm.device.version),
+                    ("model", ncm.device.model),
+                    ("serial", ncm.device.serials[0] if ncm.device.serials else None),
+                )
+                if value
+            },
+            contacted=contacted,
         )
 
         digest = config_hash(config_text)

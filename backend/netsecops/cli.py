@@ -528,6 +528,97 @@ def cmd_demo_purge() -> None:
     asyncio.run(_run())
 
 
+@app.command("backfill-device-facts")
+def cmd_backfill_device_facts(
+    apply: bool = typer.Option(
+        False, "--apply", help="Write the changes. Without it, only report what would change."
+    ),
+) -> None:
+    """Copy hostname, version, model and serial from each device's latest snapshot.
+
+    **For estates onboarded before 2026-09-29.** `record_facts` implemented FR-INV-05
+    and was called by nothing, so every device stored before that fix has
+    `os_version = NULL` while its snapshot carries the version the parser read. Without
+    a version `software_cpe` returns None, so no CPE is built, nothing matches a feed,
+    and the device reads as having no advisories rather than as one nothing could
+    assess.
+
+    New collections and uploads no longer need this — `create_snapshot` records facts
+    itself. This exists to rescue what is already stored.
+
+    `last_collected_at` is deliberately left alone: a stored snapshot says a
+    configuration was read, not that the device was reachable now.
+    """
+    configure_logging()
+
+    async def _run() -> None:
+        from sqlalchemy import select
+
+        from netsecops.db.models.collection import Snapshot
+        from netsecops.db.models.inventory import Device
+        from netsecops.db.session import session_scope
+        from netsecops.services.inventory import InventoryService
+
+        async with session_scope() as session:
+            devices = (await session.execute(select(Device))).scalars().all()
+            inventory = InventoryService(session)
+            changed = 0
+            skipped = 0
+
+            for device in devices:
+                row = (
+                    await session.execute(
+                        select(Snapshot.ncm)
+                        .where(Snapshot.device_id == device.id)
+                        .order_by(Snapshot.created_at.desc())
+                        .limit(1)
+                    )
+                ).first()
+                if row is None or not row.ncm:
+                    skipped += 1
+                    continue
+
+                facts_source = (row.ncm.get("device") or {}) if isinstance(row.ncm, dict) else {}
+                serials = facts_source.get("serials") or []
+                facts = {
+                    key: value
+                    for key, value in (
+                        ("hostname", facts_source.get("hostname")),
+                        ("version", facts_source.get("version")),
+                        ("model", facts_source.get("model")),
+                        ("serial", serials[0] if serials else None),
+                    )
+                    if value
+                }
+                if not facts:
+                    skipped += 1
+                    continue
+
+                # Only count a device whose columns would actually move, so the dry run
+                # reports work to be done rather than devices examined.
+                if device.os_version == facts.get("version") and device.model == facts.get(
+                    "model"
+                ):
+                    skipped += 1
+                    continue
+
+                changed += 1
+                if apply:
+                    await inventory.record_facts(device, facts, contacted=False)
+
+            if not apply:
+                # Nothing was written, and the scope is explicit rather than implied by
+                # an absence of output.
+                await session.rollback()
+
+        verb = "Updated" if apply else "Would update"
+        console.print(f"[green]{verb}[/green] {changed} device(s); {skipped} unchanged or unparsed.")
+        if not apply:
+            console.print("Re-run with [bold]--apply[/bold] to write them.")
+
+    asyncio.run(_run())
+
+
 @app.command("version")
 def cmd_version() -> None:
     from netsecops import __version__
