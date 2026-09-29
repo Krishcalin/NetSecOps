@@ -20,6 +20,7 @@ from netsecops.parsers.cisco.nxos import CiscoNxosParser
 from netsecops.parsers.cisco.wlc import CiscoWlcParser
 from netsecops.parsers.fortinet.fortiauthenticator import FortiAuthenticatorParser
 from netsecops.parsers.fortinet.fortios import FortiOsParser
+from netsecops.parsers.juniper.junos import JunosParser
 from netsecops.parsers.linux.freeradius import FreeRadiusParser
 from netsecops.parsers.linux.tacplus import TacPlusParser
 from netsecops.parsers.paloalto.panos import PanOsParser
@@ -50,6 +51,9 @@ PARSERS: Final[dict[str, type[ConfigParser]]] = {
     # platforms rather than one parser guessing which it was handed.
     "checkpoint_mgmt": CheckPointMgmtParser,
     "checkpoint_gaia": CheckPointGaiaParser,
+    # SRX, MX and EX share one key: the configuration format belongs to Junos rather
+    # than to the chassis, and the parser reads either the brace form or `display set`.
+    "juniper_junos": JunosParser,
     # An ADC, so it is the first platform to fill `load_balancer`. Its menu-path dump is
     # unlike anything else here and has its own parser rather than a syntax flag.
     "radware_alteon": RadwareAlteonParser,

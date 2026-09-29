@@ -54,6 +54,9 @@ PLATFORM_DIRS: dict[str, str] = {
     # A WAF, read as a bundle of REST responses keyed by endpoint. Its bundle is a
     # configuration in the sense that matters here — it is what the checks run against.
     "barracuda/waf": "barracuda_waf",
+    # SRX, MX and EX. The fixture is the brace form, which is the harder of the two
+    # Junos formats and therefore the one worth sweeping.
+    "juniper/junos": "juniper_junos",
 }
 
 

@@ -1,0 +1,173 @@
+## Last commit: 2026-09-14 09:41:02 UTC by netops
+version 21.4R3-S4.9;
+system {
+    host-name srx-edge-01;
+    domain-name corp.example.net;
+    root-authentication {
+        encrypted-password "$6$REDACTED"; ## SECRET-DATA
+    }
+    login {
+        message "Authorised access only. Activity is monitored.";
+        idle-timeout 10;
+        user netops {
+            uid 2001;
+            class super-user;
+            authentication {
+                encrypted-password "$6$REDACTED"; ## SECRET-DATA
+            }
+        }
+        user auditor {
+            uid 2002;
+            class read-only;
+            authentication {
+                encrypted-password "$6$REDACTED"; ## SECRET-DATA
+            }
+        }
+    }
+    services {
+        ssh {
+            root-login deny;
+            protocol-version v2;
+            connection-limit 10;
+        }
+        web-management {
+            https {
+                system-generated-certificate;
+                interface fxp0.0;
+            }
+        }
+    }
+    syslog {
+        host 10.10.0.20 {
+            any notice;
+            authorization info;
+        }
+        host 10.10.0.21 {
+            any warning;
+        }
+        file messages {
+            any notice;
+        }
+    }
+    ntp {
+        server 10.10.0.10 prefer;
+        server 10.10.0.11;
+    }
+    radius-server {
+        10.10.0.30 {
+            port 1812;
+            secret "$9$REDACTED"; ## SECRET-DATA
+        }
+    }
+    authentication-order [ radius password ];
+}
+interfaces {
+    ge-0/0/0 {
+        description "Uplink to core";
+        unit 0 {
+            family inet {
+                address 10.10.10.2/30;
+            }
+        }
+    }
+    ge-0/0/1 {
+        description "DMZ";
+        unit 0 {
+            family inet {
+                address 192.0.2.1/24;
+            }
+        }
+    }
+    inactive: ge-0/0/7 {
+        description "Decommissioned link";
+        unit 0 {
+            family inet {
+                address 198.51.100.1/24;
+            }
+        }
+    }
+    fxp0 {
+        description "Out of band management";
+        unit 0 {
+            family inet {
+                address 10.10.0.5/24;
+            }
+        }
+    }
+}
+snmp {
+    community public {
+        authorization read-only;
+    }
+    community Str0ngRW {
+        authorization read-write;
+    }
+}
+routing-options {
+    static {
+        route 0.0.0.0/0 next-hop 10.10.10.1;
+        route 172.16.0.0/12 next-hop 192.0.2.254;
+        route 10.99.0.0/16 discard;
+    }
+}
+security {
+    address-book {
+        global {
+            address dmz-web 192.0.2.10/32;
+            address dmz-api 192.0.2.11/32;
+            address-set dmz-services {
+                address dmz-web;
+                address dmz-api;
+            }
+        }
+    }
+    zones {
+        security-zone trust {
+            interfaces {
+                ge-0/0/1.0;
+            }
+        }
+        security-zone untrust {
+            interfaces {
+                ge-0/0/0.0;
+            }
+        }
+    }
+    policies {
+        from-zone trust to-zone untrust {
+            policy allow-web {
+                match {
+                    source-address any;
+                    destination-address any;
+                    application [ junos-http junos-https ];
+                }
+                then {
+                    permit;
+                    log session-close;
+                }
+            }
+            policy deny-rest {
+                match {
+                    source-address any;
+                    destination-address any;
+                    application any;
+                }
+                then {
+                    deny;
+                }
+            }
+        }
+        from-zone untrust to-zone trust {
+            inactive: policy legacy-inbound {
+                match {
+                    source-address any;
+                    destination-address dmz-web;
+                    application junos-http;
+                }
+                then {
+                    permit;
+                }
+            }
+        }
+    }
+}

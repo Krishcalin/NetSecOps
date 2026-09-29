@@ -156,6 +156,12 @@ DECLARED_UNISSUED: dict[tuple[str, str], str] = {
         ("linux_aaa", command): _NOT_TRIAGED
         for command in ("freeradius -v", "ss -lntup", "cat /etc/os-release")
     },
+    ("juniper_junos", "show configuration"): (
+        "Deliberate. The profile asks for `show configuration | display set`, whose "
+        "lines map one-to-one onto statements so a finding can cite the line its "
+        "evidence came from. The brace form stays approved because it is what an "
+        "operator capturing by hand will paste, and the parser reads either."
+    ),
     # Alteon gained a profile on 2026-09-28. These four are approved and deliberately
     # still unissued, which is a different thing from untriaged.
     ("radware_alteon", "/cfg/dump"): (
@@ -313,7 +319,7 @@ class TestTheBacklogIsVisible:
         # platforms; 62 when Alteon gained a profile, which added four of its own
         # approved-and-unissued commands to the backlog. The number moving in both
         # directions is the point — closing one gap opened a smaller one, visibly.
-        assert len(DECLARED_UNISSUED) == 62
+        assert len(DECLARED_UNISSUED) == 63
 
     def test_most_of_it_is_honestly_untriaged(self) -> None:
         # Stated rather than hidden behind invented per-command reasons. Writing a

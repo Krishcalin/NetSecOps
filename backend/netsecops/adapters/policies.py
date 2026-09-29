@@ -479,6 +479,50 @@ RADWARE_ALTEON = PlatformPolicy(
     ),
 )
 
+# ───────────────────────── Juniper Junos (SSH) ──────────────────────────────
+
+#: SRX, MX and EX all run Junos and all answer these. One policy rather than three,
+#: because the read-only contract is a property of the operating system — an SRX simply
+#: has a `security` hierarchy for `show configuration` to return and an EX does not.
+#:
+#: **`| display set` is the point of the first entry.** Junos prints its configuration
+#: as a brace hierarchy by default and as flat `set` statements on request. Both are the
+#: same configuration; the flat form is the one that can be read without a brace-depth
+#: tracker, and the one whose line numbers survive into a finding's provenance. The pipe
+#: is legitimate here — `forbid_pipe` exists for FortiGate, not for Junos, and SRS §8.2
+#: already admits `show logging | include …` on IOS for the same reason.
+JUNIPER_JUNOS = PlatformPolicy(
+    platform="juniper_junos",
+    commands=(
+        CommandRule(
+            "show configuration | display set",
+            note="The whole configuration as flat set statements — see above",
+        ),
+        CommandRule(
+            "show configuration",
+            note="The brace form, for an operator comparing against what they see on "
+            "the device. The parser reads either.",
+        ),
+        *_cmds(
+            "show version",
+            "show chassis hardware",
+            "show system uptime",
+            "show interfaces terse",
+            "show route",
+        ),
+    ),
+)
+#: Deliberately short. The first draft also approved `show security policies`,
+#: `show security zones`, `show system login`, `show ntp associations`,
+#: `show system services` and `show route protocol static` — every one of which is a
+#: read, and not one of which anything here parses.
+#:
+#: `test_unconsumed_capability` refused them, and it was right to: approving a command
+#: nothing reads is the exact pattern that left CDP and LLDP on the IOS list for three
+#: years. `show security policies` in particular is worth having *later*, because its
+#: hit counts are what a used-versus-unused rule analysis needs — and it should be added
+#: in the commit that reads them, not this one.
+
 # ─────────────── Barracuda Web Application Firewall (REST) ──────────────────
 
 #: SRS §1.3.1. Read over the v3 REST API, and unlike Check Point's it is a genuine
@@ -609,6 +653,7 @@ POLICIES: Final[dict[str, PlatformPolicy]] = {
         FORTIGATE,
         FORTIMANAGER,
         FORTIAUTHENTICATOR,
+        JUNIPER_JUNOS,
         RADWARE_ALTEON,
         BARRACUDA_WAF,
         CHECKPOINT_MGMT,

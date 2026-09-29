@@ -587,6 +587,38 @@ CHECKPOINT_GAIA_PROFILE: Final = CollectionProfile(
     ),
 )
 
+#: Juniper Junos — SRX, MX and EX (SRS §1.3).
+#:
+#: `| display set` rather than bare `show configuration`, and that is the substantive
+#: choice here. Both return the same configuration; the flat form is the one whose lines
+#: map one-to-one onto statements, so a finding can cite the line its evidence came from
+#: rather than the line that opened the block three levels above it. The parser reads
+#: either, because an offline upload will be whatever the operator pasted.
+#:
+#: `show security policies` and `show security zones` return nothing on an MX or EX,
+#: which FR-COL-08 records as a partial collection rather than a failure.
+JUNIPER_JUNOS_PROFILE: Final = CollectionProfile(
+    platform="juniper_junos",
+    # Junos pages with `| no-more` per command rather than with a session setting, and
+    # the transport appends it; there is nothing to configure up front.
+    setup=(),
+    commands=(
+        CollectionCommand(
+            "show configuration | display set",
+            "The whole configuration as flat statements",
+            required=True,
+            yields_config=True,
+        ),
+        CollectionCommand(
+            "show version", "Junos release and model, without which no CVE can be matched"
+        ),
+        CollectionCommand("show chassis hardware", "Chassis serial and component inventory"),
+        CollectionCommand("show interfaces terse", "Live interface state, absent from the config"),
+        CollectionCommand("show route", "The forwarding table, including learned routes"),
+        CollectionCommand("show system uptime", "Last reboot and last configuration commit"),
+    ),
+)
+
 #: Radware Alteon ADC (SRS §1.3.1).
 #:
 #: `cc` leads and `/cfg/dump` is the fallback, which is the order Radware's own note in
@@ -665,6 +697,10 @@ PROFILES: Final[dict[str, CollectionProfile]] = {
     # No longer profile-less. A verified published `/cfg/dump` supplied the menu-path
     # format the parser is written against — see `parsers/radware/alteon.py`, which
     # records that it has still never met real hardware.
+    # One profile for SRX, MX and EX: the configuration format is a property of Junos,
+    # not of the chassis, and the security commands simply return nothing on the two
+    # that have no `security` hierarchy.
+    "juniper_junos": JUNIPER_JUNOS_PROFILE,
     "radware_alteon": RADWARE_ALTEON_PROFILE,
     # No longer profile-less either. Barracuda publish the v3.2 OpenAPI specification in
     # their own repository, which names `mode: Active|Passive` — the field the earlier

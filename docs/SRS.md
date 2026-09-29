@@ -618,6 +618,35 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 > NX-OS allow-list and a profile may not widen one — this list is closed precisely so
 > that "it is only a show command" cannot grow it an entry at a time.
 
+> **Amendment, recorded 2026-09-29 — Juniper Junos added.** A new vendor family, and
+> the largest single device-coverage gap against the commercial comparators, which
+> onboard SRX, Netscreen, M/E routers and Junos Space. One platform key,
+> `juniper_junos`, covers SRX, MX and EX: the configuration format belongs to the
+> operating system rather than to the chassis, and an SRX simply has a `security`
+> hierarchy for the parser to find where an EX has none.
+>
+> Six commands, all reads: `show configuration | display set`, `show configuration`,
+> `show version`, `show chassis hardware`, `show system uptime`, `show interfaces terse`
+> and `show route`.
+>
+> **The pipe is deliberate and is the substantive choice.** Junos prints its
+> configuration as a brace hierarchy by default and as flat `set` statements on request.
+> They are the same configuration; the flat form is the one whose lines map one-to-one
+> onto statements, so a finding can cite the line its evidence came from rather than the
+> line that opened a block three levels above. `forbid_pipe` exists for FortiGate, and
+> §8.2 already admits `show logging | include …` on IOS for the same class of reason.
+> The parser reads either form, because an offline upload is whatever the operator
+> pasted.
+>
+> Scope deliberately not taken: `show security policies`, `show security zones`,
+> `show system login`, `show ntp associations`, `show system services` and
+> `show route protocol static` were all in the first draft of this entry and were
+> removed before it shipped. Every one is a read and not one of them is parsed;
+> approving a command nothing reads is precisely what left CDP and LLDP on the IOS list
+> for three years. `show security policies` is worth having later — its hit counts are
+> what a used-versus-unused rule analysis needs — and belongs in the commit that reads
+> them.
+
 > **Amendment, recorded 2026-09-28 — the allow-list also gates what may be *uploaded*.**
 > FR-COL-11 now accepts operational command output beside a configuration, because
 > twelve places across six parsers read command output that no running configuration
@@ -649,6 +678,9 @@ Adapters live in `backend/netsecops/adapters/<vendor>/<platform>.py`; parsers in
 
 **Cisco ASA**
 `terminal pager 0`, `enable`, `show version`, `show running-config [all]`, `show inventory`, `show interface ip brief`, `show nameif`, `show route`, `show access-list`, `show nat`, `show ssh`, `show ssh sessions`, `show snmp-server statistics`, `show aaa-server`, `show ntp associations`, `show logging`, `show crypto ca certificates`, `show crypto ikev1 sa`, `show crypto ikev2 sa`, `show failover`, `show context`, `show local-host` (bounded), `show run access-group`, `show run object`, `show run object-group`, `show run service-policy`, `show run policy-map`, `show run class-map`, `show run http`, `show run ssh`, `show run username`.
+
+**Juniper Junos (SRX, MX, EX)**
+`show configuration | display set`, `show configuration`, `show version`, `show chassis hardware`, `show system uptime`, `show interfaces terse`, `show route`.
 
 **Cisco FTD via FMC REST API (GET only)**
 `POST /api/fmc_platform/v1/auth/generatetoken` (auth only), `GET /api/fmc_platform/v1/info/serverversion`, `GET /api/fmc_config/v1/domain/{uuid}/devices/devicerecords`, `.../policy/accesspolicies` + `/accessrules`, `.../policy/prefilterpolicies`, `.../policy/ftdnatpolicies`, `.../object/{networks,hosts,networkgroups,ports,portobjectgroups,urls,...}`, `.../policy/intrusionpolicies`, `.../policy/filepolicies`, `.../devices/devicerecords/{id}/{physicalinterfaces,routing/...}`, `.../object/realms`, `.../integration/...` (read). FDM (device-managed) MAY be supported via `GET /api/fdm/v6/...`.
