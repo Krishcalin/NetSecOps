@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -18,6 +20,7 @@ from rich.table import Table
 
 from netsecops.core.config import get_settings
 from netsecops.core.crypto import generate_master_key
+from netsecops.core.errors import ValidationProblem
 from netsecops.core.logging import configure_logging
 from netsecops.core.rbac import Permission, Role
 from netsecops.core.security import generate_password
@@ -528,6 +531,116 @@ def cmd_demo_purge() -> None:
     asyncio.run(_run())
 
 
+@app.command("import-feed")
+def cmd_import_feed(
+    path: str = typer.Argument(..., help="The bundle file: NVD, CSAF, KEV, EPSS or EoL JSON."),
+    feed: str = typer.Option(
+        "manual", "--feed", help="A name for this source, recorded on the sync."
+    ),
+    expected_sha256: str | None = typer.Option(
+        None, "--sha256", help="Verify the file against this digest before importing anything."
+    ),
+    vendor: str | None = typer.Option(
+        None, "--vendor", help="Required for an end-of-life bundle; ignored otherwise."
+    ),
+    product: str | None = typer.Option(
+        None, "--product", help="Required for an end-of-life bundle; ignored otherwise."
+    ),
+) -> None:
+    """Load a vulnerability feed bundle from a file (FR-VUL-08).
+
+    **The console can already do this, and an air-gapped deployment is the one place
+    that is awkward.** FR-VUL-08 exists for sites with no route to the internet, which
+    are the sites where an operator has a shell and a file on disk rather than a browser
+    session and a CSRF token — and where the first load is several bundles in a row
+    (KEV, then EoL per vendor, then advisories) that somebody wants to script.
+
+    The kind is detected from the content, not from the filename, so a renamed file
+    still imports as what it is. The digest is checked before anything is written: a
+    half-loaded catalogue produces devices reporting zero vulnerabilities for a reason
+    nobody can see, which is worse than a refusal.
+    """
+    configure_logging()
+
+    bundle = Path(path)
+    if not bundle.is_file():
+        console.print(f"[red]No such file:[/red] {path}")
+        raise typer.Exit(code=2)
+
+    # Read before the event loop starts: this is a synchronous CLI reading a local file,
+    # and doing it inside the coroutine blocks the loop for the length of an NVD bundle.
+    raw = bundle.read_bytes()
+    if not raw:
+        console.print("[red]The bundle is empty.[/red]")
+        raise typer.Exit(code=2)
+
+    async def _run() -> None:
+        from netsecops.core.rbac import Principal, Role, Scope
+        from netsecops.db.session import session_scope
+        from netsecops.services.feeds import FeedImportService, SyncStatus
+
+        # A CLI import is the operator at the console of the box. A stable synthetic id
+        # so audit rows reference something, and named for what did the work rather
+        # than borrowing a human's account — the same shape as `demo_actor`, which
+        # exists for the same reason.
+        actor = Principal(
+            id=uuid.UUID("00000000-0000-0000-0000-00000000c11e"),
+            username="cli-import",
+            roles=frozenset({Role.SUPER_ADMIN}),
+            scope=Scope.all(),
+        )
+
+        async with session_scope() as session:
+            result = await FeedImportService(session).import_bundle(
+                raw,
+                feed=feed,
+                actor=actor,
+                expected_sha256=expected_sha256,
+                vendor=vendor,
+                product=product,
+            )
+
+        kind = result.kind.value if result.kind else "unknown"
+        console.print(f"[green]Imported[/green] {bundle.name} as [bold]{kind}[/bold]")
+        for label, value in (
+            ("advisories", result.advisories),
+            ("CVEs", result.cves),
+            ("KEV entries", result.kev_entries),
+            ("KEV cleared", result.kev_cleared),
+            ("EPSS scores", result.epss_scores),
+            ("end-of-life records", result.eol_records),
+            ("rejected", result.rejected),
+        ):
+            if value:
+                console.print(f"  {label:22} {value}")
+        if result.source_version:
+            console.print(f"  {'feed version':22} {result.source_version}")
+        if result.sync.error_message:
+            err_console.print(f"[yellow]Note:[/yellow] {result.sync.error_message}")
+
+        if result.status is not SyncStatus.SUCCEEDED:
+            # Partial is not success, and a script must be able to tell. Every record
+            # that could not be read is a blind spot the estate will now be reported
+            # clean of, so this exits non-zero while keeping what did load — the
+            # alternative, a green line reading "imported 9,600", hides the 400.
+            err_console.print(
+                f"[yellow]Recorded as {result.status.value}[/yellow]: "
+                f"{result.rejected} record(s) could not be read."
+            )
+            raise typer.Exit(code=1)
+
+    try:
+        asyncio.run(_run())
+    except ValidationProblem as exc:
+        # A refusal, not a crash. Every way this import can legitimately fail — a digest
+        # that does not match, a file that is not a bundle, an EoL list with no vendor —
+        # arrives as a ValidationProblem carrying a sentence written for the operator,
+        # and a traceback would bury it. The run is already recorded as failed by the
+        # service before it raises, so nothing is lost by handling it here.
+        err_console.print(f"[red]Import refused:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
+
+
 @app.command("backfill-device-facts")
 def cmd_backfill_device_facts(
     apply: bool = typer.Option(
@@ -596,9 +709,7 @@ def cmd_backfill_device_facts(
 
                 # Only count a device whose columns would actually move, so the dry run
                 # reports work to be done rather than devices examined.
-                if device.os_version == facts.get("version") and device.model == facts.get(
-                    "model"
-                ):
+                if device.os_version == facts.get("version") and device.model == facts.get("model"):
                     skipped += 1
                     continue
 
@@ -612,7 +723,9 @@ def cmd_backfill_device_facts(
                 await session.rollback()
 
         verb = "Updated" if apply else "Would update"
-        console.print(f"[green]{verb}[/green] {changed} device(s); {skipped} unchanged or unparsed.")
+        console.print(
+            f"[green]{verb}[/green] {changed} device(s); {skipped} unchanged or unparsed."
+        )
         if not apply:
             console.print("Re-run with [bold]--apply[/bold] to write them.")
 

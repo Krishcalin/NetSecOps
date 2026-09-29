@@ -133,6 +133,64 @@ class TestIntegrity:
             await feeds.import_bundle(b"\xff\xfe not json", feed="paloalto", actor=actor)
 
 
+# ══════════════════════════ the byte-order mark ══════════════════════════════
+
+
+class TestAByteOrderMark:
+    """Three invisible bytes used to make a good bundle unimportable.
+
+    The importer decoded as `utf-8`, so a bundle saved by a Windows editor — or exported
+    by any of several vendor tools — failed on column 1 with "neither readable JSON nor
+    a FIRST EPSS CSV". The operator is looking at valid JSON, the message says it is not
+    JSON, and nothing on screen shows the difference. FR-VUL-08 is the path for sites
+    that hand bundles over by hand, so refusing half of them over an encoding artefact is
+    a support burden rather than a safety property.
+    """
+
+    async def test_a_bundle_with_a_mark_imports(self, feeds, actor) -> None:
+        result = await feeds.import_bundle(b"\xef\xbb\xbf" + CSAF, feed="paloalto", actor=actor)
+
+        assert result.status is SyncStatus.SUCCEEDED
+        assert result.advisories == 1
+
+    async def test_it_is_read_as_the_same_kind(self, feeds, actor) -> None:
+        """Not just accepted — understood identically.
+
+        `detect_kind` keys on the top-level members, so a mark merely tolerated by the
+        decoder and left on the leading key would make that key a different string from
+        `document`: the advisory would be read as an NVD feed, find no records it
+        recognises, and report a clean empty import.
+        """
+        marked = await feeds.import_bundle(b"\xef\xbb\xbf" + CSAF, feed="paloalto", actor=actor)
+        plain = await feeds.import_bundle(CSAF, feed="paloalto", actor=actor)
+
+        assert marked.kind is plain.kind is BundleKind.CSAF
+
+    async def test_the_digest_still_covers_the_mark(self, feeds, actor) -> None:
+        """Tolerating it at the decoder must not loosen the integrity check.
+
+        The digest is taken over the bytes as received, so a file with a mark and the
+        same file without one are different bundles. An operator given one file's digest
+        must not have the other accepted against it.
+        """
+        marked = b"\xef\xbb\xbf" + CSAF
+
+        ok = await feeds.import_bundle(
+            marked, feed="paloalto", actor=actor, expected_sha256=digest(marked)
+        )
+        assert ok.status is SyncStatus.SUCCEEDED
+
+        with pytest.raises(ValidationProblem, match="SHA-256"):
+            await feeds.import_bundle(
+                marked, feed="paloalto", actor=actor, expected_sha256=digest(CSAF)
+            )
+
+    async def test_it_does_not_make_rubbish_importable(self, feeds, actor) -> None:
+        """The tolerance is for an encoding artefact, not for arbitrary input."""
+        with pytest.raises(ValidationProblem, match="neither readable JSON nor"):
+            await feeds.import_bundle(b"\xef\xbb\xbfthis is not json", feed="x", actor=actor)
+
+
 # ════════════════════════════ what gets stored ═══════════════════════════════
 
 

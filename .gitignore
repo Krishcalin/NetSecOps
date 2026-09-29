@@ -106,6 +106,13 @@ deploy/docker-compose.override.yml
 deploy/caddy/data/
 deploy/caddy/config/
 
+# --- Offline feed bundles (FR-VUL-08) ---
+# The drop directory is tracked so the bind mount always has something to mount; the
+# bundles dropped into it are not. They are public data that goes stale within days,
+# and a full NVD export is larger than this repository.
+deploy/bundles/*
+!deploy/bundles/.gitkeep
+
 # --- Editors / OS ---
 .vscode/
 .idea/

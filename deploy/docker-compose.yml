@@ -69,6 +69,18 @@ services:
     read_only: true
     tmpfs:
       - /tmp:size=64m
+    volumes:
+      # Where an air-gapped operator drops vulnerability feed bundles for
+      # `netsecops-cli import-feed` (FR-VUL-08, C-7). The read-only root filesystem
+      # means `docker cp` into this container fails, and /tmp is a 64 MB tmpfs that a
+      # full NVD export does not fit in — without this mount the documented offline
+      # path is "pipe the file through `docker compose exec -T`", which works for a KEV
+      # catalogue and not for the feed that matters most.
+      #
+      # Mounted read-only: NetSecOps reads bundles and never writes them, and this
+      # directory is the one place where a file from outside the security boundary
+      # crosses into the container.
+      - ${FEED_BUNDLES_DIR:-./bundles}:/bundles:ro
     security_opt:
       - no-new-privileges:true
     cap_drop:

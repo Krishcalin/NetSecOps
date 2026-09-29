@@ -301,7 +301,14 @@ class FeedImportService:
         # its input parses.
         payload: Any = None
         try:
-            payload = json.loads(decompress(raw).decode("utf-8"))
+            # `utf-8-sig`, not `utf-8`: a byte-order mark is invisible, is what every
+            # Windows editor and several vendor export tools write, and makes
+            # `json.loads` fail on column 1 with a message about encodings that reads
+            # like the file is corrupt. FR-VUL-08 exists for operators handing over
+            # files, and refusing half of them over three leading bytes is a support
+            # burden rather than a safety property — the digest check above is what
+            # protects the contents, and it runs on the raw bytes either way.
+            payload = json.loads(decompress(raw).decode("utf-8-sig"))
         except (UnicodeDecodeError, ValueError) as exc:
             if not looks_like_epss_csv(raw):
                 raise ValidationProblem(

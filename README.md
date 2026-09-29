@@ -1363,6 +1363,7 @@ and deletes it afterwards, so it never alters the account it signs in with.
 | [docs/evaluating.md](docs/evaluating.md) | Ten minutes with no device: the demonstration estate, what to look at, and the known limits |
 | [docs/commercial.md](docs/commercial.md) | Sizing, what the incumbents charge, and what follows |
 | [docs/deployment.md](docs/deployment.md) | Deployment, sizing, backup and key management |
+| [docs/offline-feeds.md](docs/offline-feeds.md) | Running the vulnerability engine air-gapped: which bundles, how to carry them in, how to check they landed |
 | [docs/api-reachability.md](docs/api-reachability.md) | Which API operations the console can reach, and which need a surface |
 | [docs/parser-validation.md](docs/parser-validation.md) | Measuring the parsers against configurations we did not write, and what that found |
 | [docs/vendor-research.md](docs/vendor-research.md) | What Cisco, Palo Alto, Fortinet and Check Point's own documentation says we are missing |

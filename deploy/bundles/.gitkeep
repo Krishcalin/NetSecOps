@@ -1,0 +1,8 @@
+Drop vulnerability feed bundles here (FR-VUL-08).
+
+This directory is bind-mounted read-only into the API container at /bundles, so:
+
+    docker compose exec api netsecops-cli import-feed /bundles/kev.json --feed kev
+
+See docs/offline-feeds.md. Bundles themselves are not committed — they are public
+data that goes stale, and an NVD export is larger than this whole repository.
