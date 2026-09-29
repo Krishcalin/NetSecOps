@@ -27,6 +27,7 @@ remediation: >-
   why before removing it.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.4.8"]
   nist_800_53: ["SC-5", "CM-7"]
   pci_dss: ["1.3.1"]

@@ -29,6 +29,8 @@ remediation: >-
   so a broken script cannot lock out the humans.
 
 references:
+  hipaa: ["164.312(a)(2)(iii)"]
+  nerc_cip: ["CIP-007-6 R5"]
   nist_800_53: ["AC-7"]
   pci_dss: ["8.3.4"]
   iso_27001: ["A.8.5"]

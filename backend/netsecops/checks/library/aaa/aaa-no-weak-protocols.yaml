@@ -34,6 +34,8 @@ remediation: >-
   protocol set. Removing it first and waiting for complaints is how this gets reverted.
 
 references:
+  hipaa: ["164.312(d)"]
+  nerc_cip: ["CIP-007-6 R5"]
   nist_800_53: ["IA-2", "IA-5", "SC-13"]
   pci_dss: ["4.2.1", "8.3.1"]
   iso_27001: ["A.8.24"]

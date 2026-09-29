@@ -38,6 +38,8 @@ remediation: >-
   that permits everything is the same as having none.
 
 references:
+  hipaa: ["164.312(a)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
   cis: ["1.1.7", "1.1.8"]
   nist_800_53: ["AC-3", "AC-6", "AU-2"]
   pci_dss: ["7.2.1", "8.3.1"]

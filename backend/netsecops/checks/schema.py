@@ -360,6 +360,14 @@ class References(BaseModel):
     iso_27001: list[str] = Field(default_factory=list)
     cert_in: list[str] = Field(default_factory=list)
     cea: list[str] = Field(default_factory=list)
+    #: HIPAA Security Rule technical safeguards, cited by their real § numbers
+    #: (e.g. "164.312(e)(1)"). See docs/compliance-frameworks.md.
+    hipaa: list[str] = Field(default_factory=list)
+    #: NERC CIP, cited by standard and requirement (e.g. "CIP-007-6 R5").
+    nerc_cip: list[str] = Field(default_factory=list)
+    #: NIST SP 800-41r1 (Guidelines on Firewalls and Firewall Policy) is prose, not a
+    #: numbered catalogue, so it is cited by subject like cert_in/cea — never a number.
+    nist_800_41: list[str] = Field(default_factory=list)
     cwe: list[str] = Field(default_factory=list)
     cve: list[str] = Field(default_factory=list)
     urls: list[str] = Field(default_factory=list)

@@ -39,6 +39,7 @@ remediation: >-
   otherwise.
 
 references:
+  nerc_cip: ["CIP-007-6 R5"]
   cis: ["1.3.1"]
   nist_800_53: ["CP-2", "IA-2"]
   iso_27001: ["A.5.29"]

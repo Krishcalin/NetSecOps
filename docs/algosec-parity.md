@@ -124,8 +124,15 @@ across each platform added, and coverage is the gap a customer measures first.
 3. **Policy optimisation depth.** Disabled rules, time-inactive rules, rules with no
    logging and no comment, unrouted objects. Config-derivable; the log-dependent parts
    are in the section above.
-4. **Compliance breadth.** We map CIS, NIST 800-53, PCI DSS, ISO 27001, CERT-In and CEA.
-   AlgoSec adds HIPAA, NERC CIP, FISMA, SOX, NIST 800-41 and IAVA.
+4. **Compliance breadth — mostly closed, 2026-09-29.** We mapped CIS, NIST 800-53, PCI
+   DSS, ISO 27001, CERT-In and CEA. Of the six AlgoSec adds, **HIPAA, NERC CIP and NIST
+   800-41 were added** with real mappings across the check library. **FISMA, SOX and
+   IAVA were deliberately not added** — FISMA has no controls of its own (it is 800-53,
+   which we already map), SOX has no technical catalogue, and IAVA is CVE-keyed and
+   belongs to the vulnerability engine, not the configuration-compliance pivot. The
+   reasoning and citation styles are recorded in docs/compliance-frameworks.md, and
+   test_framework_coverage.py pins each new framework's vocabulary so it cannot be
+   enlarged by inventing identifiers.
 5. **Presentation.** Custom charts and dashboards, Visio export of the map, and an
    ad-hoc discover/visualise tool equivalent to the AlgoSec Reporting Tool.
 

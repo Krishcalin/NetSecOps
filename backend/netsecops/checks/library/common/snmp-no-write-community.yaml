@@ -22,6 +22,9 @@ remediation: >-
   authenticated management API instead.
 
 references:
+  hipaa: ["164.312(a)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
+  nist_800_41: ["Firewall Management"]
   cis: ["2.4.3"]
   nist_800_53: ["AC-6", "CM-5"]
   pci_dss: ["2.2.5", "7.2.1"]

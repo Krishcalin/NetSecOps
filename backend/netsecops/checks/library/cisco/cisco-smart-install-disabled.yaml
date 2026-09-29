@@ -28,6 +28,7 @@ remediation: >-
   provisioning, restrict TCP 4786 to the director with an infrastructure ACL.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   nist_800_53: ["CM-7", "SC-7"]
   pci_dss: ["2.2.4"]
   cve: ["CVE-2018-0171"]

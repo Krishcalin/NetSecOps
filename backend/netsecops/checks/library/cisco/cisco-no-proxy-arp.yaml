@@ -27,6 +27,7 @@ remediation: >-
   may lose connectivity when it is removed.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.4.7"]
   nist_800_53: ["CM-7", "SC-7"]
   cwe: ["CWE-200"]

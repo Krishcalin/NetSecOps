@@ -25,6 +25,7 @@ remediation: >-
   still attached.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.1.9"]
   nist_800_53: ["AC-17", "CM-7", "PE-3"]
   pci_dss: ["2.2.4"]

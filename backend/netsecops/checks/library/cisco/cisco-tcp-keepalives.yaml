@@ -46,6 +46,8 @@ remediation: >-
   list.
 
 references:
+  hipaa: ["164.312(a)(2)(iii)"]
+  nerc_cip: ["CIP-007-6 R5"]
   nist_800_53: ["AC-12", "SC-10"]
   iso_27001: ["A.8.5"]
   cwe: ["CWE-613"]

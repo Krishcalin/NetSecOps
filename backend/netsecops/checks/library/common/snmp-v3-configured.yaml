@@ -28,6 +28,9 @@ remediation: >-
   the one an attacker will use.
 
 references:
+  hipaa: ["164.312(d)", "164.312(e)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
+  nist_800_41: ["Firewall Management"]
   cis: ["2.2.1"]
   nist_800_53: ["IA-3", "SC-8"]
   pci_dss: ["2.2.5", "4.2.1"]

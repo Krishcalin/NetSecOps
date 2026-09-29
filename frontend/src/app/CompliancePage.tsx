@@ -87,6 +87,9 @@ const LABELS: Record<string, string> = {
   iso_27001: 'ISO 27001',
   cert_in: 'CERT-In',
   cea: 'CEA Cyber Security Guidelines',
+  hipaa: 'HIPAA Security Rule',
+  nerc_cip: 'NERC CIP',
+  nist_800_41: 'NIST 800-41',
 };
 
 /** A control's state, which decides how its row is drawn.

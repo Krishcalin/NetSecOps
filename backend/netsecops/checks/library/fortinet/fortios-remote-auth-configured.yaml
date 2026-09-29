@@ -34,6 +34,8 @@ remediation: >-
   has failed.
 
 references:
+  hipaa: ["164.312(d)"]
+  nerc_cip: ["CIP-007-6 R5"]
   nist_800_53: ["IA-2", "AC-2"]
   pci_dss: ["8.2.1"]
   iso_27001: ["A.5.16"]

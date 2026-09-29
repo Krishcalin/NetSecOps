@@ -27,6 +27,7 @@ remediation: >-
   network` or `boot host` statement achieves the same thing by a different route.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.4.9"]
   nist_800_53: ["CM-5", "CM-7", "SI-7"]
   pci_dss: ["2.2.4"]

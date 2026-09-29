@@ -28,6 +28,8 @@ remediation: >-
   you are currently using, so have console access available before you apply it.
 
 references:
+  hipaa: ["164.312(d)"]
+  nerc_cip: ["CIP-007-6 R5"]
   cis: ["1.3.1"]
   nist_800_53: ["AC-2", "IA-2", "AU-2"]
   pci_dss: ["8.2.1"]

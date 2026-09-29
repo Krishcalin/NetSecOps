@@ -22,6 +22,9 @@ remediation: >-
   required, enable only the HTTPS server and restrict it with an access class.
 
 references:
+  hipaa: ["164.312(e)(1)"]
+  nerc_cip: ["CIP-007-6 R1"]
+  nist_800_41: ["Firewall Management"]
   cis: ["1.2.1"]
   nist_800_53: ["AC-17", "SC-8", "CM-7"]
   pci_dss: ["2.2.5", "4.1"]

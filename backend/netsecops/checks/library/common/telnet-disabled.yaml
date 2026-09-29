@@ -26,6 +26,9 @@ remediation: >-
   lock yourself out.
 
 references:
+  hipaa: ["164.312(e)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
+  nist_800_41: ["Firewall Management"]
   cis: ["1.2.4", "2.1.1"]
   nist_800_53: ["AC-17", "SC-8"]
   pci_dss: ["2.2.5", "4.1"]

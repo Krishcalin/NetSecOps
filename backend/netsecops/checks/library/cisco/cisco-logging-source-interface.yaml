@@ -28,6 +28,9 @@ remediation: >-
   make sure the syslog server's firewall rules permit that address.
 
 references:
+  hipaa: ["164.312(b)"]
+  nerc_cip: ["CIP-007-6 R4"]
+  nist_800_41: ["Firewall Logging"]
   cis: ["2.2.2"]
   nist_800_53: ["AU-3", "AU-4"]
   iso_27001: ["A.8.15"]

@@ -29,6 +29,8 @@ remediation: >-
   and it should be moved to the management API rather than have the shell restored.
 
 references:
+  hipaa: ["164.312(a)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
   nist_800_53: ["AC-6", "AU-2"]
   pci_dss: ["7.2.1"]
   iso_27001: ["A.8.2"]

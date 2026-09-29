@@ -28,6 +28,7 @@ remediation: >-
   `no cdp enable`. The second option is usually the practical one.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.4.11"]
   nist_800_53: ["CM-7", "SC-7"]
   cwe: ["CWE-200"]

@@ -21,6 +21,9 @@ remediation: >-
   `line vty` block.
 
 references:
+  hipaa: ["164.312(a)(2)(iii)"]
+  nerc_cip: ["CIP-007-6 R5"]
+  nist_800_41: ["Firewall Management"]
   cis: ["1.1.4"]
   nist_800_53: ["AC-11", "AC-12"]
   pci_dss: ["8.2.8"]

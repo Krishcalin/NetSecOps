@@ -20,6 +20,8 @@ remediation: >-
   their existence and rotate them after each use.
 
 references:
+  hipaa: ["164.312(a)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
   cis: ["1.1.6"]
   nist_800_53: ["AC-2", "IA-2"]
   pci_dss: ["8.2.1", "8.2.4"]

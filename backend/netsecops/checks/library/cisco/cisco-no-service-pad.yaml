@@ -26,6 +26,7 @@ remediation: >-
   running unattended since the device was commissioned.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.4.6"]
   nist_800_53: ["CM-7"]
   pci_dss: ["2.2.4"]

@@ -27,6 +27,9 @@ remediation: >-
   an attacker with access to that device can edit.
 
 references:
+  hipaa: ["164.312(b)"]
+  nerc_cip: ["CIP-007-6 R4"]
+  nist_800_41: ["Firewall Logging"]
   nist_800_53: ["AU-9", "AU-11"]
   pci_dss: ["10.3.2"]
   iso_27001: ["A.8.15"]

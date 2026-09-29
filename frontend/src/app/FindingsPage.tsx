@@ -43,6 +43,9 @@ const FRAMEWORK_LABELS: Record<string, string> = {
   iso_27001: 'ISO 27001',
   cert_in: 'CERT-In',
   cea: 'CEA',
+  hipaa: 'HIPAA',
+  nerc_cip: 'NERC CIP',
+  nist_800_41: 'NIST 800-41',
 };
 
 function severityClass(severity: string): string {

@@ -24,6 +24,7 @@ remediation: >-
   Configure `no service tcp-small-servers`.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.4.3"]
   nist_800_53: ["CM-7", "SC-5"]
   pci_dss: ["2.2.4"]

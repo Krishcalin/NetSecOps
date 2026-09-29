@@ -29,6 +29,8 @@ remediation: >-
   whether the same password is in use elsewhere.
 
 references:
+  hipaa: ["164.312(d)"]
+  nerc_cip: ["CIP-007-6 R5"]
   nist_800_53: ["IA-5"]
   pci_dss: ["8.3.2"]
   iso_27001: ["A.5.17"]

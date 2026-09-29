@@ -25,6 +25,8 @@ remediation: >-
   exception with a review date rather than leaving it as an open finding.
 
 references:
+  hipaa: ["164.312(e)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
   nist_800_53: ["SC-17"]
   iso_27001: ["A.8.24"]
   cwe: ["CWE-295"]

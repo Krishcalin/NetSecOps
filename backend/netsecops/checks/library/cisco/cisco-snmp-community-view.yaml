@@ -40,6 +40,9 @@ remediation: >-
   clear.
 
 references:
+  hipaa: ["164.312(a)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
+  nist_800_41: ["Firewall Management"]
   nist_800_53: ["AC-3", "AC-6", "SC-8"]
   iso_27001: ["A.8.2", "A.8.3"]
   cwe: ["CWE-200"]

@@ -27,6 +27,8 @@ remediation: >-
   deliberately tripping it.
 
 references:
+  hipaa: ["164.312(a)(2)(iii)"]
+  nerc_cip: ["CIP-007-6 R5"]
   cis: ["1.1.8"]
   nist_800_53: ["AC-7", "SC-5"]
   pci_dss: ["8.3.4"]

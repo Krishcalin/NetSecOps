@@ -26,6 +26,8 @@ remediation: >-
   exemption. An MFA policy with one exempt account is an MFA policy with one way past it.
 
 references:
+  hipaa: ["164.312(d)"]
+  nerc_cip: ["CIP-007-6 R5"]
   nist_800_53: ["IA-2(1)", "AC-6"]
   pci_dss: ["8.4.2"]
   iso_27001: ["A.8.5"]

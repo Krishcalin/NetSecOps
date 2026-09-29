@@ -29,6 +29,9 @@ remediation: >-
   remains the real fix.
 
 references:
+  hipaa: ["164.312(a)(1)"]
+  nerc_cip: ["CIP-005-7 R1"]
+  nist_800_41: ["Firewall Management", "Firewall Policy"]
   cis: ["2.4.5"]
   nist_800_53: ["AC-3", "SC-7"]
   pci_dss: ["1.3.1", "7.2.1"]

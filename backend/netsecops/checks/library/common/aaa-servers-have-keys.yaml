@@ -21,6 +21,8 @@ remediation: >-
   estate.
 
 references:
+  hipaa: ["164.312(d)"]
+  nerc_cip: ["CIP-007-6 R5"]
   cis: ["1.3.2"]
   nist_800_53: ["IA-3", "IA-5", "SC-8"]
   pci_dss: ["8.3.1"]

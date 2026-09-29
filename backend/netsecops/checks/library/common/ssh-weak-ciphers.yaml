@@ -22,6 +22,9 @@ remediation: >-
   before applying the change.
 
 references:
+  hipaa: ["164.312(e)(1)"]
+  nerc_cip: ["CIP-007-6 R5"]
+  nist_800_41: ["Firewall Management"]
   cis: ["1.5.3"]
   nist_800_53: ["SC-13", "SC-8"]
   pci_dss: ["2.2.5", "4.1"]

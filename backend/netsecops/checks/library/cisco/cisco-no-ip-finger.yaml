@@ -24,6 +24,7 @@ remediation: >-
   Configure `no ip finger`. Older images may also need `no service finger`.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.4.5"]
   nist_800_53: ["CM-7", "AC-14"]
   pci_dss: ["2.2.4"]

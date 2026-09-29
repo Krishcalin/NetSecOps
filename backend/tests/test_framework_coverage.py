@@ -21,7 +21,17 @@ from netsecops.checks.schema import References
 
 #: Frameworks the product offers as a compliance pivot. Adding one here without mapping
 #: any checks fails the build, which is the point.
-ADVERTISED = ("cis", "nist_800_53", "pci_dss", "iso_27001", "cert_in", "cea")
+ADVERTISED = (
+    "cis",
+    "nist_800_53",
+    "pci_dss",
+    "iso_27001",
+    "cert_in",
+    "cea",
+    "hipaa",
+    "nerc_cip",
+    "nist_800_41",
+)
 
 
 @pytest.fixture(scope="module")
@@ -130,3 +140,66 @@ class TestTheIndianFrameworksAreMappedDeliberately:
                     f"{check.id} cites `{value}` as a clause number. CERT-In Directions "
                     "and the CEA guidelines are prose; cite the subject instead."
                 )
+
+
+class TestTheThreeNewFrameworksAreCitedFromASource:
+    """HIPAA, NERC CIP and NIST 800-41, added to match AlgoSec's advertised set.
+
+    Each is pinned to the vocabulary its published source actually uses, so a later
+    contributor cannot enlarge a framework by inventing an identifier. See
+    docs/compliance-frameworks.md for how each mapping was arrived at, and for why
+    FISMA, SOX and IAVA were considered and deliberately not advertised.
+    """
+
+    #: HIPAA Security Rule, Technical Safeguards — the only standards a device
+    #: configuration can evidence. Real § numbers from 45 CFR 164.312.
+    HIPAA_SAFEGUARDS = frozenset(
+        {
+            "164.312(a)(1)",
+            "164.312(a)(2)(iii)",
+            "164.312(b)",
+            "164.312(d)",
+            "164.312(e)(1)",
+        }
+    )
+
+    #: NERC CIP requirements a running-config can evidence: the electronic security
+    #: perimeter and the system-security-management sub-requirements.
+    NERC_REQUIREMENTS = frozenset(
+        {
+            "CIP-005-7 R1",
+            "CIP-007-6 R1",
+            "CIP-007-6 R4",
+            "CIP-007-6 R5",
+        }
+    )
+
+    #: NIST SP 800-41r1 is prose, so — like cert_in and cea — it is cited by subject.
+    NIST_800_41_SUBJECTS = frozenset(
+        {"Firewall Management", "Firewall Logging", "Firewall Policy"}
+    )
+
+    def test_hipaa_cites_only_real_technical_safeguards(self, registry) -> None:
+        for check in registry.by_framework("hipaa"):
+            for value in check.references.hipaa:
+                assert value in self.HIPAA_SAFEGUARDS, (
+                    f"{check.id} cites HIPAA `{value}`, which is not one of the technical "
+                    f"safeguards a configuration can evidence: {sorted(self.HIPAA_SAFEGUARDS)}."
+                )
+
+    def test_nerc_cip_cites_only_config_evidenceable_requirements(self, registry) -> None:
+        for check in registry.by_framework("nerc_cip"):
+            for value in check.references.nerc_cip:
+                assert value in self.NERC_REQUIREMENTS, (
+                    f"{check.id} cites NERC `{value}`, outside the requirements a config "
+                    f"can evidence: {sorted(self.NERC_REQUIREMENTS)}."
+                )
+
+    def test_nist_800_41_is_cited_by_subject_never_a_number(self, registry) -> None:
+        for check in registry.by_framework("nist_800_41"):
+            for value in check.references.nist_800_41:
+                assert value in self.NIST_800_41_SUBJECTS, (
+                    f"{check.id} cites 800-41 `{value}`. 800-41r1 is prose; cite one of "
+                    f"{sorted(self.NIST_800_41_SUBJECTS)} — never a clause number."
+                )
+                assert not value.strip().rstrip(".").replace(".", "").isdigit()

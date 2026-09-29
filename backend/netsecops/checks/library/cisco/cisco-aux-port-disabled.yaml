@@ -40,6 +40,7 @@ remediation: >-
   `access-class` where the platform supports one.
 
 references:
+  nerc_cip: ["CIP-007-6 R1"]
   cis: ["1.1.4", "1.2.3"]
   nist_800_53: ["AC-3", "AC-17", "CM-7"]
   pci_dss: ["2.2.2", "7.2.1"]

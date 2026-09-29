@@ -34,6 +34,8 @@ remediation: >-
   device or drops the session is still in the log.
 
 references:
+  hipaa: ["164.312(b)"]
+  nerc_cip: ["CIP-007-6 R4"]
   cis: ["1.1.9"]
   nist_800_53: ["AU-2", "AU-3", "AU-12"]
   pci_dss: ["10.2.1", "10.2.2"]

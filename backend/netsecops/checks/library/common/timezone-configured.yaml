@@ -25,6 +25,9 @@ remediation: >-
   timezone per site reintroduces the problem.
 
 references:
+  hipaa: ["164.312(b)"]
+  nerc_cip: ["CIP-007-6 R4"]
+  nist_800_41: ["Firewall Logging"]
   nist_800_53: ["AU-8"]
   pci_dss: ["10.6.1"]
   iso_27001: ["A.8.17"]

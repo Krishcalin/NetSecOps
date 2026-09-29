@@ -29,6 +29,7 @@ remediation: >-
   device is an open door for everything else on it.
 
 references:
+  hipaa: ["164.312(e)(1)"]
   nist_800_53: ["SC-13", "AC-18"]
   pci_dss: ["4.2.1"]
   iso_27001: ["A.8.24"]
