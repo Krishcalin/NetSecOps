@@ -1235,6 +1235,15 @@ a {
   stroke-width: 2.5;
 }
 
+/* A firewall that was consulted and could not be read. Dashed like the unknown node,
+   because the same thing is true of both — there is a gap here — but filled and
+   stroked in the warning tone, because this device is in the inventory and was asked. */
+.pathdiagram__node--unreadable {
+  stroke: var(--warn);
+  stroke-width: 2.5;
+  stroke-dasharray: 5 3;
+}
+
 .pathdiagram__node--unreached {
   opacity: 0.55;
   stroke-dasharray: 4 3;

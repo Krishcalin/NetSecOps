@@ -15,8 +15,11 @@ export interface Cell {
   kind: 'endpoint' | 'hop' | 'unknown';
   title: string;
   subtitle: string | null;
-  /** `none` is a hop that carries no rulebase — a router is a hop, not a decision. */
-  decision: 'deny' | 'allow' | 'none';
+  /** `none` is a hop that carries no rulebase — a router is a hop, not a decision.
+   *  `unreadable` is a hop that carries one whose answer could not be established, which
+   *  is a different thing to tell a reader: the first inspected nothing, the second
+   *  inspected the traffic and we cannot say what it concluded. */
+  decision: 'deny' | 'allow' | 'none' | 'unreadable';
   reached: boolean;
   /** Drawn under the node: NAT and equal-cost markers. */
   markers: string[];
@@ -52,7 +55,15 @@ export function buildChain(result: PathResult): Chain {
   let brokenAfter: number | null = null;
 
   result.hops.forEach((hop, index) => {
-    const decision = hop.action === null ? 'none' : hop.action === 'deny' ? 'deny' : 'allow';
+    // Checked before `action`, which is null for an unreadable firewall and for a plain
+    // router alike — the whole reason the flag exists.
+    const decision: Cell['decision'] = hop.undecidable
+      ? 'unreadable'
+      : hop.action === null
+        ? 'none'
+        : hop.action === 'deny'
+          ? 'deny'
+          : 'allow';
     const markers: string[] = [];
     // A translation the walk followed and one it could not are marked differently.
     // They used to be one thing, and the distinction is the difference between "the
@@ -131,8 +142,16 @@ export function describeChain(result: PathResult, cells: Cell[]): string {
   const via = cells
     .filter((cell) => cell.kind === 'hop')
     .map((cell) => {
+      // "forwards" is right for a router and wrong for a firewall whose answer could
+      // not be established — it says the traffic went on, which is the claim in doubt.
       const verb =
-        cell.decision === 'deny' ? 'denies' : cell.decision === 'allow' ? 'permits' : 'forwards';
+        cell.decision === 'deny'
+          ? 'denies'
+          : cell.decision === 'allow'
+            ? 'permits'
+            : cell.decision === 'unreadable'
+              ? 'could not be evaluated'
+              : 'forwards';
       return `${cell.title} ${verb}`;
     });
 

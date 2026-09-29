@@ -104,9 +104,20 @@ across each platform added, and coverage is the gap a customer measures first.
    NSX dynamic group for whatever currently carries a tag, an Azure service tag for
    ranges Microsoft publishes, an ACI L2-only EPG for a bridge domain with no gateway.
    Those are typed so the difference from a parser failure is legible
-   (`EXTERNALLY_RESOLVED` in `test_silent_emptiness.py`), but a path query crossing such
-   a rule cannot resolve it and currently treats it as no match. Reporting "cannot
-   evaluate" instead is the right behaviour and is not built.
+   (`EXTERNALLY_RESOLVED_TYPES` in `firewall/model.py`).
+
+   **Reporting "cannot evaluate" was built on 2026-09-29.** It was the right behaviour
+   and the wrong behaviour was dangerous rather than merely incomplete: a rule using one
+   of these objects resolved to an empty address set, so the query walked past it as a
+   miss, found nothing else, and returned the implicit deny — a confident `blocked` for
+   traffic nothing had established was blocked. A path crossing such a rule is now
+   `partially-allowed` with the device, the rule and the object named, and the note
+   distinguishes an object a re-collection would fix from one no collection ever will
+   (`test_undecidable_rules.py`).
+
+   A rule excluded on a side that *did* resolve is still a plain miss, so the caveat
+   fires on the queries it applies to rather than on every query against a cloud
+   rulebase.
 2. **Matrices, DR sets, and group/matrix-level reports.** AlgoSec's cross-device
    constructs, and the "multi-device reasoning" gap the earlier competitive dossier
    identified as the only real engine-level one.

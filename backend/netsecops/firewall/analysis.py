@@ -498,6 +498,20 @@ class QueryResult:
         "user identity are not simulated, so a rule that would be narrowed by App-ID "
         "or User-ID may be reported as matching when the device would not match it.",
     )
+    #: Rules ahead of the answer that could neither be matched nor excluded, because a
+    #: name in them could not be expanded. **Their presence means `matched` is not the
+    #: answer — it is the answer among the rules that could be read.**
+    #:
+    #: First match wins, so any one of these could have been the real winner and every
+    #: rule after it, including the one reported, would never have been reached. Rules
+    #: *after* the winner are not collected: they are unreachable for this packet
+    #: whatever they contain.
+    undecidable: tuple[ResolvedRule, ...] = ()
+
+    @property
+    def decided(self) -> bool:
+        """Whether the reported match is the device's actual decision."""
+        return not self.undecidable
 
 
 def first_match(
@@ -516,10 +530,27 @@ def first_match(
     caller does the parsing once; the limitations are returned with the answer rather
     than documented elsewhere, because an unqualified "rule 42 matches" would be read
     as a guarantee.
+
+    **A rule that could not be fully expanded is neither a match nor a miss.** Before
+    2026-09-29 it was treated as a miss: its address set was empty, `covers_value`
+    returned False, and the loop moved on. On a rulebase whose objects are all readable
+    that is harmless, because the only unexpandable names were ones the collection had
+    missed. It stopped being harmless when four platforms arrived whose objects
+    *cannot* be expanded from a configuration at all — an AWS security group, an NSX
+    dynamic group, an Azure service tag, an ACI L2-only EPG. A query crossing one of
+    those walked past it in silence and returned the next rule that matched, or the
+    implicit deny. "Blocked" is the wrong answer to be confidently wrong about: the
+    reader concludes an exposure is closed when nothing here established that.
+
+    Such a rule is reported in `undecidable` instead, and only when it could genuinely
+    have been the winner — a rule excluded on a side that *did* resolve cannot match
+    whatever the unresolved side holds, and collecting it would put a caveat on nearly
+    every query against a cloud rulebase.
     """
     from netsecops.firewall.model import ANY_PROTOCOL
 
     later_matches: list[ResolvedRule] = []
+    undecidable: list[ResolvedRule] = []
     winner: ResolvedRule | None = None
 
     for rule in rules:
@@ -529,15 +560,28 @@ def first_match(
             continue
         if dst_zone and rule.dst_zones and dst_zone not in rule.dst_zones:
             continue
-        if not rule.source.v4.covers_value(source):
-            continue
-        if not rule.destination.v4.covers_value(destination):
-            continue
 
         ports = rule.services.by_protocol.get(protocol) or rule.services.by_protocol.get(
             ANY_PROTOCOL
         )
-        if ports is None or not ports.covers_value(port):
+        # Each side is in one of three states, not two: it covers the packet, it
+        # provably does not, or it could not be read. One boolean cannot carry the third.
+        sides = (
+            (rule.unresolved_src, rule.source.v4.covers_value(source)),
+            (rule.unresolved_dst, rule.destination.v4.covers_value(destination)),
+            (rule.unresolved_svc, ports is not None and ports.covers_value(port)),
+        )
+
+        if any(not covers for unreadable, covers in sides if not unreadable):
+            # Excluded on a side that did resolve, so it cannot match whatever the
+            # unreadable sides hold. A definite miss, exactly as before.
+            continue
+
+        if any(unreadable for unreadable, _ in sides):
+            # Ahead of the answer and impossible to exclude. Recorded, and not allowed
+            # to win: claiming this rule decided would be as unfounded as ignoring it.
+            if winner is None:
+                undecidable.append(rule)
             continue
 
         if winner is None:
@@ -545,7 +589,11 @@ def first_match(
         else:
             later_matches.append(rule)
 
-    return QueryResult(matched=winner, shadowed_by_match=tuple(later_matches))
+    return QueryResult(
+        matched=winner,
+        shadowed_by_match=tuple(later_matches),
+        undecidable=tuple(undecidable),
+    )
 
 
 class RangeOutcome(StrEnum):
@@ -576,6 +624,15 @@ class RangeVerdict:
     decided_by: ResolvedRule | None = None
     split_by: tuple[ResolvedRule, ...] = ()
     notes: tuple[str, ...] = ()
+    #: Rules ahead of the verdict that could neither be applied nor ruled out, because a
+    #: name in them could not be expanded. See `QueryResult.undecidable` — the reasoning
+    #: is the same, and so is the consequence: the outcome is the one the readable rules
+    #: give, not the one the device would.
+    undecidable: tuple[ResolvedRule, ...] = ()
+
+    @property
+    def decided(self) -> bool:
+        return not self.undecidable
 
 
 def first_match_over_range(
@@ -605,11 +662,14 @@ def first_match_over_range(
     a range containing a denial.
 
     Rules that miss either range entirely are skipped: they cannot match any packet in
-    it, so they neither decide nor split.
+    it, so they neither decide nor split. A rule that could not be *read* is a third
+    case and is collected in `undecidable` — see :func:`first_match` for why that is not
+    the same as a miss.
     """
     from netsecops.firewall.model import ANY_PROTOCOL
 
     splitters: list[ResolvedRule] = []
+    undecidable: list[ResolvedRule] = []
 
     for rule in rules:
         if not rule.enabled:
@@ -619,19 +679,25 @@ def first_match_over_range(
         if dst_zone and rule.dst_zones and dst_zone not in rule.dst_zones:
             continue
 
-        src_overlap = rule.source.v4.intersection(source)
-        if not src_overlap.intervals:
+        # An unreadable side cannot be intersected with the range, so it is neither an
+        # overlap nor a miss. Excluded on a side that *did* resolve, the rule still
+        # cannot apply — that check comes first, so only genuinely open questions
+        # survive to be recorded.
+        if not rule.unresolved_src and not rule.source.v4.intersection(source).intervals:
             continue
-        dst_overlap = rule.destination.v4.intersection(destination)
-        if not dst_overlap.intervals:
+        if not rule.unresolved_dst and not rule.destination.v4.intersection(destination).intervals:
             continue
 
         ports = rule.services.by_protocol.get(protocol) or rule.services.by_protocol.get(
             ANY_PROTOCOL
         )
-        if ports is None or not ports.covers_value(port):
+        if not rule.unresolved_svc and (ports is None or not ports.covers_value(port)):
             # The rule reaches these addresses but not this service, so it does not
             # apply and does not split anything.
+            continue
+
+        if rule.unresolved_src or rule.unresolved_dst or rule.unresolved_svc:
+            undecidable.append(rule)
             continue
 
         covers_all = rule.source.v4.contains_set(source) and rule.destination.v4.contains_set(
@@ -652,6 +718,7 @@ def first_match_over_range(
                     else RangeOutcome.BLOCKED
                 ),
                 decided_by=rule,
+                undecidable=tuple(undecidable),
             )
 
         splitters.append(rule)
@@ -665,6 +732,7 @@ def first_match_over_range(
                 "no single verdict is true of it. The range has to be narrowed, or these "
                 "rules read, before the boundary can be called open or closed.",
             ),
+            undecidable=tuple(undecidable),
         )
 
     return RangeVerdict(
@@ -673,6 +741,7 @@ def first_match_over_range(
             "No rule in this rulebase matches any packet in the range, so the implicit "
             "default decides it.",
         ),
+        undecidable=tuple(undecidable),
     )
 
 

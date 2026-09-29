@@ -111,6 +111,13 @@ class Hop:
     #: Caveats from the rule query, carried through rather than dropped: matching is over
     #: addresses, protocol and port only, so App-ID and User-ID narrowing is not simulated.
     limitations: tuple[str, ...] = ()
+    #: True where this device *has* a rulebase, it was consulted, and its decision could
+    #: not be established — a rule ahead of the answer references an object that cannot
+    #: be expanded from any configuration. Distinct from `action is None`, which means no
+    #: rulebase at all: one is a router with no opinion, the other a firewall whose
+    #: opinion we do not know, and rendering them alike is how "nothing inspected this
+    #: traffic" gets printed over a firewall.
+    undecidable: bool = False
     #: What this device's NAT did to the packet — "destination 203.0.113.10 →
     #: 10.20.0.10" — or None where nothing was translated. Every hop after this one was
     #: traced with the rewritten addresses, so this is where the reader finds out that
@@ -361,6 +368,10 @@ class _Verdict:
     rule_name: str | None = None
     rule_order: int | None = None
     limitations: tuple[str, ...] = ()
+    #: See `Hop.undecidable`. Carried here so `_combine` keeps it across several access
+    #: lists on one hop: one unreadable list makes the hop unreadable, whatever the
+    #: others said.
+    undecidable: bool = False
 
 
 #: Conservative precedence when several access lists apply to one hop. A deny anywhere
@@ -408,6 +419,45 @@ def _governing_rulebases(node: DeviceNode, hop: Hop, contexts: set[str]) -> set[
     return governing or None
 
 
+def _undecidable(node: DeviceNode, rules: tuple[ResolvedRule, ...]) -> _Verdict:
+    """This device was asked and its answer could not be established.
+
+    Named rather than summarised, and the *reason* separated from the *remedy*: an
+    object the collection missed is fixed by re-collecting the device, and an AWS
+    security group is not fixed by anything this product can do. Telling an operator to
+    re-collect a device that will never yield the answer wastes their afternoon and
+    costs them their trust in the next caveat.
+    """
+    blocking = rules[0]
+    external = [name for rule in rules for name in rule.externally_resolved]
+    missing = [name for rule in rules for name in rule.unresolved if name not in set(external)]
+
+    reasons: list[str] = []
+    if external:
+        reasons.append(
+            f"{', '.join(sorted(set(external))[:3])} — membership held by the platform "
+            "itself (a cloud security group, an SDN dynamic group, a service tag), which "
+            "no configuration contains, so this cannot be resolved from collected data"
+        )
+    if missing:
+        reasons.append(
+            f"{', '.join(sorted(set(missing))[:3])} — not in the collected configuration, "
+            "which a fresh collection of this device may fix"
+        )
+
+    return _Verdict(
+        undecidable=True,
+        rule_name=blocking.name,
+        rule_order=blocking.order,
+        limitations=(
+            f"{node.hostname} could not be evaluated: rule '{blocking.name}' comes before "
+            f"any answer and references {'; '.join(reasons)}. Because the first matching "
+            "rule wins, that rule may be the one that decides this traffic — so neither a "
+            "permit nor a denial can be reported for this device.",
+        ),
+    )
+
+
 def _ask(node: DeviceNode, hop: Hop, rules: list[ResolvedRule], query: _Query) -> _Verdict:
     """One first-match evaluation over one ordered rulebase."""
     if query.src_range is not None and query.dst_range is not None:
@@ -426,6 +476,8 @@ def _ask(node: DeviceNode, hop: Hop, rules: list[ResolvedRule], query: _Query) -
                 rule_name=", ".join(rule.name for rule in ranged.split_by[:3]),
                 limitations=tuple(ranged.notes),
             )
+        if ranged.undecidable:
+            return _undecidable(node, ranged.undecidable)
         if ranged.outcome is RangeOutcome.NO_MATCH:
             return _Verdict(action="deny", rule_name="(implicit deny)")
 
@@ -452,6 +504,13 @@ def _ask(node: DeviceNode, hop: Hop, rules: list[ResolvedRule], query: _Query) -
         src_zone=hop.ingress_zone,
         dst_zone=hop.egress_zone,
     )
+    if result.undecidable:
+        # Checked before the implicit deny below, which is the case this exists for: a
+        # rule that could have permitted the packet was skipped because its source is a
+        # group this product cannot expand, no later rule matched, and the answer came
+        # back as a confident "denied by the implicit deny". That reads as "this traffic
+        # cannot get through" and nothing here established it.
+        return _undecidable(node, result.undecidable)
     if result.matched is None:
         # No rule matched. Every platform here ends its policy with an implicit deny, so
         # the packet is dropped — and saying so is more useful than "no rule matched",
@@ -491,6 +550,11 @@ def _combine(
         rule_name=strongest.rule_name,
         rule_order=strongest.rule_order,
         limitations=merged,
+        # One unreadable list makes the hop unreadable even when another list denied.
+        # Both lists are enforced on this packet, so a denial elsewhere does settle it —
+        # but the flag is what stops `_finalise` treating this hop as a firewall that
+        # was cleanly consulted, and a deny still wins on `action` above.
+        undecidable=any(verdict.undecidable for verdict in verdicts),
     )
 
 
@@ -498,6 +562,7 @@ def _record(hop: Hop, verdict: _Verdict) -> None:
     hop.action = verdict.action
     hop.rule_name = verdict.rule_name
     hop.rule_order = verdict.rule_order
+    hop.undecidable = verdict.undecidable
     # Extended, not replaced. The NAT step runs before this one and may already have
     # put a caveat on the hop; assigning here silently dropped it, which is the exact
     # failure this field exists to prevent.
@@ -896,6 +961,27 @@ def _finalise(result: PathResult) -> PathResult:
 
     if result.routing is RoutingConfidence.UNREACHABLE:
         result.policy = PolicyVerdict.NOT_ROUTED
+        return result
+
+    undecided = [hop for hop in result.hops if hop.undecidable]
+    if undecided:
+        # A firewall on this path was asked and could not answer. Checked before the
+        # branches below because an undecidable hop carries `action is None`, so it falls
+        # out of `consulted` — and would otherwise reach "no device on this path carries
+        # a rulebase, so nothing inspected the traffic", printed over a firewall that
+        # inspected it and whose verdict we simply could not read.
+        #
+        # `partially-allowed` rather than a state of its own: it already means "this does
+        # not settle the question", the hop's own note says which device and which rule,
+        # and one more verdict word would be a new thing for every reader and every
+        # integration to learn for a case that reads the same way.
+        result.policy = PolicyVerdict.PARTIALLY_ALLOWED
+        result.notes.append(
+            "This path was not evaluated end to end: "
+            + ", ".join(f"{hop.hostname} (rule '{hop.rule_name}')" for hop in undecided)
+            + " could not be resolved, so neither a permit nor a denial is reported for "
+            "it. Treat this as an open question rather than as traffic that gets through."
+        )
         return result
 
     if not consulted:

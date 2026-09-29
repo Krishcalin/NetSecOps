@@ -51,6 +51,12 @@ class HopRead(BaseModel):
     rule_name: str | None = None
     rule_order: int | None = None
     limitations: list[str] = Field(default_factory=list)
+    #: True where this device has a rulebase that was consulted and could not be
+    #: evaluated, because a rule ahead of the answer references an object no
+    #: configuration contains — a cloud security group, an SDN dynamic group, a service
+    #: tag. `action` is None here too, so without this flag the UI cannot tell a router
+    #: with no opinion from a firewall whose opinion is unknown.
+    undecidable: bool = False
     #: What this device's NAT did to the packet, or None. Every hop after one that
     #: translates was traced with the rewritten addresses, so this is where a reader
     #: finds out the question changed part-way along the path.

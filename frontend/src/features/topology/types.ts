@@ -16,6 +16,12 @@ export interface Hop {
   rule_name: string | null;
   rule_order: number | null;
   limitations: string[];
+  /** True where this device has a rulebase that was consulted and could not be read —
+   *  a rule ahead of the answer names an object no configuration contains, such as a
+   *  cloud security group or an SDN dynamic group. `action` is null here too, so
+   *  without this the diagram draws a firewall we could not read exactly like a router
+   *  that has no opinion, and the reader is told nothing inspected the traffic. */
+  undecidable: boolean;
   /** What this device's NAT did — "destination 203.0.113.10 → 10.20.0.10" — or null.
    *  Every hop after one that translates was traced with the rewritten addresses, so
    *  this is where a reader sees the question change part-way along the path. */

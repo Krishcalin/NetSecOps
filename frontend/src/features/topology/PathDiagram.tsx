@@ -43,6 +43,7 @@ function truncate(text: string, max: number): string {
 
 export function PathDiagram({ result }: { result: PathResult }) {
   const { cells, brokenAfter } = buildChain(result);
+  const unreadable = result.hops.filter((hop) => hop.undecidable);
 
   // `useId` because ids have to be unique in the document and nothing stops a future
   // page rendering two paths side by side — at which point a hardcoded id would
@@ -146,10 +147,12 @@ export function PathDiagram({ result }: { result: PathResult }) {
                 {truncate(cell.subtitle, 22)}
               </text>
             )}
-            {/* The glyph, so the decision is not carried by tone alone. */}
+            {/* The glyph, so the decision is not carried by tone alone. A firewall we
+                could not read gets its own mark rather than the blank a router gets:
+                the reader has to be able to see that something here was not answered. */}
             {cell.decision !== 'none' && (
               <text x={NODE_W - 10} y={NODE_H - 6} className="pathdiagram__glyph">
-                {cell.decision === 'deny' ? '✕' : '✓'}
+                {cell.decision === 'deny' ? '✕' : cell.decision === 'unreadable' ? '?' : '✓'}
               </text>
             )}
             {cell.markers.length > 0 && (
@@ -165,8 +168,19 @@ export function PathDiagram({ result }: { result: PathResult }) {
           letters on a diagram and each one changes what the answer means. */}
       {(result.translated_at.length > 0 ||
         result.translation_unknown_at.length > 0 ||
-        result.branched_at.length > 0) && (
+        result.branched_at.length > 0 ||
+        unreadable.length > 0) && (
         <ul className="pathdiagram__key">
+          {/* First, because it is the only entry that says part of the answer is
+              missing rather than qualified. */}
+          {unreadable.length > 0 && (
+            <li>
+              <strong>?</strong> — {unreadable.map((hop) => hop.hostname).join(', ')} could not be
+              evaluated: a rule ahead of the answer names an object that no collected
+              configuration contains, such as a cloud security group or an SDN dynamic group.
+              Neither a permit nor a denial is reported for these devices.
+            </li>
+          )}
           {result.translated_at.length > 0 && (
             <li>
               <strong>NAT</strong> — the address was rewritten here and the trace followed it:{' '}

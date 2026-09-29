@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from netsecops.firewall.model import resolve_rulebase
+from netsecops.firewall.model import EXTERNALLY_RESOLVED_TYPES, resolve_rulebase
 from netsecops.parsers.base import ParseContext
 from netsecops.parsers.registry import get_parser
 
@@ -187,13 +187,15 @@ class TestTheResolverRefusesRatherThanReturningNothing:
 #:
 #: **The distinction is the point, not the exemption.** An object that resolves to
 #: nothing because the parser could not read it is a defect. An object that resolves to
-#: nothing because its membership is elsewhere is a limitation, and it is one a path
-#: query should eventually report rather than silently treat as "no match". Recorded
-#: here so the difference is enforced by a type the parser had to set on purpose, rather
-#: than by a platform being quietly skipped.
-EXTERNALLY_RESOLVED: frozenset[str] = frozenset(
-    {"security-group", "prefix-list", "dynamic-group", "epg-no-subnet", "service-tag"}
-)
+#: nothing because its membership is elsewhere is a limitation — and since 2026-09-29 a
+#: path query crossing one reports that it cannot be evaluated, rather than silently
+#: treating it as "no match" and returning the implicit deny as a confident `blocked`
+#: (`test_undecidable_rules.py`).
+#:
+#: Imported rather than restated: while this set lived here alone, the product could not
+#: act on a distinction its own test suite enforced, and a sixth type added to one copy
+#: would not have reached the other.
+EXTERNALLY_RESOLVED = EXTERNALLY_RESOLVED_TYPES
 
 
 def externally_resolved(firewall: dict) -> set[str]:

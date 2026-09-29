@@ -31,6 +31,7 @@ function hop(hostname: string, overrides: Partial<Hop> = {}): Hop {
     rule_name: 'permit-web',
     rule_order: 2,
     limitations: [],
+    undecidable: false,
     translation: null,
     ...overrides,
   };
@@ -108,6 +109,35 @@ describe('buildChain', () => {
     const [, router, firewall] = cells;
     expect(router?.decision).toBe('none');
     expect(firewall?.decision).toBe('allow');
+  });
+
+  it('distinguishes a firewall it could not read from a router with no opinion', () => {
+    // Both carry `action: null`. One inspected nothing; the other inspected the traffic
+    // and we cannot say what it concluded — and the second is the one that must not be
+    // drawn as a clear stretch of the path.
+    const { cells } = buildChain(
+      path({
+        hops: [
+          hop('core-rtr', { action: null, rule_name: null }),
+          hop('cloud-fw', { action: null, rule_name: 'web-to-db', undecidable: true }),
+        ],
+      }),
+    );
+
+    const [, router, firewall] = cells;
+    expect(router?.decision).toBe('none');
+    expect(firewall?.decision).toBe('unreadable');
+  });
+
+  it('does not break the chain at a firewall it could not read', () => {
+    // Undecidable is not a denial. The packet may well get through, and drawing the
+    // path as stopping here would be the same overconfidence in the other direction.
+    const { cells, brokenAfter } = buildChain(
+      path({ hops: [hop('cloud-fw', { action: null, undecidable: true })] }),
+    );
+
+    expect(brokenAfter).toBeNull();
+    expect(cells[cells.length - 1]?.reached).toBe(true);
   });
 
   it('marks the hops where NAT or equal-cost routing changes what the answer means', () => {
@@ -188,6 +218,32 @@ describe('PathDiagram', () => {
     expect(
       screen.getByText(/addresses the packet may no longer have been carrying/),
     ).toBeInTheDocument();
+  });
+
+  it('spells out which device could not be evaluated, and why', () => {
+    // A question mark on a rectangle is not an answer. The reader has to learn which
+    // device, and that the gap is in the data rather than in the network.
+    render(
+      <PathDiagram
+        result={path({ hops: [hop('cloud-fw', { action: null, undecidable: true })] })}
+      />,
+    );
+
+    // Scoped to the key beneath the drawing: the hostname also appears on the node
+    // itself, and it is the explanation that has to be there, not the label.
+    const entry = screen.getByRole('listitem');
+    expect(entry).toHaveTextContent('cloud-fw');
+    expect(entry).toHaveTextContent(/could not be evaluated/);
+    expect(entry).toHaveTextContent(/security group/);
+  });
+
+  it('says so in the text alternative too', () => {
+    const result = path({ hops: [hop('cloud-fw', { action: null, undecidable: true })] });
+
+    const text = describeChain(result, buildChain(result).cells);
+
+    expect(text).toContain('could not be evaluated');
+    expect(text).not.toContain('cloud-fw forwards');
   });
 
   it('spells out the equal-cost caveat', () => {

@@ -63,6 +63,7 @@ const ROUTED_AND_ALLOWED = {
       rule_name: null,
       rule_order: null,
       limitations: [],
+      undecidable: false,
       translation: null,
     },
     {
@@ -78,6 +79,7 @@ const ROUTED_AND_ALLOWED = {
       rule_name: 'permit-web',
       rule_order: 2,
       limitations: [],
+      undecidable: false,
       translation: null,
     },
   ],

@@ -185,6 +185,25 @@ ANY_ADDRESS = AddressSet(v4=ANY_IPV4, v6=ANY_IPV6)
 NON_TERMINATING_ACTIONS: frozenset[str] = frozenset({"monitor"})
 EMPTY_ADDRESS = AddressSet()
 
+#: Object types whose membership is not in the configuration and never will be.
+#:
+#: An AWS security group stands for the instances attached to it, an NSX dynamic group
+#: for whatever currently carries a tag, an Azure service tag for prefixes Microsoft
+#: publishes, an ACI L2-only EPG for a bridge domain with no gateway, a prefix-list for
+#: routes learned at run time. None of them can be expanded from an export, however
+#: complete that export is.
+#:
+#: **This is not the same failure as an object the collection missed**, and conflating
+#: them sends the operator to the wrong remedy: one is fixed by re-collecting the device
+#: or fixing a parser, the other by looking somewhere this product cannot see. The
+#: distinction is the same one §3.8a draws between `partially-routed` and `unknown`.
+#:
+#: The set lived in `tests/test_silent_emptiness.py` until 2026-09-29, which meant the
+#: product could not act on a distinction its own test suite enforced.
+EXTERNALLY_RESOLVED_TYPES: frozenset[str] = frozenset(
+    {"security-group", "prefix-list", "dynamic-group", "epg-no-subnet", "service-tag"}
+)
+
 
 @dataclass(slots=True)
 class ResolvedRule:
@@ -207,8 +226,19 @@ class ResolvedRule:
     schedule: str | None
     hit_count: int | None
     last_hit: str | None
-    #: Object names the rulebase referenced but did not define.
-    unresolved: tuple[str, ...] = ()
+    #: Names that could not be expanded, split by which side of the rule they sit on.
+    #:
+    #: Split because a query can then tell a rule that *definitely does not match* from
+    #: one whose match is *unknown*. A rule whose source is an AWS security group but
+    #: whose destination provably excludes the packet cannot match whatever that group
+    #: contains, and reporting it as undecidable would fire a caveat on nearly every
+    #: query against a cloud rulebase — which teaches the reader to ignore caveats.
+    unresolved_src: tuple[str, ...] = ()
+    unresolved_dst: tuple[str, ...] = ()
+    unresolved_svc: tuple[str, ...] = ()
+    #: Of the above, the ones that are externally resolved rather than missing — see
+    #: `EXTERNALLY_RESOLVED_TYPES`. Re-collecting the device will not fix these.
+    externally_resolved: tuple[str, ...] = ()
     #: The named ACL or policy this rule is evaluated in; None on platforms with a
     #: single ordered policy. Rules in different contexts are never compared, because
     #: they are never applied to the same packet.
@@ -220,6 +250,11 @@ class ResolvedRule:
     #: unapplied rule: a rulebase somebody wrote and never bound is worth surfacing, and
     #: is a different observation from what happens to a packet.
     applied: bool | None = None
+
+    @property
+    def unresolved(self) -> tuple[str, ...]:
+        """Every name this rule referenced and could not expand, in rule order."""
+        return (*self.unresolved_src, *self.unresolved_dst, *self.unresolved_svc)
 
     @property
     def permits(self) -> bool:
@@ -329,8 +364,19 @@ class ObjectResolver:
         self._address_cache: dict[str, AddressSet] = {}
         self._service_cache: dict[str, ServiceSet] = {}
         self.unresolved: set[str] = set()
+        #: Of those, the ones defined but not expandable from any configuration —
+        #: recorded by their bare name so a caller can ask about a name it holds.
+        self.externally_resolved: set[str] = set()
         #: Names that were referenced at least once, for the unused-object check.
         self.referenced: set[str] = set()
+
+    def _note_external(self, name: str, kind: str) -> None:
+        """Record a name whose membership lives outside the configuration."""
+        self.externally_resolved.add(name)
+        self.unresolved.add(
+            f"{name} ({kind}: membership is held by the platform's control plane, "
+            "not by any configuration this product can collect)"
+        )
 
     # ── addresses ───────────────────────────────────────────────────────
 
@@ -376,6 +422,13 @@ class ObjectResolver:
 
         obj = self._addresses.get(name)
         if obj is not None:
+            kind = str(obj.get("type") or "")
+            if kind in EXTERNALLY_RESOLVED_TYPES:
+                # Not a parser gap. This object is defined, correctly, as a reference to
+                # membership the device itself resolves at run time — so there is no
+                # value to read and re-collecting will not produce one.
+                self._note_external(name, kind)
+                return None
             v4, v6 = parse_address(str(obj.get("value") or ""))
             if not v4 and not v6:
                 # The object exists and its value could not be read — a vendor spelling
@@ -394,6 +447,12 @@ class ObjectResolver:
 
         group = self._address_groups.get(name)
         if group is not None:
+            kind = str(group.get("type") or "")
+            if kind in EXTERNALLY_RESOLVED_TYPES:
+                # An NSX dynamic group or an AWS security group referenced as a group:
+                # its members are whatever currently carries a tag or is attached to it.
+                self._note_external(name, kind)
+                return None
             combined = EMPTY_ADDRESS
             members = list(group.get("members", []))
             for member in members:
@@ -461,6 +520,10 @@ class ObjectResolver:
 
         obj = self._services.get(name)
         if obj is not None:
+            kind = str(obj.get("type") or "")
+            if kind in EXTERNALLY_RESOLVED_TYPES:
+                self._note_external(name, kind)
+                return None
             resolved = _service_from_object(obj)
             self._service_cache[name] = resolved
             return resolved
@@ -593,7 +656,14 @@ def resolve_rulebase(firewall: Mapping[str, Any]) -> tuple[list[ResolvedRule], O
                 schedule=raw.get("schedule"),
                 hit_count=raw.get("hit_count"),
                 last_hit=raw.get("last_hit"),
-                unresolved=tuple(missing_src + missing_dst + missing_svc),
+                unresolved_src=missing_src,
+                unresolved_dst=missing_dst,
+                unresolved_svc=missing_svc,
+                externally_resolved=tuple(
+                    name
+                    for name in (*missing_src, *missing_dst, *missing_svc)
+                    if name in resolver.externally_resolved
+                ),
                 rulebase=raw.get("rulebase"),
                 applied=raw.get("applied"),
             )
@@ -607,6 +677,7 @@ __all__ = [
     "ANY_PROTOCOL",
     "ANY_SERVICE",
     "EMPTY_ADDRESS",
+    "EXTERNALLY_RESOLVED_TYPES",
     "MAX_GROUP_DEPTH",
     "PROTOCOL_NUMBERS",
     "AddressSet",
