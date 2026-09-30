@@ -196,17 +196,29 @@ def read_text(signal: Signal, text: str) -> Evidence:
     if not value:
         return evidence
 
-    best: tuple[str, str | None] | None = None
-    for pattern, vendor, platform in TEXT_PATTERNS:
-        if not pattern.search(value):
-            continue
-        # A pattern naming a platform is more specific than one naming only a vendor.
-        if best is None or (platform is not None and best[1] is None):
-            best = (vendor, platform)
-
-    if best is None:
+    matches = [
+        (vendor, platform)
+        for pattern, vendor, platform in TEXT_PATTERNS
+        if pattern.search(value)
+    ]
+    if not matches:
         return evidence
-    return Evidence(signal=signal, raw=value, vendor=best[0], platform=best[1])
+
+    if len({vendor for vendor, _ in matches}) > 1:
+        # The text names more than one vendor — a header carrying both "Cisco Systems" and
+        # "FortiGate", a subject naming one vendor with another as issuer. The old logic
+        # let a later platform-bearing pattern overwrite an earlier vendor-only one, so it
+        # returned one vendor, discarded the other, and flagged NO conflict — and
+        # fingerprint() then built a confident verdict from a signal that could not decide
+        # (2026-09-30 audit). An ambiguous signal contributes no vendor rather than a
+        # wrong one; disagreement across signals is still caught by fingerprint().
+        return evidence
+
+    vendor = matches[0][0]
+    # One vendor: take the most specific match — a pattern naming a platform beats one
+    # naming only the vendor (Cisco + NX-OS is a Nexus).
+    platform = next((p for _, p in matches if p is not None), None)
+    return Evidence(signal=signal, raw=value, vendor=vendor, platform=platform)
 
 
 def fingerprint(evidence: list[Evidence]) -> Fingerprint:

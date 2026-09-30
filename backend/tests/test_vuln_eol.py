@@ -142,6 +142,31 @@ class TestAssessment:
         assert result.status is LifecycleStatus.APPROACHING_END_OF_SUPPORT
         assert "planning now" in result.reasoning
 
+    def test_another_products_cycle_does_not_shadow_this_ones_lifecycle(self) -> None:
+        """FortiOS and FortiAnalyzer are versioned in lockstep. _eol_records filters only
+        by vendor, so both products' 7.0 cycles reach the matcher; matching purely on the
+        numeric cycle let FortiAnalyzer's supported 7.0 clear FortiOS's end of support
+        (2026-09-30 audit). The device's platform must select its own product's cycle."""
+        fortios = parse_endoflife_date(
+            [{"cycle": "7.0", "support": "2024-03-01", "eol": "2027-03-01"}],
+            vendor="fortinet",
+            product="fortios",
+        )
+        analyzer = parse_endoflife_date(
+            [{"cycle": "7.0", "support": "2030-01-01", "eol": "2032-01-01"}],
+            vendor="fortinet",
+            product="fortianalyzer",
+        )
+        records = fortios + analyzer
+
+        fos = assess("7.0.5", records, platform="fortios", today=NOW)
+        assert fos.status is LifecycleStatus.END_OF_SUPPORT
+        assert fos.record is not None and fos.record.product == "fortios"
+
+        faz = assess("7.0.5", records, platform="fortianalyzer", today=NOW)
+        assert faz.status is LifecycleStatus.SUPPORTED
+        assert faz.record is not None and faz.record.product == "fortianalyzer"
+
     def test_a_cycle_with_no_dates_is_unknown_not_supported(self, asa_records) -> None:
         """An entry exists; its lifecycle does not. Saying "supported" invents it."""
         result = assess("9.8(4)", asa_records, platform="cisco_asa", today=NOW)

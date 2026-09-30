@@ -100,9 +100,25 @@ def to_set_statements(lines: list[str]) -> list[tuple[int, list[str], bool]]:
     the one that *terminated* it — the line a finding should cite.
 
     A capture already in `set` form is passed through: every line starting with `set` is
-    taken as-is, and `delete`/`deactivate` lines are ignored because a `| display set`
-    dump contains none and anything else is not a configuration.
+    taken as-is. In that flat form `| display set` renders an inactive statement as a
+    separate `deactivate <path>` line alongside its `set <path>` line — NOT as an
+    `inactive:` prefix — so those lines are collected first and any `set` statement whose
+    path lies under a deactivated one is marked inactive. `delete` lines are ignored.
     """
+    # `display set` puts the deactivation on its own line, and not necessarily adjacent to
+    # the statement it disables, so collect them up front. A `set` under any of these
+    # paths (the path itself or a descendant — deactivating a block deactivates its
+    # subtree) is inactive. Ignoring them reported deactivated services, policies and
+    # interfaces as live on the profile's primary collection path (2026-09-30 audit).
+    deactivated_paths: list[list[str]] = [
+        _tokens(stripped[len("deactivate ") :])
+        for line in lines
+        if (stripped := line.strip()).startswith("deactivate ")
+    ]
+
+    def _under_deactivated(tokens: list[str]) -> bool:
+        return any(prefix and tokens[: len(prefix)] == prefix for prefix in deactivated_paths)
+
     statements: list[tuple[int, list[str], bool]] = []
     stack: list[str] = []
     #: One entry per open brace: how many tokens it pushed, and whether it was
@@ -134,9 +150,15 @@ def to_set_statements(lines: list[str]) -> list[tuple[int, list[str], bool]]:
             inactive = True
             text = text[len(_INACTIVE) :].strip()
 
+        if text.startswith(("deactivate ", "delete ")):
+            # `deactivate` was consumed up front; `delete` is not configuration. Neither
+            # is a statement to emit.
+            continue
+
         if text.startswith("set "):
             # Already flat. `display set` never nests, so the stack is irrelevant here.
-            statements.append((number, _tokens(text[4:]), inactive))
+            tokens = _tokens(text[4:])
+            statements.append((number, tokens, inactive or _under_deactivated(tokens)))
             continue
 
         if text in {"}", "};"}:

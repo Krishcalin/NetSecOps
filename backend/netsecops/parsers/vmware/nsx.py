@@ -175,7 +175,14 @@ class VmwareNsxParser(ConfigParser):
                 ncm.firewall.address_groups.append(
                     NetworkObject(
                         name=str(name),
-                        type="dynamic-group" if dynamic and not members else "group",
+                        # Any dynamic condition makes the group externally resolved — its
+                        # real membership is whatever currently carries the tag, which is
+                        # not in the export. A group that ALSO lists static members is
+                        # still dynamic: typing it a plain 'group' made the static members
+                        # look like the complete set, so a rule using it resolved to just
+                        # those and silently excluded everything the tag matches
+                        # (invariant 2). Only a purely static group is 'group'.
+                        type="dynamic-group" if dynamic else "group",
                         members=members,
                     )
                 )

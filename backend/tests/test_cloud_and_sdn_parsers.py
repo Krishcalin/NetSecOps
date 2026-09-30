@@ -234,6 +234,36 @@ class TestNsx:
         assert group.type == "dynamic-group"
         assert group.members == []
 
+    def test_a_mixed_static_and_dynamic_group_is_still_dynamic(self) -> None:
+        """A group with static members AND a tag condition is still dynamic: its true
+        membership also includes whatever carries the tag, which is not in the export.
+        Typing it a plain 'group' made the static members look like the complete set, so a
+        rule using it silently excluded everything the tag matches (2026-09-30 audit,
+        invariant 2). It is typed dynamic-group (externally resolved); the static members
+        are still recorded as a partial view."""
+        bundle = {
+            "policy/api/v1/infra/domains/default/groups": {
+                "results": [
+                    {
+                        "display_name": "web-mixed",
+                        "id": "web-mixed",
+                        "expression": [
+                            {
+                                "resource_type": "IPAddressExpression",
+                                "ip_addresses": ["10.0.0.5"],
+                            },
+                            {"resource_type": "ConjunctionOperator", "conjunction_operator": "OR"},
+                            {"resource_type": "Condition", "key": "Tag", "value": "web"},
+                        ],
+                    }
+                ]
+            }
+        }
+        ncm = parse_text("vmware_nsx", json.dumps(bundle))
+        group = next(g for g in ncm.firewall.address_groups if g.name == "web-mixed")
+        assert group.type == "dynamic-group"
+        assert "10.0.0.5" in group.members
+
     def test_static_group_members(self, nsx: NormalisedConfig) -> None:
         group = next(g for g in nsx.firewall.address_groups if g.name == "web-servers")
         assert group.members == ["10.20.0.0/24"]

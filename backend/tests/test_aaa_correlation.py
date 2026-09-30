@@ -206,6 +206,25 @@ class TestUnregisteredDevices:
 
         assert [d.hostname for d in report.unregistered_devices] == ["forgotten-sw"]
 
+    async def test_a_never_collected_device_is_not_reported_as_unregistered(
+        self, session: AsyncSession, actor: Principal
+    ) -> None:
+        """Registration analysis runs (an AAA server was collected), but a device in
+        inventory that was never collected has no config to say whether it uses central
+        auth. Reporting it as unregistered/local-only fabricates a HIGH finding from absent
+        data (2026-09-30 audit); it is not-evaluated, not unregistered."""
+        ise = await add_device(
+            session, actor, ip="10.100.0.55", hostname="ise-07", platform="cisco_ise"
+        )
+        await snapshot(session, ise, server_ncm("ise", [client("known-sw", "198.51.100.41")]))
+        await add_device(session, actor, ip="198.51.100.42", hostname="never-collected-sw")
+
+        report = await AaaCorrelationService(session).correlate()
+
+        assert report.registration_analysed is True
+        assert "never-collected-sw" not in [d.hostname for d in report.unregistered_devices]
+        assert report.coverage.devices_not_evaluated >= 1
+
     async def test_nothing_is_claimed_when_no_aaa_server_was_collected(
         self, session: AsyncSession, actor: Principal
     ) -> None:

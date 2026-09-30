@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Final
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.db.models.audit import Setting
@@ -178,7 +178,15 @@ async def scan(
         .where(
             Finding.org_id == org_id,
             Finding.created_at <= moment - COMMIT_LAG,
-            Finding.severity.in_(NOTIFIED_SEVERITIES),
+            or_(
+                Finding.severity.in_(NOTIFIED_SEVERITIES),
+                # A KEV-listed CVE is frequently scored medium/low (CVSS < 7), so the
+                # severity filter alone excluded exactly the "being exploited right now"
+                # alerts KEV exists to surface (2026-09-30 audit). Fetch every VULN finding
+                # with a CVE so the KEV promotion below can raise it; non-KEV low-severity
+                # ones are dropped in the loop, not notified.
+                and_(Finding.kind == FindingKind.VULN.value, Finding.cve_id.isnot(None)),
+            ),
         )
         .order_by(Finding.created_at)
         .limit(limit)
@@ -194,9 +202,15 @@ async def scan(
     )
 
     for finding, device in rows:
+        is_kev = finding.kind == FindingKind.VULN.value and finding.cve_id in kev
+        if not is_kev and finding.severity not in NOTIFIED_SEVERITIES:
+            # Fetched only so its KEV status could be checked: a VULN finding that is not
+            # in the catalogue and not severe enough to notify on its own.
+            continue
+
         kind = BY_KIND.get(finding.kind, EventKind.FINDING_OPENED)
         severity = severity_of(finding.severity)
-        if finding.kind == FindingKind.VULN.value and finding.cve_id in kev:
+        if is_kev:
             # "Being exploited right now" is a different page at 3am from "severe", so it
             # gets its own kind and is raised to critical whatever the CVSS said.
             kind = EventKind.KEV_MATCHED

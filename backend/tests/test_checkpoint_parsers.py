@@ -334,6 +334,41 @@ class TestGatewaysAdministratorsAndNat:
         assert nat["Publish web"]["translated"] == "Web_01"
         assert nat["Internal egress hide"]["direction"] == "source"
 
+    def test_a_hide_rule_with_the_original_object_as_destination_is_source(self) -> None:
+        """A hide/source NAT carries Check Point's built-in "Original" object as its
+        translated destination. Counting that non-empty value as a destination
+        translation misread every source NAT as publishing an internal host — a
+        fabricated exposure (2026-09-30 audit, FR-FW-04)."""
+        bundle = {
+            "show-nat-rulebase": {
+                "rulebase": [
+                    {
+                        "type": "nat-rule",
+                        "name": "Internal hide",
+                        "original-source": {"name": "Internal_Net"},
+                        "translated-source": {"name": "HideBehindGW"},
+                        "translated-destination": {"name": "Original"},
+                        "original-service": {"name": "Any"},
+                    },
+                    {
+                        "type": "nat-rule",
+                        "name": "Publish web",
+                        "original-destination": {"name": "Public_IP"},
+                        "translated-destination": {"name": "Web_01"},
+                    },
+                ]
+            }
+        }
+        ncm = (
+            get_parser("checkpoint_mgmt")
+            .parse(ParseContext(text=json.dumps(bundle)))
+            .to_storage()
+        )
+        nat = {r["name"]: r for r in ncm["firewall"]["nat_rules"]}
+        assert nat["Internal hide"]["direction"] == "source"
+        assert nat["Internal hide"]["translated"] == "HideBehindGW"
+        assert nat["Publish web"]["direction"] == "destination"
+
 
 class TestMgmtParserHealth:
     def test_no_section_fails_silently(

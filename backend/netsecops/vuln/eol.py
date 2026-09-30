@@ -221,6 +221,36 @@ def assess(
     return LifecycleAssessment(status, _explain(record, status, version), record)
 
 
+def _normalise_product(text: str) -> str:
+    """Lower-cased, alphanumerics only, for comparing a product to a platform id."""
+    return "".join(character for character in text.lower() if character.isalnum())
+
+
+def _records_for_product(records: list[EolRecord], platform: str | None) -> list[EolRecord]:
+    """Records whose product matches this device's platform, or all if none can be told.
+
+    `_eol_records` filters only by vendor, so a vendor with several products versioned in
+    lockstep — FortiOS 7.0 (end of support) and FortiAnalyzer 7.0 (supported) — returns
+    both, and `_best_cycle` matching purely on the numeric cycle let one product's
+    lifecycle clear a real end-of-support finding on another (2026-09-30 audit). Restrict
+    to records whose product aligns with the platform (`asa` within `cisco_asa`, `FortiOS`
+    equal to `fortios`), by containment either way since a product name is often a
+    component of the platform id. Falls back to all records when the platform is unknown or
+    no product aligns, so a dataset whose product names do not match the platform scheme
+    still works as before.
+    """
+    if not platform:
+        return records
+    plat = _normalise_product(platform)
+    matched = [
+        record
+        for record in records
+        if record.product
+        and ((product := _normalise_product(record.product)) in plat or plat in product)
+    ]
+    return matched or records
+
+
 def _best_cycle(
     version: str, records: list[EolRecord], *, platform: str | None
 ) -> EolRecord | None:
@@ -238,7 +268,7 @@ def _best_cycle(
     best: EolRecord | None = None
     best_depth = -1
 
-    for record in records:
+    for record in _records_for_product(records, platform):
         cycle = parse(record.cycle, platform=platform)
         if cycle is None:
             continue
