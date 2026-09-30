@@ -290,6 +290,55 @@ class TestFiring:
         assert schedule.last_job_id == job.id
         assert result.job_id == job.id
 
+    async def test_a_due_retention_schedule_fires_a_device_less_retention_job(
+        self, session: AsyncSession, schedules, actor, device
+    ) -> None:
+        """RETENTION is device-less, so the generic create() (which requires a device
+        scope) would reject it. Without its own branch a retention schedule could not fire
+        at all — which is why retention never ran (2026-09-30 audit)."""
+        from sqlalchemy import select
+
+        schedule = await make(schedules, actor, device, job_type=JobType.RETENTION)
+        schedule.next_run_at = WEDNESDAY - timedelta(minutes=1)
+        await session.flush()
+
+        [result] = await schedules.tick(now=WEDNESDAY)
+
+        assert result.job_id is not None
+        job = (
+            await session.execute(select(Job).where(Job.job_type == JobType.RETENTION.value))
+        ).scalars().one()
+        assert job.schedule_id == schedule.id
+        assert job.scope == {}
+
+    async def test_ensure_system_schedules_seeds_retention_once(
+        self, session: AsyncSession, schedules
+    ) -> None:
+        """A fresh deployment must sweep artefacts and abandoned SSO states without an
+        operator creating a schedule; the seed is idempotent so it does not multiply."""
+        from sqlalchemy import func, select
+
+        def count_retention():
+            return session.execute(
+                select(func.count())
+                .select_from(Schedule)
+                .where(Schedule.job_type == JobType.RETENTION.value)
+            )
+
+        await schedules.ensure_system_schedules()
+        assert (await count_retention()).scalar_one() == 1
+
+        await schedules.ensure_system_schedules()
+        assert (await count_retention()).scalar_one() == 1
+
+        seeded = (
+            await session.execute(
+                select(Schedule).where(Schedule.job_type == JobType.RETENTION.value)
+            )
+        ).scalars().one()
+        assert seeded.enabled is True
+        assert seeded.next_run_at is not None
+
     async def test_a_schedule_not_yet_due_does_not_fire(
         self, session: AsyncSession, schedules, actor, device
     ) -> None:

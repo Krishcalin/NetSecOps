@@ -228,6 +228,53 @@ class ScheduleService:
         )
         return schedule
 
+    #: Name of the seeded data-retention schedule.
+    SYSTEM_RETENTION_NAME = "System: data retention"
+
+    async def ensure_system_schedules(self) -> None:
+        """Seed the recurring system schedules a deployment needs but no operator creates.
+
+        The data-retention sweep (FR-ADM-01, FR-AUTH-04) has an executor and a creator, but
+        nothing scheduled it — so artefact retention never applied and the unauthenticated
+        SSO-state table grew without bound (2026-09-30 audit). Idempotent: seeds it only
+        when the org has no retention schedule, so an operator may disable or retune it and
+        it will not reappear.
+        """
+        existing = (
+            await self.session.execute(
+                select(Schedule.id).where(
+                    Schedule.org_id == self.org_id,
+                    Schedule.job_type == JobType.RETENTION.value,
+                )
+            )
+        ).first()
+        if existing is not None:
+            return
+
+        schedule = Schedule(
+            org_id=self.org_id,
+            name=self.SYSTEM_RETENTION_NAME,
+            description=(
+                "Purges collection artefacts past the retention window and sweeps "
+                "abandoned SSO login states. Created automatically; disable it if "
+                "retention is managed elsewhere."
+            ),
+            job_type=JobType.RETENTION.value,
+            scope={},
+            cron="15 3 * * *",  # daily, 03:15
+            timezone="UTC",
+            enabled=True,
+            created_by_id=None,
+        )
+        schedule.next_run_at, _ = next_occurrence(schedule, after=datetime.now(UTC))
+        self.session.add(schedule)
+        await self.session.flush()
+        log.info(
+            "scheduler.system_schedule_seeded",
+            name=self.SYSTEM_RETENTION_NAME,
+            org_id=self.org_id,
+        )
+
     async def update(self, schedule: Schedule, *, actor: Principal, **changes: Any) -> Schedule:
         if (cron := changes.get("cron")) is not None:
             validate_cron(cron)
@@ -427,6 +474,16 @@ class ScheduleService:
             sources = (schedule.scope or {}).get("feed_sources") or sorted(DEFAULT_SOURCES)
             return await jobs.create_feed_sync(
                 sources=[str(name) for name in sources],
+                actor=_scheduler_principal(schedule),
+                schedule_id=schedule.id,
+                org_id=self.org_id,
+            )
+
+        if job_type is JobType.RETENTION:
+            # Device-less, like notify and feed-sync — the generic create() below requires
+            # a device scope and would reject it. Without this branch a retention schedule
+            # could not fire at all.
+            return await jobs.create_retention(
                 actor=_scheduler_principal(schedule),
                 schedule_id=schedule.id,
                 org_id=self.org_id,

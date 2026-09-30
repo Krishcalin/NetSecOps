@@ -351,6 +351,46 @@ class JobService:
         await self.session.flush()
         return job
 
+    async def create_retention(
+        self,
+        *,
+        actor: Principal,
+        schedule_id: uuid.UUID | None = None,
+        idempotency_key: str | None = None,
+        org_id: int = 1,
+    ) -> Job:
+        """Queue a data-retention run: purge artefacts past the window (FR-ADM-01) and
+        sweep abandoned SSO login states (FR-AUTH-04).
+
+        Device-less, like the notification and feed-sync jobs. It had an executor
+        (`_run_retention`) but no creator, so nothing ever queued it — artefact retention
+        never applied and the unauthenticated SSO-state table grew without bound
+        (2026-09-30 audit). It is queued by the seeded system schedule.
+        """
+        if idempotency_key:
+            existing = (
+                await self.session.execute(
+                    select(Job).where(Job.idempotency_key == idempotency_key)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                return existing
+
+        job = Job(
+            org_id=org_id,
+            job_type=JobType.RETENTION.value,
+            status=JobStatus.QUEUED.value,
+            scope={},
+            requested_by_id=actor.id,
+            schedule_id=schedule_id,
+            idempotency_key=idempotency_key,
+            correlation_id=correlation_id.get(),
+            stats={},
+        )
+        self.session.add(job)
+        await self.session.flush()
+        return job
+
     async def create_report(
         self,
         *,

@@ -75,6 +75,15 @@ async def run(*, interval: float = TICK_SECONDS, stop: asyncio.Event | None = No
     log.info("scheduler.started", interval_seconds=interval)
     halt = stop or asyncio.Event()
 
+    # Seed the recurring system schedules (data retention) once at startup, so a fresh
+    # deployment sweeps artefacts and abandoned SSO states without an operator creating a
+    # schedule by hand. Idempotent, and a failure here must not stop the scheduler.
+    try:
+        async with session_scope() as session:
+            await ScheduleService(session).ensure_system_schedules()
+    except Exception as exc:  # noqa: BLE001 - a seed failure must not stop the loop
+        log.warning("scheduler.seed_failed", error=str(exc))
+
     while not halt.is_set():
         started = datetime.now(UTC)
         try:
