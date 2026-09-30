@@ -36,6 +36,7 @@ simply absent rather than empty.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 from typing import Any
 
@@ -49,6 +50,19 @@ log = get_logger(__name__)
 #: narrower meaning, and collapsing the two loses the difference between "anywhere" and
 #: "anywhere outside this virtual network".
 _ANY = frozenset({"*"})
+
+
+def _is_address_literal(member: str) -> bool:
+    """Whether a rule member is a CIDR or bare address rather than a service tag.
+
+    A dot is not proof: regional service tags (Storage.EastUS, Sql.WestEurope) all carry
+    one. Only a value that actually parses as an IP address or network is a literal.
+    """
+    try:
+        ipaddress.ip_network(member, strict=False)
+    except ValueError:
+        return False
+    return True
 
 
 def _payload(bundle: Any) -> list[dict[str, Any]]:
@@ -226,9 +240,13 @@ class AzureNsgParser(ConfigParser):
             for member in (*rule.src, *rule.dst):
                 if member == "any" or member in known:
                     continue
-                # Anything that is not an address literal is a tag. CIDRs and bare
-                # addresses contain a dot or a colon; tags never do.
-                if any(ch in member for ch in ".:/"):
+                # Anything that is not an address literal is a tag. A dot or colon is not
+                # proof of an address: regional service tags always carry a dot
+                # (Storage.EastUS, Sql.WestEurope, AzureCloud.westus2). Only something
+                # that actually parses as an address or network is a literal; everything
+                # else stands for a set Microsoft defines elsewhere and is typed a tag,
+                # rather than falling to the unresolved/MISSING bucket as a fake gap.
+                if _is_address_literal(member):
                     continue
                 known.add(member)
                 ncm.firewall.address_objects.append(
