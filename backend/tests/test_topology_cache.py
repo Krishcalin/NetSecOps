@@ -14,6 +14,7 @@ correct one.
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.core.rbac import Principal, Role, Scope
@@ -128,6 +129,37 @@ class TestItInvalidates:
 
         assert after is not before
         assert len(after.nodes[device.id].routes) == 2, "the newer snapshot was not picked up"
+
+    async def test_an_in_place_snapshot_refresh_invalidates_it(
+        self, session: AsyncSession, actor: Principal
+    ) -> None:
+        """A re-collection whose config_hash matches updates the existing snapshot row in
+        place — new NCM and version, same created_at (only updated_at moves). Keying the
+        fingerprint on created_at served the pre-refresh graph (2026-09-30 audit); it must
+        key on updated_at, which the in-place refresh moves."""
+        from netsecops.db.models.collection import Snapshot
+
+        device = await seed(session, actor, "cache-refresh", "10.60.9.1")
+        await session.commit()
+        before = await TopologyService(session).graph()
+        assert len(before.nodes[device.id].routes) == 1
+
+        snapshot = (
+            await session.execute(select(Snapshot).where(Snapshot.device_id == device.id))
+        ).scalars().one()
+        # Same row, refreshed in place — this is what the dedup branch does; it moves
+        # updated_at (onupdate) but not created_at, and inserts no new row.
+        snapshot.ncm = ncm(
+            interfaces=[{"name": "a", "ip_addresses": ["10.60.9.1/24"]}],
+            routes=[connected("10.60.9.0/24", "a"), static("0.0.0.0/0", "10.60.9.254", "a")],
+        )
+        snapshot.ncm_version = "1.1"
+        await session.commit()
+
+        after = await TopologyService(session).graph()
+
+        assert after is not before
+        assert len(after.nodes[device.id].routes) == 2, "the in-place refresh was not picked up"
 
     async def test_a_new_device_invalidates_it(
         self, session: AsyncSession, actor: Principal

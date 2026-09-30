@@ -1386,3 +1386,76 @@ class TestSegmentationReport:
         assert key == "cells"
         for needed in ("source_zone", "destination_zone", "expectation", "status", "walked"):
             assert needed in columns
+
+
+class TestReportsRespectCallerScope:
+    """A scoped caller's report must neither count nor list devices/exceptions outside
+    their scope. The executive-summary device total and the exceptions register both
+    ignored scope (and org), leaking out-of-scope data into frozen artefacts (2026-09-30
+    audit)."""
+
+    async def _scoped_estate(self, session: AsyncSession, principal: Principal):
+        from netsecops.db.models.inventory import DeviceGroupMember
+        from tests.conftest import make_group
+
+        group_a = await make_group(session, name="scope-a")
+        group_b = await make_group(session, name="scope-b")
+        dev_a = await add_device(session, principal, ip="10.9.0.1", hostname="in-scope")
+        dev_b = await add_device(session, principal, ip="10.9.0.2", hostname="out-of-scope")
+        session.add(DeviceGroupMember(device_id=dev_a.id, group_id=group_a.id))
+        session.add(DeviceGroupMember(device_id=dev_b.id, group_id=group_b.id))
+        await add_finding(session, dev_a, severity="high", check_id="ssh-version-2")
+        await add_finding(session, dev_b, severity="high", check_id="ssh-version-2")
+        expires = datetime.now(UTC) + timedelta(days=30)
+        for device, note in ((dev_a, "in-scope accepted"), (dev_b, "OUT-OF-SCOPE ticket NET-4821")):
+            session.add(
+                FindingException(
+                    org_id=1,
+                    check_id="ssh-version-2",
+                    scope=ExceptionScope.DEVICE.value,
+                    device_id=device.id,
+                    justification=note,
+                    approver="cab",
+                    expires_at=expires,
+                    status="active",
+                )
+            )
+        await session.commit()
+
+        scoped = Principal(
+            id=principal.id,
+            username=principal.username,
+            roles={Role.AUDITOR},
+            scope=Scope(unrestricted=False, device_group_ids=frozenset({group_a.id})),
+        )
+        return scoped, dev_a, dev_b
+
+    async def test_executive_summary_device_total_is_scoped(
+        self, session: AsyncSession, principal: Principal
+    ) -> None:
+        scoped, _dev_a, _dev_b = await self._scoped_estate(session, principal)
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.EXECUTIVE_SUMMARY, actor=scoped
+        )
+
+        totals = report.content["totals"]
+        # Only the in-scope device is counted, not both — and devices_without_findings is
+        # therefore not a fiction built from a global total and a scoped numerator.
+        assert totals["devices_total"] == 1
+        assert totals["devices_without_findings"] == 0
+
+    async def test_exceptions_register_hides_out_of_scope(
+        self, session: AsyncSession, principal: Principal
+    ) -> None:
+        scoped, dev_a, dev_b = await self._scoped_estate(session, principal)
+
+        report = await ReportingService(session).generate(
+            ReportTemplate.EXCEPTIONS_REGISTER, actor=scoped
+        )
+
+        device_ids = {e["device_id"] for e in report.content["exceptions"]}
+        assert device_ids == {str(dev_a.id)}
+        assert str(dev_b.id) not in device_ids
+        justifications = " ".join(e["justification"] for e in report.content["exceptions"])
+        assert "NET-4821" not in justifications
