@@ -39,7 +39,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.checks.loader import get_registry
@@ -343,9 +343,16 @@ class ReportingService:
         if group_id is None:
             raise ValidationProblem("This report is about one device group. Pass `scope_group_id`.")
         group = (
-            await self.session.execute(select(DeviceGroup).where(DeviceGroup.id == group_id))
+            await self.session.execute(
+                select(DeviceGroup).where(
+                    DeviceGroup.id == group_id, DeviceGroup.org_id == self.org_id
+                )
+            )
         ).scalar_one_or_none()
         if group is None:
+            # org-filtered so a group id from another org resolves to None (a plain
+            # not-found) rather than being fetched and its name echoed back through the
+            # "contains no devices you can see" error path (2026-09-30 audit).
             raise NotFoundError(f"No device group {group_id}.")
         return group
 
@@ -479,9 +486,19 @@ class ReportingService:
             )
         ).all()
 
-        total_devices = int(
-            (await self.session.execute(select(func.count()).select_from(Device))).scalar_one()
+        # Scoped and org-filtered the same way as the finding counts above. It was neither:
+        # a global `count(Device)` reported every device in every org to a caller entitled
+        # to a handful, and mixing that total with the scoped `assessed` numerator made
+        # `devices_without_findings` a fiction (500 - 2 = 498 for a caller who can see 10).
+        device_count = (
+            select(func.count()).select_from(Device).where(Device.org_id == self.org_id)
         )
+        if not scope.unrestricted:
+            from netsecops.services.inventory import InventoryService
+
+            visible = await InventoryService(self.session).visible_device_ids(scope)
+            device_count = device_count.where(Device.id.in_(visible))
+        total_devices = int((await self.session.execute(device_count)).scalar_one())
 
         return {
             "totals": {
@@ -716,14 +733,26 @@ class ReportingService:
         unattributed, and is indistinguishable in their output from a risk that never
         existed.
         """
-        rows = (
-            (
-                await self.session.execute(
-                    select(FindingException).order_by(FindingException.expires_at)
+        stmt = select(FindingException).where(FindingException.org_id == self.org_id)
+        if not scope.unrestricted:
+            from netsecops.services.inventory import InventoryService
+
+            # A scoped caller sees an accepted risk only for a device they can see, or for
+            # a device group in their scope. Every other template enforces this; this one
+            # queried with no filter at all, so a group-scoped auditor received a frozen,
+            # hash-signed, e-mailable document listing every FindingException in the
+            # database — device, justification and approver — for devices outside their
+            # scope, and it kept disclosing after the scope was corrected (2026-09-30
+            # audit). Global and out-of-scope exceptions are withheld from a scoped caller.
+            visible = await InventoryService(self.session).visible_device_ids(scope)
+            stmt = stmt.where(
+                or_(
+                    FindingException.device_id.in_(visible),
+                    FindingException.device_group_id.in_(scope.device_group_ids),
                 )
             )
-            .scalars()
-            .all()
+        rows = (
+            (await self.session.execute(stmt.order_by(FindingException.expires_at))).scalars().all()
         )
 
         now = datetime.now(UTC)
