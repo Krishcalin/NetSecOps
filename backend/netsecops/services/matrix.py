@@ -99,9 +99,29 @@ class MatrixService:
         port: int = 443,
     ) -> DiscoveryMatrix:
         device_ids = await self._group_device_ids(group)
-        zones = self._derive_zones(graph, device_ids)
+        zones, ipv6_present = self._derive_zones(graph, device_ids)
 
         limitations: list[str] = []
+        if ipv6_present:
+            # The walk parses forwarding tables for IPv4 only, so IPv6 subnets are dropped
+            # from the zone set. Said plainly rather than omitted, or an IPv4-only view (or
+            # an empty one, for an IPv6-only group) reads as the whole answer.
+            limitations.append(
+                "This group's devices carry IPv6 interfaces, which the connectivity matrix "
+                "does not yet trace — only their IPv4 zones are shown. The IPv6 reachability "
+                "of this group is not represented here."
+            )
+        if len(zones) < 2:
+            # Zero or one zone yields no source/destination pair, so the cell list is empty.
+            # An empty grid must not read as "nothing can reach anything" or "fully
+            # isolated" — it is the absence of comparable zones, which the segmentation
+            # service guards and this one now does too (invariant 2).
+            limitations.append(
+                f"Only {len(zones)} comparable zone(s) could be derived for this group, so "
+                "there is no pair of zones to evaluate. This is the absence of comparable "
+                "zones, not a finding that nothing here can reach anything — widen the group, "
+                "or check that its devices carry routed IPv4 interfaces."
+            )
         if len(zones) > MAX_ZONES:
             limitations.append(
                 f"The group's devices are attached to {len(zones)} address spaces; the "
@@ -163,21 +183,32 @@ class MatrixService:
 
     def _derive_zones(
         self, graph: TopologyGraph, device_ids: set[uuid.UUID]
-    ) -> list[DerivedZone]:
+    ) -> tuple[list[DerivedZone], bool]:
         """The connected networks the group's devices sit on, one zone per distinct CIDR.
 
         A firewall's zone name is used as the label where the interface has one, because
         that is what an operator recognises; otherwise the interface name, and failing
         that the CIDR itself. The CIDR is always what the walk is asked about — a name is
         for the reader, an address is for the engine.
+
+        Returns the zones and whether any IPv6 subnet was skipped, so the caller can state
+        that the matrix is IPv4-only rather than presenting it as the whole answer.
         """
         by_cidr: dict[str, DerivedZone] = {}
+        ipv6_present = False
         for device_id in device_ids:
             node = graph.nodes.get(device_id)
             if node is None:
                 continue
             for interface, network in node.interface_networks:
                 if not isinstance(network, ipaddress.IPv4Network):
+                    # A real IPv6 subnet (not a /128 host route) is a zone this walk cannot
+                    # yet trace. Flagged so its absence is stated, not silent.
+                    if (
+                        isinstance(network, ipaddress.IPv6Network)
+                        and network.prefixlen < network.max_prefixlen
+                    ):
+                        ipv6_present = True
                     continue
                 if network.prefixlen >= _MIN_PREFIX_FOR_ZONE:
                     continue
@@ -191,7 +222,8 @@ class MatrixService:
                     by_cidr[cidr] = zone
                 if node.hostname not in zone.device_hostnames:
                     zone.device_hostnames.append(node.hostname)
-        return sorted(by_cidr.values(), key=lambda zone: ipaddress.ip_network(zone.cidr))
+        zones = sorted(by_cidr.values(), key=lambda zone: ipaddress.ip_network(zone.cidr))
+        return zones, ipv6_present
 
 
 __all__ = ["MatrixService", "DiscoveryMatrix", "DerivedZone", "MatrixCell", "MAX_ZONES"]

@@ -159,6 +159,62 @@ class TestZoneDerivation:
 
         assert {z.cidr for z in matrix.zones} == {"192.0.2.0/24"}
 
+    async def test_a_single_zone_group_says_there_is_nothing_to_compare(
+        self, session: AsyncSession, actor: Principal
+    ) -> None:
+        """One zone yields no source/destination pair, so the cell list is empty. That must
+        read as 'no comparable zones', not as a clean 'nothing can reach anything' answer."""
+        device = await add_device(
+            session,
+            actor,
+            hostname="solo",
+            mgmt_ip="192.0.2.1",
+            ncm_body=ncm(
+                interfaces=[{"name": "lan", "ip_addresses": ["192.0.2.1/24"]}],
+                routes=[connected("192.0.2.0/24", "lan")],
+            ),
+        )
+        group = await make_group(session, name="solo-group")
+        await in_group(session, group, device)
+
+        graph = await TopologyService(session).graph()
+        matrix = await MatrixService(session).discover(group, graph)
+
+        assert len(matrix.zones) == 1
+        assert matrix.cells == []
+        assert any("comparable zone" in lim for lim in matrix.limitations), (
+            "an empty matrix must be labelled, not presented as a complete answer"
+        )
+
+    async def test_ipv6_interfaces_are_flagged_not_silently_dropped(
+        self, session: AsyncSession, actor: Principal
+    ) -> None:
+        """The walk is IPv4-only. A group's IPv6 subnets must be reported as unrepresented,
+        not omitted so an IPv4-only (or, for an IPv6-only group, empty) matrix looks whole."""
+        device = await add_device(
+            session,
+            actor,
+            hostname="dual",
+            mgmt_ip="192.0.2.1",
+            ncm_body=ncm(
+                interfaces=[
+                    {"name": "lan", "ip_addresses": ["192.0.2.1/24"]},
+                    {"name": "lan6", "ip_addresses": ["2001:db8::1/64"]},
+                ],
+                routes=[connected("192.0.2.0/24", "lan")],
+            ),
+        )
+        group = await make_group(session, name="dual-stack")
+        await in_group(session, group, device)
+
+        graph = await TopologyService(session).graph()
+        matrix = await MatrixService(session).discover(group, graph)
+
+        assert "192.0.2.0/24" in {z.cidr for z in matrix.zones}
+        assert any("IPv6" in lim for lim in matrix.limitations), (
+            "dropped IPv6 zones must be stated, not silent"
+        )
+
 
 class TestTheMatrixIsWalkedNotTruncated:
     async def test_the_walk_crosses_a_device_outside_the_group(
