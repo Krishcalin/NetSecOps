@@ -110,6 +110,12 @@ class ProbeOutcome:
 
     probe: Probe
     responded: bool
+    #: The host proved it is on the network even if this probe did not succeed. A TCP RST
+    #: (connection refused) is the case: the port is closed, so `responded` is False and
+    #: the port is not opened or followed up, but the host is provably up. Distinct from
+    #: `responded` precisely so a refused port does not read as an open one. A successful
+    #: probe implies liveness and sets both.
+    host_alive: bool = False
     #: Whatever the host volunteered: a banner line, a certificate subject, a header
     #: block. Kept verbatim — the review queue shows a person the raw string, because
     #: "Cisco, 70%" is not something anybody can check.
@@ -276,9 +282,21 @@ async def send_tcp_connect(probe: Probe, *, timeout: float = DEFAULT_PROBE_TIMEO
             reader, writer = await asyncio.open_connection(probe.host, probe.port)
         await _close(writer)
         del reader
-        return ProbeOutcome(probe=probe, responded=True)
+        return ProbeOutcome(probe=probe, responded=True, host_alive=True)
     except TimeoutError:
         return ProbeOutcome(probe=probe, responded=False, detail="Connect timed out.")
+    except ConnectionRefusedError:
+        # A refused connection is an RST from the host itself: the port is closed, but
+        # the host is provably on the network. Timeouts and unreachable errors are
+        # indistinguishable from dead space; a refusal is not. Recorded as not-open yet
+        # alive, so a hardened device that drops ICMP and closes every scanned port is
+        # still found rather than filed as absent.
+        return ProbeOutcome(
+            probe=probe,
+            responded=False,
+            host_alive=True,
+            detail="Connection refused (host up, port closed).",
+        )
     except OSError as exc:
         return ProbeOutcome(probe=probe, responded=False, detail=str(exc))
 
@@ -516,6 +534,9 @@ class HostProber:
                 timeout=self.timeout,
             )
             result.probes_sent += 1
+            # A refusal proves the host is up without opening the port: it counts towards
+            # liveness but is not an open port and gets no follow-up read.
+            result.responded |= connect.host_alive
             if not connect.responded:
                 continue
 

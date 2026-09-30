@@ -53,9 +53,14 @@ from netsecops.parsers.base import (
 #: `ip address 10.10.10.2/30` — CIDR, unlike IOS.
 _CIDR_ADDRESS = re.compile(r"^\s*ip address (\d{1,3}(?:\.\d{1,3}){3}/\d{1,2})")
 
-#: `ip route 0.0.0.0/0 10.10.10.1 [name X] [tag N]`
+#: `ip route 0.0.0.0/0 10.10.10.1 [name X] [tag N]`, and the interface+gateway form
+#: `ip route 0.0.0.0/0 Ethernet1 10.1.1.1 [tag N]` where the egress interface and the
+#: next-hop gateway are both stated. The second group only matches a trailing address,
+#: so an administrative distance (a bare number) or `name`/`tag` keywords do not capture.
 _ROUTE = re.compile(
-    r"^ip route (?:vrf (?P<vrf>\S+) )?(?P<destination>\d{1,3}(?:\.\d{1,3}){3}/\d{1,2})\s+(?P<next_hop>\S+)"
+    r"^ip route (?:vrf (?P<vrf>\S+) )?(?P<destination>\d{1,3}(?:\.\d{1,3}){3}/\d{1,2})"
+    r"\s+(?P<first>\S+)"
+    r"(?:\s+(?P<gateway>\d{1,3}(?:\.\d{1,3}){3}))?"
 )
 
 #: `username admin privilege 15 role network-admin secret sha512 $6$…`
@@ -321,15 +326,20 @@ class AristaEosParser(CiscoStyleParser):
             found = _ROUTE.match(obj.text.strip())
             if not found:
                 continue
-            next_hop = found.group("next_hop")
-            # EOS accepts an interface where IOS would want an address. Stored as a next
-            # hop it becomes an edge to a device that does not exist.
-            is_address = re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", next_hop) is not None
+            first = found.group("first")
+            gateway = found.group("gateway")
+            # EOS accepts an interface where IOS would want an address, and it accepts
+            # both together (`ip route <prefix> <intf> <gw>`). Read the first token as an
+            # interface unless it is itself an address; the real next hop is then the
+            # trailing gateway. Storing an interface name as a next hop would make an edge
+            # to a device that does not exist; dropping the trailing gateway would make
+            # the route read as directly-attached and lose the forwarding hop entirely.
+            first_is_address = re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", first) is not None
             ncm.routing.routes.append(
                 Route(
                     destination=found.group("destination"),
-                    next_hop=next_hop if is_address else None,
-                    interface=None if is_address else next_hop,
+                    next_hop=first if first_is_address else gateway,
+                    interface=None if first_is_address else first,
                     protocol="static",
                     vrf=found.group("vrf"),
                 )

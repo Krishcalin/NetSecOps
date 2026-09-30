@@ -163,6 +163,11 @@ class AaaCorrelationReport:
     #: How many AAA servers contributed a client list. Zero means the orphan and
     #: registration conclusions could not be drawn at all.
     servers_examined: int = 0
+    #: Known AAA servers whose client list came back empty or unparsed. Their clients are
+    #: unknown, not absent — a device could be registered on one without appearing here —
+    #: so their presence withholds the unregistered-device verdict rather than risk a
+    #: false "unregistered/HIGH" for a device that only authenticates against them.
+    servers_with_unreadable_clients: list[str] = field(default_factory=list)
     #: Client entries whose source masks the shared secret, so reuse is unknowable for
     #: them. FR-AAA-05 requires this be reported rather than counted as "not reused".
     secrets_not_exposable: int = 0
@@ -174,6 +179,16 @@ class AaaCorrelationReport:
         return self.servers_examined > 0
 
     @property
+    def registration_reliable(self) -> bool:
+        """Whether an unregistered-device verdict can be trusted.
+
+        A server whose client list could not be read leaves a hole exactly the shape of a
+        false positive: a device registered only there looks unregistered everywhere. The
+        verdict is only sound when every collected server's client list was readable.
+        """
+        return self.registration_analysed and not self.servers_with_unreadable_clients
+
+    @property
     def counts(self) -> dict[str, int]:
         return {
             "orphaned_clients": len(self.orphaned_clients),
@@ -181,6 +196,7 @@ class AaaCorrelationReport:
             "unknown_servers": len(self.unknown_servers),
             "reused_secrets": len(self.reused_secrets),
             "servers_examined": self.servers_examined,
+            "servers_with_unreadable_clients": len(self.servers_with_unreadable_clients),
             "secrets_not_exposable": self.secrets_not_exposable,
         }
 
@@ -210,7 +226,18 @@ class AaaCorrelationService:
 
             raw = (snapshot.ncm or {}).get("aaa_server") or {}
             config = AaaServerConfig.model_validate(raw)
-            if config.product not in _SERVER_PRODUCTS or not config.clients:
+            if config.product not in _SERVER_PRODUCTS:
+                # Not an AAA server at all — there is nothing to read here.
+                continue
+            if not config.clients:
+                # A known AAA server product whose client list came back empty or
+                # unparsed. Its clients are unknown, not absent: dropping it silently and
+                # then judging registration on the other servers alone flags every device
+                # that authenticates only against this one as unregistered. Recorded so the
+                # verdict can be withheld instead.
+                report.servers_with_unreadable_clients.append(
+                    device.hostname or str(device.mgmt_ip)
+                )
                 continue
 
             record = ServerRecord(
@@ -302,7 +329,11 @@ class AaaCorrelationService:
                     if device.id not in existing.used_by_ids:
                         existing.used_by_ids.append(device.id)
 
-            if not report.registration_analysed:
+            if not report.registration_reliable:
+                # No server examined, or at least one server's client list was unreadable.
+                # Either way an unregistered verdict would be a guess; the limitation says
+                # so. The unknown-server detection above still runs — that reads the
+                # device side and does not depend on the servers' client lists.
                 continue
             if device.device_class == DeviceClass.MANAGER.value:
                 # A manager authenticates its administrators, not itself, so it is not
@@ -352,6 +383,15 @@ class AaaCorrelationService:
                 "No AAA server has been collected from, so NetSecOps cannot tell which "
                 "devices are registered as clients. This is not a finding that every "
                 "device is unregistered — it is the absence of the data needed to ask."
+            )
+        elif report.servers_with_unreadable_clients:
+            servers = ", ".join(sorted(report.servers_with_unreadable_clients))
+            notes.append(
+                f"{len(report.servers_with_unreadable_clients)} collected AAA server(s) "
+                f"({servers}) returned no readable client list, so a device could be "
+                "registered on one of them without appearing here. Unregistered-device "
+                "findings are withheld rather than risk flagging a device that is in fact a "
+                "client of one of these servers. Re-collect those servers to complete it."
             )
 
         if report.secrets_not_exposable:
@@ -473,6 +513,7 @@ def summarise(report: AaaCorrelationReport) -> dict[str, Any]:
         "devices_with_central_auth": report.coverage.devices_with_central_auth,
         "devices_not_evaluated": report.coverage.devices_not_evaluated,
         "registration_analysed": report.registration_analysed,
+        "registration_reliable": report.registration_reliable,
         "limitations": report.limitations,
     }
 

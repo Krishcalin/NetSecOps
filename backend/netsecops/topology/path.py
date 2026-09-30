@@ -771,6 +771,31 @@ def walk(
                 if translation.port is not None:
                     port = translation.port
 
+        # A range that one of this device's prefixes cuts across does not take one path,
+        # so a single trace cannot describe it — not even when a connected route covers
+        # the representative address and the walk would otherwise declare arrival below.
+        # Checked before the arrival and routing branches, and per hop, because a range can
+        # be whole on the first device and subdivided several hops later. This is the guard
+        # the old post-route-lookup placement skipped whenever `serves()` fired first,
+        # which reported a range that is part directly-connected and part routed-away as
+        # fully arrived.
+        if dst_endpoint.is_range:
+            subdividing = current.routes_subdividing(
+                int(dst_endpoint.addresses.intervals[0][0]),
+                int(dst_endpoint.addresses.intervals[-1][1]),
+            )
+            if subdividing:
+                result.hops.append(hop)
+                result.routing = RoutingConfidence.UNKNOWN
+                result.stopped_at_device = current.hostname
+                result.notes.append(
+                    f"{current.hostname} routes {destination} through more than one "
+                    f"prefix ({', '.join(subdividing)}), so different parts of that range "
+                    "take different paths. Narrow the query to one of those prefixes to "
+                    "get a single answer."
+                )
+                return _finalise(result)
+
         # Arrived: the destination is on a subnet this device is directly attached to.
         if current.serves(dst):
             # The interface as well as the zone: an outbound access list is bound by
@@ -830,26 +855,6 @@ def walk(
                     "dropped there, so no firewall beyond it is consulted."
                 )
             return _finalise(result)
-
-        # A range that one of this device's prefixes cuts across does not take one path,
-        # so a single trace cannot describe it. Checked per hop rather than once, because
-        # a range can be whole on the first device and subdivided three hops later.
-        if dst_endpoint.is_range:
-            subdividing = current.routes_subdividing(
-                int(dst_endpoint.addresses.intervals[0][0]),
-                int(dst_endpoint.addresses.intervals[-1][1]),
-            )
-            if subdividing:
-                result.hops.append(hop)
-                result.routing = RoutingConfidence.UNKNOWN
-                result.stopped_at_device = current.hostname
-                result.notes.append(
-                    f"{current.hostname} routes {destination} through more than one "
-                    f"prefix ({', '.join(subdividing)}), so different parts of that range "
-                    "take different paths. Narrow the query to one of those prefixes to "
-                    "get a single answer."
-                )
-                return _finalise(result)
 
         # More than one route ties for best. A router chooses per flow by hashing the
         # header, and nothing in a configuration says which way this flow goes — so the

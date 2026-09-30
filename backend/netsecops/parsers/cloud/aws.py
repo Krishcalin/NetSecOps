@@ -217,13 +217,27 @@ class AwsParser(ConfigParser):
         # Prefix lists are AWS-managed address sets — `pl-...` for S3, DynamoDB and the
         # rest — and their contents are not in this export either. Same treatment as a
         # security group, for the same reason.
+        #
+        # A rule may also reference a group by id (`sg-...`) that is not in this export at
+        # all: one in a peered VPC or another account. Its membership is externally
+        # resolved, exactly like a group whose instances live in describe-instances — not
+        # a collection gap the operator can close by re-collecting this account. Left
+        # untyped it would fall to the MISSING bucket and advise a re-collection that can
+        # never produce it.
         known = {o.name for o in ncm.firewall.address_groups}
         for rule in ncm.firewall.security_rules:
             for member in (*rule.src, *rule.dst):
-                if member.startswith("pl-") and member not in known:
+                if member in known:
+                    continue
+                if member.startswith("pl-"):
                     known.add(member)
                     ncm.firewall.address_groups.append(
                         NetworkObject(name=member, type="prefix-list", members=[])
+                    )
+                elif member.startswith("sg-"):
+                    known.add(member)
+                    ncm.firewall.address_groups.append(
+                        NetworkObject(name=member, type="security-group", members=[])
                     )
 
         ncm.firewall.zones = sorted(vpcs)

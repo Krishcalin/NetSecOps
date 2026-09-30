@@ -800,6 +800,31 @@ class TestSegmentationQueries:
         assert "more than one prefix" in notes
         assert "10.20.0.0/25" in notes
 
+    def test_a_range_part_connected_and_part_routed_away_is_not_arrived(self) -> None:
+        """The low half of the range is directly attached; the high half is routed onward.
+
+        The representative address (the range's low host) sits on the connected prefix, so
+        `serves()` would short-circuit and declare the whole range arrived — reporting a
+        range that only half-arrives as fully routed. The subdividing guard must fire first.
+        """
+        edge = node(
+            "edge-rtr",
+            addresses={"lan": "10.10.0.1/24", "low": "10.20.0.1/25", "up": "10.0.1.1/30"},
+            routes=[
+                connected("10.10.0.0/24", "lan"),
+                connected("10.20.0.0/25", "low"),  # low half directly attached
+                static("10.20.0.128/25", "10.0.1.2", "up"),  # high half routed away
+            ],
+        )
+        result = walk(
+            build_graph([edge]), source="10.10.0.0/24", destination="10.20.0.0/24", port=443
+        )
+
+        assert result.routing is RoutingConfidence.UNKNOWN
+        notes = " ".join(result.notes)
+        assert "more than one prefix" in notes
+        assert "10.20.0.0/25" in notes
+
     def test_an_ipv6_range_is_refused_rather_than_guessed(self) -> None:
         """Forwarding tables are parsed for IPv4 only, so v6 has nothing to walk."""
         with pytest.raises(ValidationProblem, match="IPv6"):

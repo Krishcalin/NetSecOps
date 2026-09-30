@@ -238,6 +238,52 @@ class TestNsx:
         group = next(g for g in nsx.firewall.address_groups if g.name == "web-servers")
         assert group.members == ["10.20.0.0/24"]
 
+    def test_a_group_is_catalogued_by_id_so_rules_referencing_it_resolve(self) -> None:
+        # A rule refers to a group by its path id (grp-4821). An API/Terraform group whose
+        # display_name differs ("Web Servers") must still be catalogued under the id the
+        # rule uses, or every rule referencing it loses its members and drops out of the
+        # overlap and shadowing analysis.
+        body = {
+            "/policy/api/v1/infra/domains/default/groups": {
+                "results": [
+                    {
+                        "id": "grp-4821",
+                        "display_name": "Web Servers",
+                        "expression": [
+                            {
+                                "resource_type": "IPAddressExpression",
+                                "ip_addresses": ["10.0.0.5"],
+                            }
+                        ],
+                    }
+                ]
+            },
+            "/policy/api/v1/infra/domains/default/security-policies": {
+                "results": [
+                    {
+                        "id": "app",
+                        "display_name": "app",
+                        "rules": [
+                            {
+                                "id": "r1",
+                                "display_name": "web-in",
+                                "action": "ALLOW",
+                                "source_groups": ["/infra/domains/default/groups/grp-4821"],
+                                "destination_groups": ["ANY"],
+                            }
+                        ],
+                    }
+                ]
+            },
+        }
+        ncm = parse_text("vmware_nsx", json.dumps(body))
+        catalogue = {g.name for g in ncm.firewall.address_groups}
+
+        assert "grp-4821" in catalogue, "the group must be keyed by the id a rule uses"
+        assert "Web Servers" not in catalogue
+        rule = next(r for r in ncm.firewall.security_rules if r.name == "web-in")
+        assert rule.src == ["grp-4821"], "the rule member must match the catalogue key"
+
     def test_the_manager_version(self, nsx: NormalisedConfig) -> None:
         assert nsx.device.version == "4.1.2.3.0"
 
@@ -361,6 +407,32 @@ class TestAws:
         # So a rule naming another group as its source resolves to something.
         assert any(g.name == "sg-0aaa1111" for g in aws.firewall.address_groups)
 
+    def test_a_cross_account_group_reference_is_externally_resolved(self) -> None:
+        # A rule may permit from a group in a peered VPC or another account whose export
+        # we do not hold. Left untyped it lands in the MISSING bucket and advises a
+        # re-collection that can never produce it; its membership is externally resolved,
+        # exactly like a prefix list.
+        body = [
+            {
+                "GroupId": "sg-0aaa1111",
+                "GroupName": "web",
+                "VpcId": "vpc-1",
+                "IpPermissions": [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": 443,
+                        "ToPort": 443,
+                        "UserIdGroupPairs": [{"GroupId": "sg-99999999"}],
+                    }
+                ],
+                "IpPermissionsEgress": [],
+            }
+        ]
+        ncm = parse_text("aws_vpc", json.dumps(body))
+        peer = next((g for g in ncm.firewall.address_groups if g.name == "sg-99999999"), None)
+        assert peer is not None, "a cross-account group reference must become an object"
+        assert peer.type == "security-group"
+
     def test_vpcs_become_zones(self, aws: NormalisedConfig) -> None:
         assert set(aws.firewall.zones) == {"vpc-01234567", "vpc-89abcdef"}
 
@@ -429,3 +501,34 @@ class TestAzure:
     def test_an_arm_wrapped_export_is_accepted(self) -> None:
         body = {"value": [{"name": "nsg-1", "properties": {"securityRules": []}}]}
         assert parse_text("azure_nsg", json.dumps(body)).parse_failed is False
+
+    def test_a_regional_service_tag_is_typed_not_read_as_a_literal(self) -> None:
+        # Regional tags (Storage.EastUS, Sql.WestEurope) carry a dot, but a dot is not an
+        # address. Skipped as a "literal" the tag resolves to nothing and an inbound allow
+        # reads as matching no traffic — the opposite of the truth. A genuine CIDR in the
+        # same rule must still be left alone.
+        body = [
+            {
+                "name": "nsg-1",
+                "properties": {
+                    "securityRules": [
+                        {
+                            "name": "allow-storage",
+                            "properties": {
+                                "priority": 100,
+                                "direction": "Inbound",
+                                "access": "Allow",
+                                "protocol": "Tcp",
+                                "sourceAddressPrefix": "Storage.EastUS",
+                                "destinationAddressPrefix": "10.0.0.0/24",
+                                "destinationPortRange": "443",
+                            },
+                        }
+                    ]
+                },
+            }
+        ]
+        ncm = parse_text("azure_nsg", json.dumps(body))
+        tags = {o.name for o in ncm.firewall.address_objects if o.type == "service-tag"}
+        assert "Storage.EastUS" in tags
+        assert "10.0.0.0/24" not in tags, "a real CIDR must not be typed a service tag"

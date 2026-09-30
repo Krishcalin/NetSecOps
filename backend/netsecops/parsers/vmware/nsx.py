@@ -155,7 +155,13 @@ class VmwareNsxParser(ConfigParser):
             if "/groups" not in endpoint:
                 continue
             for item in _results(payload):
-                name = item.get("display_name") or item.get("id")
+                # Keyed on `id`, because that is the last path segment a rule's
+                # source_groups/destination_groups reduce to via _leaf. Preferring
+                # display_name (which differs from id for any API/Terraform-created group,
+                # e.g. id='grp-4821', display_name='Web Servers') catalogues the group
+                # under a name no rule references, so every rule using it loses its
+                # members and drops out of the overlap and shadowing analysis.
+                name = item.get("id") or item.get("display_name")
                 if not name:
                     continue
 
@@ -186,7 +192,10 @@ class VmwareNsxParser(ConfigParser):
             if "/services" not in endpoint:
                 continue
             for item in _results(payload):
-                name = item.get("display_name") or item.get("id")
+                # Keyed on `id` for the same reason as _groups: a rule's `services`
+                # reduce to the path's last segment (the id) via _leaf, so a service
+                # catalogued under a differing display_name would never resolve.
+                name = item.get("id") or item.get("display_name")
                 if not name:
                     continue
                 ports: list[str] = []

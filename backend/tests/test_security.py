@@ -24,6 +24,7 @@ from netsecops.core.security import (
     generate_recovery_codes,
     hash_password,
     hash_token,
+    matched_totp_step,
     mfa_provisioning_uri,
     validate_password_policy,
     verify_password,
@@ -171,6 +172,38 @@ class TestTOTP:
         secret = generate_mfa_secret()
         stale = pyotp.TOTP(secret).at(int(time.time()) - 300)
         assert not verify_totp(secret, stale, settings)
+
+    def test_matched_step_names_the_codes_own_step_not_the_current_one(
+        self, settings: Settings
+    ) -> None:
+        """The property the replay guard depends on.
+
+        A code minted for the previous step is still valid now (window=1). Its matched
+        step must be the step it belongs to — not the current step — so a guard that
+        stores it can reject the code being presented again later in its window. Recording
+        the current step instead is exactly the replay hole this fixes.
+        """
+        secret = generate_mfa_secret()
+        period = settings.mfa_totp_period_seconds
+        prev_time = int(time.time()) - period
+        prev_step = prev_time // period
+        code = pyotp.TOTP(secret, interval=period).at(prev_time)
+
+        assert matched_totp_step(secret, code, settings) == prev_step
+
+    def test_matched_step_is_none_for_an_invalid_code(self, settings: Settings) -> None:
+        assert matched_totp_step(generate_mfa_secret(), "000000", settings) is None
+
+    def test_matched_step_advances_with_a_fresh_code(self, settings: Settings) -> None:
+        """A guard comparing `matched <= last_used` must still admit the next code."""
+        secret = generate_mfa_secret()
+        period = settings.mfa_totp_period_seconds
+        now = int(time.time())
+        prev = matched_totp_step(secret, pyotp.TOTP(secret, interval=period).at(now - period))
+        curr = matched_totp_step(secret, pyotp.TOTP(secret, interval=period).at(now))
+
+        assert prev is not None and curr is not None
+        assert curr > prev
 
     def test_provisioning_uri_carries_issuer(self, settings: Settings) -> None:
         uri = mfa_provisioning_uri(generate_mfa_secret(), "user@example.test", settings)

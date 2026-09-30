@@ -228,6 +228,26 @@ class TestTcpConnect:
         assert outcome.responded is False
         assert outcome.detail
 
+    async def test_a_refused_port_proves_the_host_is_alive(self, monkeypatch) -> None:
+        """A RST is not silence. The port is closed, but the host answered the network.
+
+        Recorded identically to a timeout, a hardened host that drops ICMP and closes every
+        scanned port would be reported as absent — a device that definitively answered
+        filed with dead address space. A refusal is injected rather than provoked, because
+        whether a just-closed loopback port RSTs or times out is an OS/timing detail.
+        """
+
+        async def refuse(*_args, **_kwargs):
+            raise ConnectionRefusedError("connection refused")
+
+        monkeypatch.setattr(asyncio, "open_connection", refuse)
+
+        probe = authorise(ProbeKind.TCP_CONNECT, LOOPBACK, port=9, allowed_ports=(9,))
+        outcome = await send_tcp_connect(probe, timeout=QUICK)
+
+        assert outcome.responded is False, "a closed port is not an open one"
+        assert outcome.host_alive is True, "but a refusal proves the host is up"
+
     async def test_connecting_sends_no_payload(self) -> None:
         """FR-DISC-02 permits a *connect*. Anything written would be interaction."""
         async with RecordingServer() as server:
@@ -377,6 +397,23 @@ class TestHostProber:
 
         assert result.responded is True
         assert result.open_ports == (server.port,)
+
+    async def test_a_refused_port_makes_a_host_responsive_without_opening_it(
+        self, monkeypatch
+    ) -> None:
+        """A host that refuses every scanned port is still found — it answered — but the
+        refused port is not recorded as open and gets no follow-up read."""
+
+        async def refuse(*_args, **_kwargs):
+            raise ConnectionRefusedError("connection refused")
+
+        monkeypatch.setattr(asyncio, "open_connection", refuse)
+
+        result = await self._prober(9, ProbeKind.SSH_BANNER).probe(LOOPBACK)
+
+        assert result.responded is True, "a refusal proves the host is on the network"
+        assert result.open_ports == (), "but a refused port is not an open one"
+        assert result.evidence == [], "and a closed port yields no banner"
 
     async def test_a_banner_port_yields_weighted_ssh_evidence(self) -> None:
         async with RecordingServer(greeting=b"SSH-2.0-FortiSSH_1.0\r\n") as server:

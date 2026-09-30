@@ -400,6 +400,14 @@ class Settings(BaseSettings):
     def _guard_production(self) -> Self:
         """Fail closed on unsafe production configuration."""
         if self.env is Environment.PROD:
+            if "secret_key" not in self.model_fields_set:
+                # secret_key has a default_factory that mints a random key per process.
+                # Convenient in dev; in production it fails open — with more than one
+                # worker a token signed by one worker fails to verify on another, and
+                # every restart silently invalidates every session. An unset key is a
+                # misconfiguration, and must fail loudly rather than fall back to an
+                # ephemeral one that only looks like it works from a single worker.
+                raise ValueError("SECRET_KEY must be set explicitly in production")
             if self.debug:
                 raise ValueError("debug must be False in production")
             if not self.cookie_secure:

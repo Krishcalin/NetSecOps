@@ -204,6 +204,36 @@ class TestInterfacesAndRoutes:
         assert discard.next_hop is None
         assert discard.interface == "Null0"
 
+    def test_a_route_with_both_interface_and_gateway_keeps_the_gateway(self) -> None:
+        # `ip route <prefix> <intf> <gw>` — EOS accepts both an egress interface and a
+        # next-hop gateway. Capturing only the first token drops the gateway and the path
+        # walk then treats the route as directly-attached instead of forwarding to the
+        # real next hop, truncating or misrouting the walk.
+        ncm = parse(
+            "hostname sw1\n"
+            "!\n"
+            "ip route 0.0.0.0/0 Ethernet1 10.1.1.1\n"
+            "ip route 10.20.0.0/24 Vlan10 192.168.1.254 tag 5\n"
+        )
+        by_destination = {r.destination: r for r in ncm.routing.routes}
+
+        default = by_destination["0.0.0.0/0"]
+        assert default.interface == "Ethernet1"
+        assert default.next_hop == "10.1.1.1"
+
+        tagged = by_destination["10.20.0.0/24"]
+        assert tagged.interface == "Vlan10"
+        assert tagged.next_hop == "192.168.1.254"
+
+    def test_a_gateway_only_route_still_has_no_interface(self) -> None:
+        # The added optional gateway group must not steal a trailing administrative
+        # distance or `name`/`tag` keyword and turn a plain next-hop route into an
+        # interface route.
+        ncm = parse("hostname sw1\n!\nip route 10.40.0.0/16 10.10.10.9 200\n")
+        route = next(r for r in ncm.routing.routes if r.destination == "10.40.0.0/16")
+        assert route.next_hop == "10.10.10.9"
+        assert route.interface is None
+
 
 class TestVersionAndRobustness:
     def test_version_model_and_serial_from_one_command(self) -> None:

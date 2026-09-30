@@ -24,6 +24,12 @@ OAuth asks it to be, rather than a value that is merely echoed back.
 The index on `expires_at` is for the sweep that removes abandoned sign-ins: a browser
 that never comes back leaves a row, and without the index that cleanup is a sequential
 scan on a table every login writes to.
+
+`org_id` carries `index=True` through `OrgMixin` (DATA-04), like every other tenant-scoped
+table, so the model declares `ix_oidc_login_states_org_id`. It is created here rather than
+in a later corrective migration (as 0011 had to do for `reports`): this is the head, so the
+index can go in where it belongs instead of the model and the database disagreeing and
+`alembic check` failing the build (C-5).
 """
 
 from __future__ import annotations
@@ -70,9 +76,13 @@ def upgrade() -> None:
     )
     op.create_index("ix_oidc_login_states_state", "oidc_login_states", ["state"], unique=True)
     op.create_index("ix_oidc_login_states_expires_at", "oidc_login_states", ["expires_at"])
+    op.create_index(
+        op.f("ix_oidc_login_states_org_id"), "oidc_login_states", ["org_id"], unique=False
+    )
 
 
 def downgrade() -> None:
+    op.drop_index(op.f("ix_oidc_login_states_org_id"), table_name="oidc_login_states")
     op.drop_index("ix_oidc_login_states_expires_at", table_name="oidc_login_states")
     op.drop_index("ix_oidc_login_states_state", table_name="oidc_login_states")
     op.drop_table("oidc_login_states")

@@ -165,6 +165,38 @@ class TestProductionGuards:
         with pytest.raises(ValidationError, match="wildcard CORS"):
             build(monkeypatch, NETSECOPS_ENV="prod", NETSECOPS_CORS_ORIGINS="*")
 
+    def test_unset_secret_key_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An unset key would fall to the random per-process default_factory and run
+        silently — tokens signed by one worker failing to verify on another, and every
+        restart invalidating every session. It must fail at boot instead."""
+        for key in (
+            "SECRET_KEY",
+            "NETSECOPS_ENV",
+            "NETSECOPS_DEBUG",
+            "NETSECOPS_COOKIE_SECURE",
+            "NETSECOPS_CORS_ORIGINS",
+        ):
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("DATABASE_URL", BASE_ENV["DATABASE_URL"])
+        monkeypatch.setenv("NETSECOPS_ENV", "prod")
+        monkeypatch.setenv("NETSECOPS_COOKIE_SECURE", "true")
+        monkeypatch.setenv("NETSECOPS_CORS_ORIGINS", "https://netsecops.example")
+
+        with pytest.raises(ValidationError, match="SECRET_KEY must be set"):
+            Settings(_env_file=None)  # type: ignore[call-arg]
+
+    def test_an_explicit_secret_key_satisfies_the_production_guard(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # build() sets SECRET_KEY from the environment, so the key is explicitly provided.
+        settings = build(
+            monkeypatch,
+            NETSECOPS_ENV="prod",
+            NETSECOPS_COOKIE_SECURE="true",
+            NETSECOPS_CORS_ORIGINS="https://netsecops.example",
+        )
+        assert settings.is_production
+
     def test_valid_production_config_is_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
         settings = build(
             monkeypatch,
