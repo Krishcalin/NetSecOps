@@ -18,6 +18,7 @@ from netsecops.api.v1 import (
     notifications,
     reports,
     risk,
+    matrix,
     segmentation,
     settings,
     snapshots,
@@ -99,6 +100,10 @@ api_v1_router.include_router(topology.router)
 # (FR-TOPO-07). Registered after topology because it consumes the same graph;
 # `/segmentation/rules/{id}` is the only UUID path and it has no literal sibling.
 api_v1_router.include_router(segmentation.router)
+
+# Group-scoped connectivity discovery (Slice B). Consumes the same whole-estate graph;
+# `/matrix/discover` is a GET with no UUID path, so no ordering constraint.
+api_v1_router.include_router(matrix.router)
 
 # Phase 7 — notification channels, subscriptions and the delivery queue (FR-INT-01).
 # `/notifications/channels/{id}/test` is a literal sub-resource of a UUID path, so there

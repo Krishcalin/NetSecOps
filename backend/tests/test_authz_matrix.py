@@ -418,6 +418,8 @@ MATRIX: list[Case] = [
     Case("GET", "/api/v1/segmentation/zones", _DEVICE_READERS),
     Case("GET", "/api/v1/segmentation/rules", _DEVICE_READERS),
     Case("GET", "/api/v1/segmentation/matrix", _DEVICE_READERS),
+    # Group-scoped connectivity discovery (Slice B): a topology read, framed by a group.
+    Case("GET", "/api/v1/matrix/discover/{group_id}", _DEVICE_READERS),
     Case(
         "POST",
         "/api/v1/segmentation/zones",
