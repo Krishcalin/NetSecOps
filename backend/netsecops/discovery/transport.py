@@ -114,6 +114,13 @@ class ProbeOutcome:
     #: block. Kept verbatim — the review queue shows a person the raw string, because
     #: "Cisco, 70%" is not something anybody can check.
     payload: str | None = None
+    #: The certificate probe alone yields two distinct-signal pieces from one connection —
+    #: the TLS subject (`payload`) and the HTTP header block (here). They carry different
+    #: fingerprint weights and must stay separate signals, so they are kept in two fields
+    #: rather than joined with a newline and split back out: a header block contains
+    #: newlines, and splitting on the first one misreads the status line as the subject
+    #: whenever the certificate was unreadable and there is no subject to lead with.
+    headers: str | None = None
     #: Why it did not respond, for the run log. Not shown per-address in the UI: a scope
     #: is mostly silence and "connection refused" ×250 is noise.
     detail: str | None = None
@@ -419,11 +426,11 @@ async def send_https_certificate(
             raw = await reader.read(HTTP_HEADER_LIMIT)
 
         headers = raw.decode("utf-8", errors="replace").strip()
-        parts = [text for text in (subject, headers) if text]
         return ProbeOutcome(
             probe=probe,
             responded=True,
-            payload="\n".join(parts) or None,
+            payload=subject or None,
+            headers=headers or None,
             detail=common_name,
         )
 
@@ -586,14 +593,19 @@ class HostProber:
             timeout=self.timeout,
         )
         result.probes_sent += 1
-        if not outcome.payload:
+        if not outcome.responded:
+            # A timeout or SSL error carries no evidence, and its `detail` is an error
+            # string — not a subject and not a hostname. Bail before either is misread.
             return
 
-        subject, _, headers = outcome.payload.partition("\n")
-        if subject:
-            result.evidence.append(read_text(Signal.TLS_SUBJECT, subject))
-        if headers:
-            result.evidence.append(read_text(Signal.HTTP_HEADER, headers))
+        # The subject and the header block are separate signals with separate weights.
+        # An unreadable certificate leaves `payload` empty but the headers still stand;
+        # each is read from its own field, so a header block is never misattributed as a
+        # TLS subject.
+        if outcome.payload:
+            result.evidence.append(read_text(Signal.TLS_SUBJECT, outcome.payload))
+        if outcome.headers:
+            result.evidence.append(read_text(Signal.HTTP_HEADER, outcome.headers))
 
         # The certificate's common name is a hostname candidate, not an identity. Vendors
         # ship certificates whose CN is the model or a wildcard, so anything without a dot

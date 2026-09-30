@@ -403,6 +403,30 @@ class TestHostProber:
         assert Signal.TLS_SUBJECT in signals
         assert result.hostname == "fw01.example.net"
 
+    async def test_an_unreadable_certificate_does_not_masquerade_as_a_tls_subject(
+        self, tls_context: ssl.SSLContext, monkeypatch
+    ) -> None:
+        """A certificate cryptography cannot parse yields no subject.
+
+        The HTTP header block that follows must be read as an HTTP header, never as the
+        TLS subject: the status line is not a certificate subject, and a vendor string in
+        the true first header line would otherwise be credited to the wrong, heavier
+        signal type and shown to the reviewer as provenance it does not have.
+        """
+        import netsecops.discovery.transport as transport_mod
+
+        monkeypatch.setattr(transport_mod, "_certificate_subject", lambda _obj: (None, None))
+
+        greeting = b"HTTP/1.0 200 OK\r\nServer: FortiGate-100F\r\n\r\n"
+        async with RecordingServer(greeting=greeting, ssl_context=tls_context) as server:
+            result = await self._prober(server.port, ProbeKind.HTTPS_CERTIFICATE).probe(LOOPBACK)
+
+        signals = [item.signal for item in result.evidence]
+        assert Signal.TLS_SUBJECT not in signals, "an unreadable cert must not fake a subject"
+        header_ev = [e for e in result.evidence if e.signal is Signal.HTTP_HEADER]
+        assert header_ev, "the HTTP header block should still be recorded"
+        assert "FortiGate" in header_ev[0].raw, "the whole header block, not just the status line"
+
     async def test_an_open_port_with_no_follow_up_still_counts_as_alive(self) -> None:
         """Found but unidentified is a real outcome, and the queue is sorted for it."""
         async with RecordingServer() as server:
