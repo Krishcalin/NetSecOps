@@ -392,11 +392,18 @@ def no_weak_password_hashes(context: EvaluationContext) -> CheckResult:
             evidence=context.evidence_for("users"),
         )
 
-    if unknown and len(unknown) == len(accounts):
+    # Any indeterminate account (with no confirmed-weak one above) means "all accounts
+    # use acceptable storage" cannot be asserted — counting unknown as verified is the
+    # false-green the 2026-09-30 audit found. This mirrors the access-port check's
+    # `if unknown and not offenders` pattern; here the offenders (`weak`) already
+    # returned above, so reaching this point means there are none.
+    if unknown:
+        names = sorted(str(u.get("name")) for u in unknown)
         return _result(
             Outcome.NOT_EVALUATED,
             f"Not evaluated: the password storage type could not be determined for "
-            f"{len(unknown)} account(s).",
+            f"{len(unknown)} of {len(accounts)} account(s) ({', '.join(names)}), so "
+            "'all accounts use acceptable storage' cannot be asserted.",
             reason="indeterminate",
         )
 
@@ -447,10 +454,17 @@ def aaa_servers_have_keys(context: EvaluationContext) -> CheckResult:
             evidence=context.evidence_for("aaa.servers"),
         )
 
-    if len(unknown) == len(entries):
+    # Any server whose key status is indeterminate (with none confirmed keyless above)
+    # means "every AAA server has a shared secret" cannot be asserted. Counting unknown
+    # as verified was the false-green the 2026-09-30 audit found: two confirmed plus one
+    # unknown reported "All 3 ... have a shared secret".
+    if unknown:
+        hosts = sorted(str(s.get("host")) for s in unknown)
         return _result(
             Outcome.NOT_EVALUATED,
-            "Not evaluated: whether the AAA servers have shared secrets could not be determined.",
+            f"Not evaluated: {len(unknown)} of {len(entries)} AAA server(s) "
+            f"({', '.join(hosts)}) could not be confirmed to have a shared secret, so "
+            "'every server has one' cannot be asserted.",
             reason="indeterminate",
         )
 
@@ -483,20 +497,39 @@ def _certificate_expiry(context: EvaluationContext, days: int) -> CheckResult:
 
     now = datetime.now(UTC)
     expiring: list[tuple[str, int]] = []
+    #: Certificates whose expiry date is absent or in a format this cannot parse (a
+    #: vendor spelling like OpenSSL's "Feb  3 12:00:00 2026 GMT", or a Unix epoch). They
+    #: were silently dropped until the 2026-09-30 audit, so a device whose every cert had
+    #: an unreadable date reported a confident "nothing expires" — a false-green over
+    #: certificates nothing actually checked.
+    unevaluable: list[str] = []
 
     for certificate in entries:
+        name = str(certificate.get("name") or certificate.get("subject") or "unnamed")
         raw = certificate.get("not_after")
         if not raw:
+            unevaluable.append(name)
             continue
         try:
             expiry = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
         except ValueError:
+            unevaluable.append(name)
             continue
         if expiry.tzinfo is None:
             expiry = expiry.replace(tzinfo=UTC)
         remaining = (expiry - now).days
         if remaining <= days:
-            expiring.append((str(certificate.get("name") or certificate.get("subject")), remaining))
+            expiring.append((name, remaining))
+
+    if not expiring and unevaluable:
+        return _result(
+            Outcome.NOT_EVALUATED,
+            f"Not evaluated: {len(unevaluable)} of {len(entries)} certificate(s) have an "
+            f"expiry date that could not be read ({', '.join(sorted(unevaluable))}), so "
+            f"'nothing expires within {days} days' cannot be asserted.",
+            reason="unparseable-expiry",
+            evidence=context.evidence_for("certificates"),
+        )
 
     if not expiring:
         return _result(

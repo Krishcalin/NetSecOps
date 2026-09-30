@@ -469,6 +469,18 @@ class SegmentationService:
         else:  # pragma: no cover - a zone with no prefixes is refused at creation
             cell.detail = "This pair has no address ranges to walk."
 
+        # UPHELD means "proven over what was walked". When the cap truncated the walk it
+        # cannot speak for the unwalked combinations — a permit hiding in one of them
+        # would be missed, so a DENIED cell reads as holding while a real hole exists
+        # (and an ALLOWED cell hides a connectivity gap). A partial proof of a boundary
+        # is not a proof, so it degrades to UNVERIFIED (2026-09-30 audit, invariant 2).
+        if cell.status is CellStatus.UPHELD and total > len(pairs):
+            cell.status = CellStatus.UNVERIFIED
+            cell.detail = (
+                f"{cell.detail} — but only {len(pairs)} of {total} prefix combinations "
+                "were walked, so the boundary is not proven over the rest."
+            )
+
         return cell
 
 

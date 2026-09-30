@@ -286,6 +286,20 @@ class TestInternalConsistency:
         report = examine_both([nat(1, translated="dynamic-pool-A")], [])
         assert not report.by_issue(NatIssue.UNMATCHED_NAT)
 
+    def test_a_permit_with_an_unresolved_destination_is_unverifiable_not_unmatched(self) -> None:
+        """The NAT publishes a host, and the only permit rule that could reach it has a
+        destination that could not be resolved (an external group, or an object the
+        collection missed). Its resolved destination is empty, so it was dropped from
+        `matching` and the NAT reported as safely unreachable — the 2026-09-30 audit's
+        false-green. It must be reported as unverifiable, not unmatched."""
+        report = examine_both(
+            [nat(1, translated="10.20.0.10:443")],
+            [rule(1, src_zone="untrust", dst="prod-sg", service="tcp/443")],
+            external=["untrust"],
+        )
+        assert report.by_issue(NatIssue.REACH_UNVERIFIABLE)
+        assert not report.by_issue(NatIssue.UNMATCHED_NAT)
+
 
 class TestExposureIsNotGuessed:
     """The honesty requirement, and the easiest thing here to get quietly wrong."""

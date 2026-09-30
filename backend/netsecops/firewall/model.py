@@ -545,13 +545,23 @@ class ObjectResolver:
                 self._note_external(name, kind)
                 return None
             resolved = _service_from_object(obj)
+            if resolved is None:
+                # The object exists but its value could not be parsed into any port or
+                # protocol (a vendor spelling like `https` this does not map to a number).
+                # Returning an empty ServiceSet made every rule referencing it match *no*
+                # service — silently, with no entry in `unresolved`, so the rule was still
+                # analysed and could never fire. The address resolver already refuses the
+                # equivalent case (`_resolve_address`); this mirrors it.
+                self.unresolved.add(f"{name} (value not understood)")
+                return None
             self._service_cache[name] = resolved
             return resolved
 
         group = self._service_groups.get(name)
         if group is not None:
             by_protocol: dict[int, IntervalSet] = {}
-            for member in group.get("members", []):
+            members = list(group.get("members", []))
+            for member in members:
                 member_set = self._resolve_service(str(member), depth=depth + 1)
                 if member_set is None:
                     continue
@@ -561,6 +571,13 @@ class ObjectResolver:
                 for protocol, ports in member_set.by_protocol.items():
                     existing = by_protocol.get(protocol)
                     by_protocol[protocol] = ports if existing is None else existing.union(ports)
+            if members and not by_protocol:
+                # Members, none of which could be read — not an empty group. An empty
+                # group (no members) resolves to nothing legitimately; a group whose every
+                # member failed is unresolved, exactly as the address group resolver treats
+                # it. Returning the empty set here made the rule match no service silently.
+                self.unresolved.add(f"{name} (no member could be read)")
+                return None
             resolved = ServiceSet(by_protocol)
             self._service_cache[name] = resolved
             return resolved
@@ -597,11 +614,14 @@ class ObjectResolver:
         }
 
 
-def _service_from_object(obj: Mapping[str, Any]) -> ServiceSet:
-    """Build a ServiceSet from an NCM service object.
+def _service_from_object(obj: Mapping[str, Any]) -> ServiceSet | None:
+    """Build a ServiceSet from an NCM service object, or None if the value is unreadable.
 
     The NCM stores these loosely — `value` carries whatever the vendor wrote — so this
-    accepts the several shapes seen in practice rather than one canonical form.
+    accepts the several shapes seen in practice rather than one canonical form. When a
+    non-empty value cannot be parsed into a port range (a service name like `https` with
+    no number), it returns None so the caller records it as unresolved rather than as a
+    service that matches nothing.
     """
     value = str(obj.get("value") or "").strip().lower()
     declared = str(obj.get("type") or "").strip().lower()
@@ -623,7 +643,9 @@ def _service_from_object(obj: Mapping[str, Any]) -> ServiceSet:
         protocol = PROTOCOL_NUMBERS.get("tcp", 6) if ports else ANY_PROTOCOL
 
     port_set = parse_port_range(ports) if ports else ANY_PORT
-    return ServiceSet({protocol: port_set}) if port_set else ServiceSet({})
+    # A non-empty value that parsed to no ports (e.g. `https`) is unreadable, not a
+    # service that matches nothing — the caller turns None into an `unresolved` entry.
+    return ServiceSet({protocol: port_set}) if port_set else None
 
 
 def _service_from_literal(name: str) -> ServiceSet | None:

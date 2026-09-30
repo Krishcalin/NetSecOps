@@ -60,6 +60,10 @@ class NatIssue(StrEnum):
     EXPOSED_WITHOUT_INSPECTION = "exposed_without_inspection"
     UNMATCHED_NAT = "unmatched_nat"
     NAT_WITHOUT_TRANSLATION = "nat_without_translation"
+    #: A permit rule might reach the published host, but its destination is an unresolved
+    #: or externally-resolved object, so reachability could not be confirmed or ruled out.
+    #: Reported instead of a false "not reachable".
+    REACH_UNVERIFIABLE = "reach_unverifiable"
 
 
 ISSUE_SEVERITY: dict[NatIssue, str] = {
@@ -165,10 +169,8 @@ def _resolve_target(raw: Mapping[str, Any], resolver: ObjectResolver) -> Transla
     )
 
 
-def _reaches(rule: ResolvedRule, target: TranslatedTarget) -> bool:
-    """Whether a security rule permits traffic to the translated host and port."""
-    if not rule.destination.v4.intersects(target.addresses):
-        return False
+def _service_reaches(rule: ResolvedRule, target: TranslatedTarget) -> bool:
+    """Whether the rule's service/port half permits the target's published port."""
     if target.port is None:
         return True
     if rule.services.is_any:
@@ -176,6 +178,25 @@ def _reaches(rule: ResolvedRule, target: TranslatedTarget) -> bool:
     # NAT does not say which protocol; a published port is reachable if any protocol
     # the rule permits covers it. Requiring a protocol match would miss UDP services.
     return any(ports.covers_value(target.port) for ports in rule.services.by_protocol.values())
+
+
+def _reaches(rule: ResolvedRule, target: TranslatedTarget) -> bool:
+    """Whether a security rule permits traffic to the translated host and port."""
+    if not rule.destination.v4.intersects(target.addresses):
+        return False
+    return _service_reaches(rule, target)
+
+
+def _reach_unverifiable(rule: ResolvedRule, target: TranslatedTarget) -> bool:
+    """Whether the rule *might* reach the target but its destination could not be resolved.
+
+    A rule whose destination is an unresolved or externally-resolved object (an AWS
+    security group, an NSX dynamic group, an object the collection missed) has an empty
+    resolved destination, so `_reaches` returns False and the rule is dropped — which
+    reports the NAT as safely unreachable over a rule nobody could actually evaluate. If
+    the service half matches, reachability is unknown, not disproven (invariant 2).
+    """
+    return bool(rule.unresolved_dst) and _service_reaches(rule, target)
 
 
 def _exposed_insecure(
@@ -254,12 +275,44 @@ def examine(
         matching = [
             rule for rule in rules if rule.enabled and rule.permits and _reaches(rule, target)
         ]
+        # Permit rules that might reach the target but whose destination could not be
+        # resolved. They are not in `matching` (their resolved destination is empty), and
+        # dropping them silently is how a NAT gets called unreachable over a rule nobody
+        # could evaluate.
+        unverifiable = [
+            rule
+            for rule in rules
+            if rule.enabled
+            and rule.permits
+            and not _reaches(rule, target)
+            and _reach_unverifiable(rule, target)
+        ]
         from_outside = [
             rule for rule in matching if external & {zone.lower() for zone in rule.src_zones}
         ]
+        unverifiable_outside = [
+            rule for rule in unverifiable if external & {zone.lower() for zone in rule.src_zones}
+        ]
         where = describe_ipv4(target.addresses)
 
+        def _unresolved_dsts(candidates: Sequence[ResolvedRule]) -> str:
+            return ", ".join(sorted({name for rule in candidates for name in rule.unresolved_dst}))
+
         if not matching:
+            if unverifiable:
+                add(
+                    NatIssue.REACH_UNVERIFIABLE,
+                    target.order,
+                    target.name,
+                    f"This rule publishes {where}. No security rule with a resolvable "
+                    f"destination permits traffic to it, but {len(unverifiable)} permit "
+                    f"rule(s) reference a destination that could not be resolved "
+                    f"({_unresolved_dsts(unverifiable)}) — an external group or an object "
+                    "the collection missed — so whether they reach the translated host "
+                    "could not be determined. It is not reported as unreachable.",
+                    rule=unverifiable[0],
+                )
+                continue
             add(
                 NatIssue.UNMATCHED_NAT,
                 target.order,
@@ -278,6 +331,19 @@ def examine(
             continue
 
         if not from_outside:
+            if unverifiable_outside:
+                add(
+                    NatIssue.REACH_UNVERIFIABLE,
+                    target.order,
+                    target.name,
+                    f"This rule publishes {where}, and permit rules from an untrusted zone "
+                    f"reference a destination that could not be resolved "
+                    f"({_unresolved_dsts(unverifiable_outside)}), so a possible exposure "
+                    "from outside could neither be confirmed nor ruled out. It is not "
+                    "reported as safe.",
+                    rule=unverifiable_outside[0],
+                )
+                continue
             # Matched, but only from inside. Without this the rule falls through both
             # branches and is reported as nothing at all — which is how a NAT publishing
             # RDP, held shut only by a deny rule above it, became invisible. The

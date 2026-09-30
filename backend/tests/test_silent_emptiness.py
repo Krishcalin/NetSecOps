@@ -283,3 +283,40 @@ class TestNothingIsSilentlyEmpty:
                     empty.append(f"{kind[:-1]} {name}")
 
         assert empty == [], f"{relative}: objects standing for nothing: {empty}"
+
+
+class TestServiceResolutionRefusesRatherThanEmptying:
+    """A service that could not be read must be `unresolved`, not an empty set that a
+    permit rule then matches no traffic against — the 2026-09-30 audit's false-green.
+    Mirrors the address resolver, which already refuses these.
+    """
+
+    def test_an_unparseable_service_object_is_unresolved(self) -> None:
+        from netsecops.firewall.model import ObjectResolver
+
+        resolver = ObjectResolver({"service_objects": [{"name": "web-svc", "value": "https"}]})
+        services, missing = resolver.resolve_services(["web-svc"])
+
+        assert missing == ("web-svc",)
+        assert services.by_protocol == {}
+        assert any("web-svc" in note for note in resolver.unresolved)
+
+    def test_a_service_group_with_no_readable_member_is_unresolved(self) -> None:
+        from netsecops.firewall.model import ObjectResolver
+
+        resolver = ObjectResolver(
+            {"service_groups": [{"name": "grp", "members": ["svcA", "svcB"]}]}
+        )
+        _services, missing = resolver.resolve_services(["grp"])
+
+        assert missing == ("grp",)
+        assert any("grp" in note for note in resolver.unresolved)
+
+    def test_an_empty_service_group_resolves_to_nothing_legitimately(self) -> None:
+        # No members is a real empty group, not an unreadable one — it must NOT be flagged.
+        from netsecops.firewall.model import ObjectResolver
+
+        resolver = ObjectResolver({"service_groups": [{"name": "empty", "members": []}]})
+        _services, missing = resolver.resolve_services(["empty"])
+
+        assert missing == ()
