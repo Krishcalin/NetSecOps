@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netsecops.core.rbac import Principal, Role, Scope
 from netsecops.db.models import Device, User
 from netsecops.db.models.collection import Finding, FindingKind, FindingStatus
-from netsecops.db.models.inventory import DeviceClass, Vendor
+from netsecops.db.models.inventory import DeviceClass, DeviceStatus, Vendor
 from netsecops.db.models.vulnerability import VulnAdvisory, VulnCve, VulnMatch
 from netsecops.services.inventory import InventoryService
 from tests.conftest import make_user
@@ -276,6 +276,56 @@ class TestListing:
 
         assert likely["reasoning"] == ["version matched", "feature condition unknown"]
 
+    async def test_a_cvss_v4_only_cve_still_shows_its_score(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        principal,
+        analyst_user,
+        authenticate,
+        estate,
+    ) -> None:
+        """CVSS 4.0 is increasingly the only score a post-2024 CVE carries.
+
+        Ranking and displaying the row on v3.1 alone blanks the score cell and sorts a
+        genuinely critical finding to the bottom of the page — it reads as unscored when
+        it is one of the worst.
+        """
+        device = await add_device(
+            session, principal, ip="10.0.0.40", hostname="sw-v4only", version="15.2(7)E3"
+        )
+        advisory = await add_advisory(
+            session, source="nvd", advisory_id="CVE-2025-40000", cve_ids=["CVE-2025-40000"]
+        )
+        session.add(
+            VulnCve(
+                org_id=1,
+                cve_id="CVE-2025-40000",
+                description="scored only under CVSS 4.0",
+                cvss31=None,
+                cvss40={
+                    "version": "4.0",
+                    "base_score": 9.3,
+                    "base_severity": "CRITICAL",
+                    "vector": "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:H/VI:H/VA:H",
+                },
+                kev=False,
+                published=datetime(2025, 1, 1, tzinfo=UTC),
+            )
+        )
+        await add_finding(
+            session, device, advisory, confidence="confirmed", severity="critical"
+        )
+        await session.commit()
+        authenticate(analyst_user)
+
+        rows = (await client.get(LIST, params={"device_id": str(device.id)})).json()["data"]
+        row = next(r for r in rows if "CVE-2025-40000" in r["cve_ids"])
+
+        assert row["cvss"] is not None, "a v4-only CVE must not present as unscored"
+        assert row["cvss"]["base_score"] == 9.3
+        assert row["cvss"]["version"] == "4.0"
+
     async def test_filtering_by_confidence(self, client: AsyncClient, estate) -> None:
         rows = (await client.get(LIST, params={"confidence": "confirmed"})).json()["data"]
 
@@ -507,6 +557,35 @@ class TestSummary:
         body = (await client.get(SUMMARY)).json()
 
         assert body["devices_unassessed"] >= 1
+
+    async def test_archived_devices_are_not_counted_as_unassessed(
+        self,
+        client: AsyncClient,
+        session: AsyncSession,
+        principal,
+        analyst_user,
+        authenticate,
+        estate,
+    ) -> None:
+        """`assess_all` deliberately skips archived devices, so the coverage denominator
+        must skip them too.
+
+        Counting an archived device as "unassessed" reports a coverage gap the assessor
+        will never close — a number that can only ever go up, describing devices no longer
+        in service.
+        """
+        before = (await client.get(SUMMARY)).json()["devices_unassessed"]
+
+        archived = await add_device(
+            session, principal, ip="10.0.0.50", hostname="sw-retired", version="15.2(7)E3"
+        )
+        archived.status = DeviceStatus.ARCHIVED.value
+        await session.commit()
+        authenticate(analyst_user)
+
+        after = (await client.get(SUMMARY)).json()["devices_unassessed"]
+
+        assert after == before, "an archived device must not inflate the unassessed count"
 
 
 class TestFeeds:

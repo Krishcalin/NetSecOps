@@ -696,6 +696,34 @@ class TestTheFindingIsActionable:
 
         assert result.fixed_versions == ["15.2(7)E6"]
 
+    def test_the_range_fix_bound_feeds_the_upgrade_view_for_nvd(self) -> None:
+        """NVD never populates the dedicated `fixed` list.
+
+        It states the fix only as the exclusive upper bound of the affected range
+        (`versionEndExcluding`, on `constraint.fixed`). Reading the CSAF `fixed` list
+        alone left the upgrade-path view blind to every NVD-sourced vulnerability, even
+        though the release to upgrade to is right there on the range.
+        """
+        result = match(
+            device(),
+            advisory(affected("<15.2(7)E6", fixed="15.2(7)E6")),  # no dedicated `fixed` list
+        )
+
+        assert result.fixed_versions == ["15.2(7)E6"]
+
+    def test_an_inclusive_last_affected_bound_is_never_offered_as_a_fix(self) -> None:
+        """`versionEndIncluding` names a release that is *itself* still vulnerable.
+
+        Offering it as an upgrade target would tell an operator to move to a version that
+        does not contain the fix — worse than offering nothing.
+        """
+        result = match(
+            device(version="15.2(7)E6"),
+            advisory(affected("<=15.2(7)E6", last_affected="15.2(7)E6", train="E")),
+        )
+
+        assert result.fixed_versions == []
+
     @pytest.mark.parametrize(
         ("confidence", "expected"),
         [

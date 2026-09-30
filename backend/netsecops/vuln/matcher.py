@@ -460,11 +460,25 @@ def _nothing_applies(
 
 
 def _fixed_versions(advisory: Advisory) -> list[str]:
-    """The releases the vendor named as containing the fix (FR-VUL-10)."""
+    """The releases the vendor named as containing the fix (FR-VUL-10).
+
+    Two feeds express the fix two ways. CSAF names the exact patched release in a
+    dedicated ``fixed`` list. NVD never populates that list at all — it states the fix
+    only as the exclusive upper bound of an affected range (``versionEndExcluding``, the
+    first release no longer affected), which lands on ``constraint.fixed``. Reading only
+    the CSAF form left the upgrade-path view blind to every NVD-sourced vulnerability.
+
+    ``last_affected`` (``versionEndIncluding``) is deliberately not read here: it names a
+    release where no fix shipped, and treating it as fixed would tell an operator to
+    "upgrade" to a version that is still vulnerable.
+    """
     versions: list[str] = []
     for entry in advisory.fixed:
         if entry.constraint.kind is ConstraintKind.EXACT and entry.constraint.version:
             versions.append(entry.constraint.version)
+    for entry in advisory.affected:
+        if entry.constraint.kind is ConstraintKind.RANGE and entry.constraint.fixed:
+            versions.append(entry.constraint.fixed)
     return sorted(set(versions))
 
 

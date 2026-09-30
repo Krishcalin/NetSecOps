@@ -29,7 +29,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.core.rbac import Scope
 from netsecops.db.models.collection import Finding, FindingKind, FindingStatus
-from netsecops.db.models.inventory import Device
+from netsecops.db.models.inventory import Device, DeviceStatus
 from netsecops.db.models.vulnerability import VulnAdvisory, VulnCve, VulnMatch
 from netsecops.schemas.vulnerability import (
     AffectedDeviceRead,
@@ -69,6 +69,33 @@ def _cvss(payload: dict[str, Any] | None) -> CvssRead | None:
         base_severity=payload.get("base_severity") or payload.get("baseSeverity"),
         vector=payload.get("vector") or payload.get("vectorString"),
     )
+
+
+def _score(cve: VulnCve) -> float:
+    """The best available base score for ranking, across every scored CVSS version.
+
+    A CVE scored only under CVSS 4.0 — increasingly common for post-2024 CVEs, and both
+    the NVD and CSAF importers ingest it — has a NULL cvss31. Ranking on v3.1 alone
+    reads that as 0.0, sorting a genuinely critical finding to the bottom of the page.
+    """
+    return max(
+        (_cvss(cve.cvss31) or CvssRead()).base_score or 0.0,
+        (_cvss(cve.cvss40) or CvssRead()).base_score or 0.0,
+    )
+
+
+def _headline_cvss(cve: VulnCve | None) -> CvssRead | None:
+    """The score to display for a row, preferring whichever version scores highest.
+
+    Falls back to whichever version is present, so a v4-only CVE still shows its score
+    rather than a blank cell for a real high/critical.
+    """
+    if cve is None:
+        return None
+    candidates = [c for c in (_cvss(cve.cvss31), _cvss(cve.cvss40)) if c is not None]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda c: c.base_score or 0.0)
 
 
 class VulnViewService:
@@ -234,13 +261,10 @@ class VulnViewService:
             advisory = advisories.get((evidence.get("source"), evidence.get("advisory_id")))
 
             # The worst-scored CVE on the advisory is the one that decides how the row
-            # reads, since a single advisory routinely carries several.
+            # reads, since a single advisory routinely carries several. Ranked across
+            # every CVSS version so a v4-only CVE is not sorted to the bottom at 0.0.
             scored = [cves[c] for c in finding_cves if c in cves]
-            headline = max(
-                scored,
-                key=lambda c: (_cvss(c.cvss31) or CvssRead()).base_score or 0.0,
-                default=None,
-            )
+            headline = max(scored, key=_score, default=None)
 
             results.append(
                 VulnerabilityRead(
@@ -254,7 +278,7 @@ class VulnViewService:
                     advisory_source=evidence.get("source"),
                     cve_ids=finding_cves,
                     cwe_ids=list(advisory.cwe_ids) if advisory else [],
-                    cvss=_cvss(headline.cvss31 if headline else None),
+                    cvss=_headline_cvss(headline),
                     epss=headline.epss if headline else None,
                     kev=_kev_flag([cve.kev for cve in scored]),
                     kev_due_date=next(
@@ -440,15 +464,38 @@ class VulnViewService:
             if row.confidence:
                 by_confidence[row.confidence] = by_confidence.get(row.confidence, 0) + 1
 
+        # Numerator and denominator must describe the same population, or the
+        # "unassessed" count is fiction. `total` and `by_severity` above are narrowed to
+        # this org and this principal's visible groups; the coverage count has to match.
+        # `assess_all` also skips archived devices, so a device count that includes them
+        # would report devices as unassessed that the assessor deliberately never touches.
+        from netsecops.services.inventory import InventoryService
+
+        inventory = InventoryService(self.session)
+
+        assessed_stmt = (
+            select(VulnMatch.device_id)
+            .join(Device, Device.id == VulnMatch.device_id)
+            .where(
+                VulnMatch.org_id == self.org_id,
+                Device.status != DeviceStatus.ARCHIVED.value,
+            )
+            .distinct()
+        )
+        assessed_stmt = await inventory.scoped(assessed_stmt, scope)
         assessed = {
-            device_id
-            for (device_id,) in (
-                await self.session.execute(
-                    select(VulnMatch.device_id).where(VulnMatch.org_id == self.org_id).distinct()
-                )
-            ).all()
+            device_id for (device_id,) in (await self.session.execute(assessed_stmt)).all()
         }
-        device_stmt = select(func.count()).select_from(Device)
+
+        device_stmt = (
+            select(func.count())
+            .select_from(Device)
+            .where(
+                Device.org_id == self.org_id,
+                Device.status != DeviceStatus.ARCHIVED.value,
+            )
+        )
+        device_stmt = await inventory.scoped(device_stmt, scope)
         total_devices = int((await self.session.execute(device_stmt)).scalar_one())
 
         return VulnerabilitySummary(
