@@ -91,6 +91,13 @@ RULES: Final[tuple[RedactionRule, ...]] = (
     _rule("server_key", r"^(\s*server-private\s+\S+\s+key\s+(?:\d\s+)?)(\S+)"),
     _rule("ntp_auth_key", r"(\s*ntp\s+authentication-key\s+\d+\s+\w+\s+)(\S+)"),
     _rule("key_string", r"^(\s*key-string\s+(?:\d\s+)?)(\S+)"),
+    # Junos RADIUS/TACACS+ (and LDAP) shared secrets: `... secret "$9$AbCd"` in set form,
+    # `secret "$9$AbCd"; ## SECRET-DATA` in brace form. None of the Cisco (`key`/`=`) or
+    # FortiOS (`set <key> ENC`) rules matched it, so the secret reached the AAA-server
+    # provenance excerpt and flowed into findings/reports (2026-09-30 audit). Anchored on
+    # the quoted value Junos always writes, so it does not half-fire on FortiOS's
+    # `set secret ENC <unquoted>` (which fortios_secret handles).
+    _rule("junos_secret", r'(\bsecret\s+)("[^"]*")'),
     # ── VLAN trunking ───────────────────────────────────────────────────
     _rule("vtp_password", r"^(\s*vtp\s+password\s+)(\S+)"),
     # ── Local credentials ───────────────────────────────────────────────

@@ -510,7 +510,12 @@ class CheckPointMgmtParser(ConfigParser):
         firewall = result.ncm.firewall
         for entry in self._flatten(_as_list(response.get("rulebase"))):
             original = _names(entry.get("original-source")) or ["any"]
-            translated_dst = _names(entry.get("translated-destination"))
+            # "Original" is Check Point's built-in "unchanged" object. A hide/source-NAT
+            # rule carries it as the translated destination, so counting a non-empty
+            # translated-destination as a destination translation misread every source
+            # NAT as publishing an internal host — a fabricated exposure (FR-FW-04).
+            # Only a translation to something other than "Original" is a real one.
+            translated_dst = [n for n in _names(entry.get("translated-destination")) if n != "Original"]
             rule = NatRule(
                 order=len(firewall.nat_rules) + 1,
                 name=str(entry.get("name") or f"NAT {len(firewall.nat_rules) + 1}"),
@@ -538,7 +543,7 @@ class CheckPointMgmtParser(ConfigParser):
             rule.original_destination = [
                 n for n in _names(entry.get("original-destination")) if n != "Any"
             ]
-            rule.translated_destination = [n for n in translated_dst if n != "Original"]
+            rule.translated_destination = list(translated_dst)  # already excludes "Original"
             rule.translated_source = [
                 n for n in _names(entry.get("translated-source")) if n != "Original"
             ]

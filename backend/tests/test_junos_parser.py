@@ -354,6 +354,30 @@ class TestSecurityPolicies:
         legacy = next(r for r in braces.firewall.security_rules if r.name == "legacy-inbound")
         assert legacy.enabled is False
 
+    def test_a_display_set_deactivate_line_disables_the_statement(self) -> None:
+        # `| display set` (the profile's primary form) renders a deactivation as its own
+        # `deactivate <path>` line, not an `inactive:` prefix. Ignoring it reported the
+        # policy as live (2026-09-30 audit). The deactivation of a parent path disables
+        # the statement under it.
+        text = (
+            "set security policies from-zone a to-zone b policy p then permit\n"
+            "set security policies from-zone a to-zone b policy live then permit\n"
+            "deactivate security policies from-zone a to-zone b policy p\n"
+        )
+        rules = {r.name: r for r in parse(text).firewall.security_rules}
+        assert rules["p"].enabled is False
+        assert rules["live"].enabled is True
+
+    def test_a_radius_secret_is_redacted_not_leaked(self) -> None:
+        # The Junos AAA secret syntax (`secret "$9$..."`) matched no redaction rule, so it
+        # reached the AAA-server provenance excerpt and flowed into findings (2026-09-30).
+        from netsecops.core.redaction import contains_secret, redact_line
+
+        redacted, rule = redact_line('set system radius-server 10.0.0.1 secret "$9$AbCdEfGh"')
+        assert "$9$AbCdEfGh" not in redacted
+        assert rule == "junos_secret"
+        assert not contains_secret(redacted)
+
     def test_logging_on_a_rule(self, braces: NormalisedConfig) -> None:
         allow = next(r for r in braces.firewall.security_rules if r.name == "allow-web")
         assert allow.log_end is True
