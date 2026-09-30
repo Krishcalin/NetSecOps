@@ -609,3 +609,48 @@ class TestPasswordLifecycle:
             .all()
         )
         assert rows and all(r.revoked_at is not None for r in rows)
+
+
+class TestApiTokenDoesNotEscalateWhenRolesAreStripped:
+    """Stripping a service account's roles to disable it must neuter its token, not
+    escalate it. The 2026-09-30 audit found a role-less owner re-granted the API_SERVICE
+    ceiling and an UNRESTRICTED device scope."""
+
+    async def test_scope_for_user_with_no_roles_is_empty_not_unrestricted(
+        self, session: AsyncSession
+    ) -> None:
+        from netsecops.services.auth import AuthService
+
+        user = await make_user(session, username="roleless", roles=set())
+        scope = await AuthService(session).scope_for_user(user)
+
+        assert scope.unrestricted is False
+        assert scope.device_group_ids == frozenset()
+
+    async def test_a_role_stripped_token_owner_becomes_powerless(
+        self, service: UserService, session: AsyncSession, super_admin: User
+    ) -> None:
+        from netsecops.services.auth import AuthService
+
+        owner = await make_user(session, username="svc-siem", roles={Role.API_SERVICE})
+        owner.is_service_account = True
+        await session.flush()
+        issued = await service.create_api_token(
+            name="siem-token",
+            owner=owner,
+            scopes={Permission.JOB_EXECUTE, Permission.FINDING_WRITE},
+            expires_at=None,
+            actor=principal(super_admin),
+        )
+        await session.flush()
+
+        # An admin strips every role to disable the account after a suspected leak.
+        await service.set_roles(owner, set(), actor=principal(super_admin))
+        await session.flush()
+
+        resolved = await AuthService(session).principal_for_api_token(issued.plaintext)
+
+        # No API_SERVICE ceiling re-granted, and no unrestricted scope.
+        assert resolved.permissions == frozenset()
+        assert resolved.scope.unrestricted is False
+        assert resolved.scope.device_group_ids == frozenset()
