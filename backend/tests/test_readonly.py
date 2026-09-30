@@ -417,6 +417,41 @@ class TestPanOsXmlApi:
         )
 
 
+class TestPanOsXmlApiOverGet:
+    """The SAME operations travel in the GET query string, and the API is fully
+    functional over GET. The 2026-09-30 audit found the GET `/api/` rule carried no
+    read-only predicate, so a config write refused as POST was permitted as the
+    identical GET. The guard must judge GET query parameters exactly as it judges a
+    POST body — these tests are the parity the suite was missing.
+    """
+
+    def test_config_reads_over_get_are_permitted(self) -> None:
+        assert guard(PANOS).permits_request("GET", "/api/?type=config&action=show&xpath=/config")
+        assert guard(PANOS).permits_request("GET", "/api/?type=config&action=get&xpath=/config")
+
+    @pytest.mark.parametrize("action", ["set", "edit", "delete", "rename", "move"])
+    def test_config_writes_over_get_are_refused(self, action: str) -> None:
+        assert not guard(PANOS).permits_request(
+            "GET", f"/api/?type=config&action={action}&xpath=/config&element=<x/>"
+        )
+
+    def test_commit_over_get_is_refused(self) -> None:
+        assert not guard(PANOS).permits_request("GET", "/api/?type=commit")
+
+    def test_op_request_over_get_is_refused(self) -> None:
+        assert not guard(PANOS).permits_request(
+            "GET", "/api/?type=op&cmd=<request><restart><system></system></restart></request>"
+        )
+
+    def test_op_show_over_get_is_permitted(self) -> None:
+        assert guard(PANOS).permits_request(
+            "GET", "/api/?type=op&cmd=<show><system><info></info></system></show>"
+        )
+
+    def test_keygen_over_get_is_permitted(self) -> None:
+        assert guard(PANOS).permits_request("GET", "/api/?type=keygen&user=a&password=b")
+
+
 class TestAuditability:
     """SRS §8.1.7 — a customer must be able to read the effective allow-list."""
 
