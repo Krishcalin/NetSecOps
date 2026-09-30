@@ -198,7 +198,14 @@ class TopologyService:
                     .select_from(Snapshot)
                     .where(Snapshot.org_id == self.org_id)
                     .scalar_subquery(),
-                    select(func.max(Snapshot.created_at))
+                    # updated_at, not created_at: a re-collection whose config_hash matches
+                    # updates the existing snapshot row in place (SnapshotService dedup) —
+                    # refreshing its NCM and version without inserting a row or touching
+                    # created_at. Keying on created_at meant that refresh moved neither the
+                    # count nor this timestamp, so the cache served the pre-refresh graph
+                    # (a stale unreachable, or a stale allowed) — the 2026-09-30 audit's
+                    # finding. updated_at moves on both insert and in-place refresh.
+                    select(func.max(Snapshot.updated_at))
                     .where(Snapshot.org_id == self.org_id)
                     .scalar_subquery(),
                 )
