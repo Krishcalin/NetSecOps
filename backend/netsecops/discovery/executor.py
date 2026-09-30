@@ -360,6 +360,15 @@ class DiscoveryExecutor:
             summary.addresses_probed += 1
             summary.probes_sent += result.probes_sent
 
+            # Run-level caveats (ICMP going away mid-run) ride on whichever host was being
+            # probed when they occurred, and that host is frequently one that does not
+            # respond. Collected before the liveness short-circuit below, or the very
+            # degradation that makes a run partial is the note most likely to be dropped —
+            # and the run would then report "found N hosts" with no sign echo had stopped.
+            for note in result.notes:
+                if note not in summary.notes:
+                    summary.notes.append(note)
+
             if not result.responded:
                 # Silence is the normal answer and is not recorded. A row per dead
                 # address would bury the queue under the network's empty space.
@@ -376,10 +385,6 @@ class DiscoveryExecutor:
                 run_id=run.id,
                 hostname=result.hostname,
             )
-
-            for note in result.notes:
-                if note not in summary.notes:
-                    summary.notes.append(note)
 
             if scope_row.auto_onboard:
                 device = await self.reviews.auto_onboard(host, actor=actor)

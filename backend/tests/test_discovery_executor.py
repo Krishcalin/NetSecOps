@@ -257,6 +257,30 @@ class TestCaveatsSurvive:
 
         assert SNMP_UNAVAILABLE_NOTE not in summary.notes
 
+    async def test_a_caveat_on_a_non_responding_host_still_reaches_the_run(
+        self, session, actor
+    ) -> None:
+        """ICMP going away mid-run rides on the host being probed when it happens, and that
+        host usually does not respond. Dropped with the silent result, the very degradation
+        that makes a run partial vanishes and 'found N hosts' reads as complete coverage.
+        """
+        note = "ICMP became unavailable during the run."
+
+        def degraded(address: str) -> HostResult:
+            return HostResult(address=address, responded=False, probes_sent=3, notes=(note,))
+
+        scope = await make_scope(session, targets=["198.51.100.1"])
+        summary = await DiscoveryExecutor(session, probe_host=Recorder(degraded)).run(
+            scope, actor=actor
+        )
+
+        assert note in summary.notes, "a caveat on a silent host must not be dropped"
+
+        run = (
+            await session.execute(select(DiscoveryRun).where(DiscoveryRun.id == summary.run_id))
+        ).scalar_one()
+        assert note in run.notes
+
 
 # ════════════════════════════ stopping ═══════════════════════════════════════
 
