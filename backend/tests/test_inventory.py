@@ -10,7 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netsecops.core.crypto import SecretVault
 from netsecops.core.errors import ConflictError, NotFoundError, ValidationProblem
 from netsecops.core.rbac import Principal, Role, Scope
-from netsecops.db.models.inventory import CredentialType, Criticality, DeviceClass, Vendor
+from sqlalchemy.exc import IntegrityError
+
+from netsecops.db.models.inventory import (
+    CredentialAssignment,
+    CredentialType,
+    Criticality,
+    DeviceClass,
+    Vendor,
+)
 from netsecops.services.credentials import CredentialService
 from netsecops.services.inventory import InventoryService
 from tests.conftest import make_group, make_user
@@ -405,6 +413,78 @@ class TestCredentialVault:
         )
         with pytest.raises(ValidationProblem, match="exactly one"):
             await credentials.assign(credential, actor=actor)
+
+    async def test_assigning_the_same_device_twice_updates_rather_than_duplicates(
+        self,
+        credentials: CredentialService,
+        inventory: InventoryService,
+        actor: Principal,
+    ) -> None:
+        """The upsert contract: a re-assign changes priority, it does not add a second row.
+
+        This is the path the race-safe INSERT must preserve — the loser of a concurrent
+        assign falls back to updating the winner rather than erroring or duplicating.
+        """
+        credential = await credentials.create(
+            name="idempotent",
+            credential_type=CredentialType.SSH_PASSWORD,
+            secret_data={"username": "ro", "password": "p"},
+            actor=actor,
+        )
+        device = await inventory.create_device(mgmt_ip="192.0.2.70", actor=actor)
+
+        await credentials.assign(credential, device_id=device.id, priority=100, actor=actor)
+        await credentials.assign(credential, device_id=device.id, priority=25, actor=actor)
+
+        rows = await credentials.assignments(credential)
+        assert len(rows) == 1
+        assert rows[0].priority == 25
+
+    async def test_the_database_rejects_a_duplicate_device_assignment(
+        self,
+        credentials: CredentialService,
+        inventory: InventoryService,
+        actor: Principal,
+        session: AsyncSession,
+    ) -> None:
+        """The DB backstop the old NULLS-DISTINCT constraint never provided.
+
+        Two device-level rows for one (credential, device) both carry a NULL group_id, so
+        the old three-column unique constraint compared them unequal and admitted both.
+        The partial unique index keyed on device_id must reject the second — this is what
+        stops two concurrent assign() calls creating a duplicate the guard cannot see.
+        """
+        credential = await credentials.create(
+            name="dupe-guard",
+            credential_type=CredentialType.SSH_PASSWORD,
+            secret_data={"username": "ro", "password": "p"},
+            actor=actor,
+        )
+        device = await inventory.create_device(mgmt_ip="192.0.2.71", actor=actor)
+
+        session.add(
+            CredentialAssignment(
+                org_id=credential.org_id,
+                credential_id=credential.id,
+                device_id=device.id,
+                priority=100,
+            )
+        )
+        await session.flush()
+
+        # In a savepoint so the expected IntegrityError rolls back only this insert and
+        # leaves the outer test transaction usable for teardown.
+        with pytest.raises(IntegrityError):
+            async with session.begin_nested():
+                session.add(
+                    CredentialAssignment(
+                        org_id=credential.org_id,
+                        credential_id=credential.id,
+                        device_id=device.id,
+                        priority=50,
+                    )
+                )
+                await session.flush()
 
 
 class TestReadingAssignments:

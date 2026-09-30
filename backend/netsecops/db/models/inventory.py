@@ -378,9 +378,27 @@ class CredentialAssignment(Base, UUIDPrimaryKeyMixin, OrgMixin, TimestampMixin):
     """
 
     __tablename__ = "credential_assignments"
+    # Two partial unique indexes, not one three-column UniqueConstraint. Exactly one of
+    # device_id/group_id is ever set, so a (credential, device, NULL) row and a second one
+    # like it compare unequal under Postgres' default NULLS DISTINCT — the old constraint
+    # could only ever fire for an impossible all-non-NULL row, and never backstopped the
+    # SELECT-then-INSERT in CredentialService.assign against two concurrent callers. Each
+    # index keys on only the target column that is actually set, so the uniqueness is
+    # enforced where it means something.
     __table_args__ = (
-        UniqueConstraint(
-            "credential_id", "device_id", "group_id", name="uq_credential_assignment_target"
+        Index(
+            "uq_credential_assignment_device",
+            "credential_id",
+            "device_id",
+            unique=True,
+            postgresql_where=text("device_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_credential_assignment_group",
+            "credential_id",
+            "group_id",
+            unique=True,
+            postgresql_where=text("group_id IS NOT NULL"),
         ),
         Index("ix_credential_assignments_device", "device_id", "priority"),
         Index("ix_credential_assignments_group", "group_id", "priority"),
