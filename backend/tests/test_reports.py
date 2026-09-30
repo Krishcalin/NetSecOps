@@ -347,6 +347,38 @@ class TestTrend:
         assert "compare_to_id" in (report.error_message or "")
 
 
+class TestActiveFindingsAreOrgBound:
+    async def test_the_executive_summary_excludes_another_orgs_findings(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """A super-admin's scope applies no group filter, so without an org bound the
+        active-finding aggregate would count another tenant's findings."""
+        foreign_device = Device(org_id=2, mgmt_ip="10.9.9.9", hostname="foreign-sw")
+        session.add(foreign_device)
+        await session.flush()
+
+        now = datetime.now(UTC)
+        session.add(
+            Finding(
+                org_id=2,
+                device_id=foreign_device.id,
+                kind=FindingKind.CONFIG.value,
+                fingerprint="config:foreign:1",
+                title="a finding in another org",
+                severity="critical",
+                status=FindingStatus.OPEN.value,
+                first_seen_at=now,
+                last_seen_at=now,
+            )
+        )
+        await session.flush()
+
+        summary = await ReportingService(session, org_id=1)._executive_summary(Scope.all())
+
+        # The estate fixture holds exactly three org-1 findings; the org-2 one is excluded.
+        assert summary["totals"]["findings"] == 3
+
+
 class TestStatesAreNotConfused:
     async def test_a_failed_report_says_why(
         self, session: AsyncSession, principal: Principal, estate
