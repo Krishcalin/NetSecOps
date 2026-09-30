@@ -30,6 +30,7 @@ renewal or the thing you most need to know about.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import ssl
@@ -130,7 +131,16 @@ class HttpTransport(Transport):
     # ── lifecycle ───────────────────────────────────────────────────────
 
     async def connect(self) -> None:
-        """Open the client and pin the certificate. Sends no device-facing request."""
+        """Open the client and verify the certificate pin. Sends no device-facing request.
+
+        The pin is checked here, in a TLS handshake that carries no application data,
+        **before** any request. It used to be checked only after a response came back —
+        so the very first request, the authentication exchange carrying the credential
+        (the PAN-OS keygen password in the URL, the Check Point/FortiManager password in
+        the body), reached the peer before the pin was ever compared. An on-path attacker
+        presenting any certificate received the credential, and the mismatch was raised
+        one request too late. Verifying at connect time closes that window.
+        """
         context = ssl.create_default_context()
         if not self.verify_tls:
             # Management interfaces very often carry a self-signed certificate, and a
@@ -141,12 +151,62 @@ class HttpTransport(Transport):
             context.check_hostname = False
             context.verify_mode = ssl.CERT_NONE
 
+        await self._pin_certificate(context)
+
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             verify=context,
             timeout=httpx.Timeout(self.connect_timeout, read=float(self.connect_timeout)),
             follow_redirects=False,
         )
+
+    async def _pin_certificate(self, context: ssl.SSLContext) -> None:
+        """TLS-handshake the peer, verify (or set) the fingerprint pin, send nothing else.
+
+        Uses a raw connection rather than the httpx client so the pin is established with
+        zero application bytes on the wire — the credential must never leave before the
+        peer is authenticated (FR-COL-10).
+        """
+        try:
+            _reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(
+                    self.host, self.port, ssl=context, server_hostname=self.host
+                ),
+                timeout=self.connect_timeout,
+            )
+        except (OSError, ssl.SSLError, asyncio.TimeoutError) as exc:
+            raise DeviceUnreachableError(
+                f"Could not open a TLS connection to {self.host}: {exc}"
+            ) from exc
+
+        try:
+            ssl_object = writer.get_extra_info("ssl_object")
+            # binary_form works under CERT_NONE, where the parsed dict form does not.
+            der = ssl_object.getpeercert(binary_form=True) if ssl_object is not None else None
+        finally:
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except (OSError, ssl.SSLError):
+                # The peer aborting the closed connection tells us nothing about the pin,
+                # which is already read.
+                pass
+
+        if not der:
+            raise DeviceUnreachableError(
+                f"{self.host} presented no TLS certificate, so its identity could not be "
+                "pinned before sending a credential."
+            )
+
+        observed = certificate_fingerprint(der)
+        self.observed_fingerprint = observed
+        if self.known_fingerprint and observed != self.known_fingerprint:
+            raise CertificateChangedError(
+                f"The TLS certificate for {self.host} has changed. Expected "
+                f"{self.known_fingerprint}, got {observed}. This is a planned renewal or "
+                f"an interception; NetSecOps will not collect until the pin is updated "
+                f"deliberately."
+            )
 
     async def disconnect(self) -> None:
         if self._client is not None:

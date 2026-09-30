@@ -327,6 +327,47 @@ class TestCertificatePinning:
         with pytest.raises(CertificateChangedError, match="has changed"):
             transport._check_certificate(response)
 
+    async def test_connect_pins_before_building_the_client(self, monkeypatch) -> None:
+        """The pin is verified in a TLS handshake at connect time — before any request —
+        so a changed or attacker certificate is refused before the credential-bearing
+        auth exchange is ever sent (2026-09-30 audit). A matching pin lets connect
+        proceed; a changed one raises before the client (and thus any request) exists.
+        """
+        der = b"the-peer-certificate"
+        fingerprint = certificate_fingerprint(der)
+
+        class _SSLObject:
+            def getpeercert(self, binary_form: bool = False) -> bytes:
+                return der
+
+        class _Writer:
+            def get_extra_info(self, key: str):
+                return _SSLObject() if key == "ssl_object" else None
+
+            def close(self) -> None:
+                pass
+
+            async def wait_closed(self) -> None:
+                return None
+
+        async def fake_open_connection(host, port, *, ssl, server_hostname):  # noqa: ANN001
+            return object(), _Writer()
+
+        monkeypatch.setattr(
+            "netsecops.adapters.http_transport.asyncio.open_connection", fake_open_connection
+        )
+
+        ok = HttpTransport("10.0.0.1", HttpCredentials(), known_fingerprint=fingerprint)
+        await ok.connect()
+        assert ok.observed_fingerprint == fingerprint
+        await ok.disconnect()
+
+        changed = HttpTransport("10.0.0.1", HttpCredentials(), known_fingerprint="SHA256:DE:AD")
+        with pytest.raises(CertificateChangedError, match="has changed"):
+            await changed.connect()
+        # No client was built, so no request — and no credential — could have been sent.
+        assert changed._client is None
+
     def test_the_message_names_both_fingerprints(self) -> None:
         """An operator confirming a planned renewal needs to see the new one, and one
         investigating an interception needs to see both."""
