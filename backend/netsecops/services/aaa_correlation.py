@@ -304,6 +304,12 @@ class AaaCorrelationService:
 
             if not report.registration_analysed:
                 continue
+            if snapshot is None or aaa is None:
+                # Never collected, or no AAA block was parsed — already counted as
+                # not-evaluated above. We cannot know whether it uses central auth, so it
+                # must not be reported as unregistered/local-only: that fabricates a HIGH
+                # finding from absent data (2026-09-30 audit).
+                continue
             if device.device_class == DeviceClass.MANAGER.value:
                 # A manager authenticates its administrators, not itself, so it is not
                 # expected on a RADIUS client list.

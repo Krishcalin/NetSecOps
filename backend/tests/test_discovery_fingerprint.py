@@ -112,6 +112,15 @@ class TestTextSignals:
 
         assert evidence.platform == "cisco_nxos"
 
+    def test_a_string_naming_two_vendors_is_ambiguous_not_a_confident_pick(self) -> None:
+        """A header claiming both Cisco and Fortinet named neither reliably. The old logic
+        let the later platform-bearing match overwrite the first vendor and flagged no
+        conflict; the signal must instead decline to name a vendor (2026-09-30 audit)."""
+        evidence = read_text(Signal.HTTP_HEADER, "Server: Cisco Systems; X-Powered-By: FortiGate")
+
+        assert evidence.vendor is None
+        assert evidence.platform is None
+
     @pytest.mark.parametrize(
         "text",
         [
