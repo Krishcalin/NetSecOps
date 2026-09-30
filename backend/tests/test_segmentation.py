@@ -692,3 +692,70 @@ class TestTheApi:
 
         assert again.status_code == 409, again.text
         assert "already exists" in again.json()["detail"]
+
+
+class TestTheCapDoesNotFabricateUpheld:
+    """A DENIED cell whose prefix walk was truncated by MAX_PREFIX_PAIRS must not report
+    UPHELD: a permit hiding in an unwalked combination would be missed, so the boundary
+    reads as holding while a real hole exists (2026-09-30 audit, invariant 2).
+    """
+
+    @staticmethod
+    def _zone(name: str, count: int, octet: int):
+        from netsecops.db.models.segmentation import SegmentationZone
+
+        return SegmentationZone(
+            org_id=1, name=name, prefixes=[f"10.{octet}.{i}.0/24" for i in range(count)]
+        )
+
+    @staticmethod
+    def _denied_rule():
+        from netsecops.db.models.segmentation import SegmentationRule
+
+        return SegmentationRule(
+            id=uuid.uuid4(),
+            org_id=1,
+            source_zone_id=uuid.uuid4(),
+            destination_zone_id=uuid.uuid4(),
+            expectation=SegmentationExpectation.DENIED,
+            protocol="tcp",
+            port=443,
+            justification="prod must not reach the card environment",
+        )
+
+    @staticmethod
+    def _stub_unreachable(monkeypatch):
+        # Every walked pair comes back UNREACHABLE, which _judge scores UPHELD for a
+        # DENIED intent — so the only thing that can move the cell off UPHELD is the cap.
+        from netsecops.topology.path import PathResult, PolicyVerdict, RoutingConfidence
+
+        def fake_walk(graph, *, source, destination, protocol, port):
+            return PathResult(
+                source=source,
+                destination=destination,
+                protocol=protocol,
+                port=port,
+                routing=RoutingConfidence.UNREACHABLE,
+                policy=PolicyVerdict.NOT_ROUTED,
+            )
+
+        monkeypatch.setattr("netsecops.services.segmentation.walk", fake_walk)
+
+    def test_a_truncated_denied_cell_is_unverified_not_upheld(self, monkeypatch) -> None:
+        self._stub_unreachable(monkeypatch)
+        src = self._zone("prod", 5, 0)  # 5 x 4 = 20 combinations, above the cap of 16
+        dst = self._zone("cde", 4, 1)
+
+        cell = SegmentationService(None)._evaluate_cell(build_graph([]), self._denied_rule(), src, dst)
+
+        assert cell.status is CellStatus.UNVERIFIED
+        assert any("prefix combinations" in note for note in cell.limitations)
+
+    def test_an_untruncated_denied_cell_still_upholds(self, monkeypatch) -> None:
+        self._stub_unreachable(monkeypatch)
+        src = self._zone("prod", 4, 0)  # 4 x 4 = 16, exactly at the cap — not truncated
+        dst = self._zone("cde", 4, 1)
+
+        cell = SegmentationService(None)._evaluate_cell(build_graph([]), self._denied_rule(), src, dst)
+
+        assert cell.status is CellStatus.UPHELD
