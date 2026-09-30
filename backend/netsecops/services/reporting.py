@@ -245,6 +245,9 @@ class ReportingService:
             # Stamped into the content, not only the row: a report exported to a file
             # and mailed onward keeps its own provenance.
             "scope": self._describe_scope(scope_device_id, scope_group_id),
+            # The effective population, so a later trend report can refuse to subtract two
+            # reports that were narrowed to different estates (see `_trend`).
+            "scope_fingerprint": self._scope_fingerprint(actor.scope),
         }
 
         report.content = content
@@ -260,6 +263,23 @@ class ReportingService:
             hash=report.content_hash[:12],
         )
         return report
+
+    @staticmethod
+    def _scope_fingerprint(scope: Scope) -> str:
+        """A stable identifier for the population an RBAC scope resolves to.
+
+        `meta.scope` records only the device/group *parameters*, which are identical for
+        an executive summary whether the caller is unrestricted or group-scoped — yet
+        `_visible` silently narrows the summary to the caller's groups, so the two cover
+        different populations. A trend report reads an earlier report's frozen numbers and
+        subtracts them from the current ones; comparing across two different populations
+        fabricates deltas. This fingerprint is stamped at generation so the trend can
+        refuse a comparison whose two sides do not describe the same estate.
+        """
+        if scope.unrestricted:
+            return "unrestricted"
+        ids = ",".join(sorted(str(gid) for gid in scope.device_group_ids))
+        return f"groups:{ids}"
 
     @staticmethod
     def _describe_scope(device_id: uuid.UUID | None, group_id: uuid.UUID | None) -> str:
@@ -770,6 +790,22 @@ class ReportingService:
             raise ValidationProblem(
                 f"Report {compare_to_id} is {earlier.status}, so there is nothing to "
                 "compare against."
+            )
+
+        # The two sides must describe the same estate. `get()` enforces only org_id, so a
+        # group-scoped caller can fetch a report generated over the whole estate (or a
+        # different group), and subtracting its frozen counts from this scoped summary
+        # would invent a trend — "960 findings closed" — out of a population mismatch.
+        # Refuse rather than fabricate. A report generated before the fingerprint existed
+        # cannot be shown comparable, so it is refused too.
+        current_fingerprint = self._scope_fingerprint(scope)
+        earlier_fingerprint = ((earlier.content or {}).get("meta") or {}).get("scope_fingerprint")
+        if earlier_fingerprint != current_fingerprint:
+            raise ValidationProblem(
+                f"Report {compare_to_id} was generated over a different scope "
+                f"({earlier_fingerprint or 'unknown'}) than this one ({current_fingerprint}), "
+                "so their totals describe different populations and cannot be compared. "
+                "Generate the earlier report under the same scope, or compare within it."
             )
 
         current = await self._executive_summary(scope)

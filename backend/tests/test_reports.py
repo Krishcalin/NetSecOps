@@ -346,6 +346,45 @@ class TestTrend:
         assert report.status == ReportStatus.FAILED.value
         assert "compare_to_id" in (report.error_message or "")
 
+    async def test_a_trend_across_mismatched_scopes_is_refused(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """The earlier report covered the whole estate; a group-scoped caller comparing
+        against it would subtract two different populations and invent a delta."""
+        import uuid as _uuid
+
+        service = ReportingService(session)
+        whole_estate = await service.generate(ReportTemplate.EXECUTIVE_SUMMARY, actor=principal)
+        await session.commit()
+
+        scoped = Principal(
+            id=principal.id,
+            username=principal.username,
+            roles=principal.roles,
+            scope=Scope(device_group_ids=frozenset({_uuid.uuid4()})),
+        )
+        report = await ReportingService(session).generate(
+            ReportTemplate.TREND, actor=scoped, compare_to_id=whole_estate.id
+        )
+
+        assert report.status == ReportStatus.FAILED.value
+        assert "different scope" in (report.error_message or "")
+
+    async def test_a_trend_within_the_same_scope_still_compares(
+        self, session: AsyncSession, principal: Principal, estate
+    ) -> None:
+        """The guard must not block the ordinary case: two reports over the same estate."""
+        service = ReportingService(session)
+        first = await service.generate(ReportTemplate.EXECUTIVE_SUMMARY, actor=principal)
+        await session.commit()
+
+        trend = await ReportingService(session).generate(
+            ReportTemplate.TREND, actor=principal, compare_to_id=first.id
+        )
+
+        assert trend.status == ReportStatus.READY.value
+        assert "findings_delta" in trend.content
+
 
 class TestStatesAreNotConfused:
     async def test_a_failed_report_says_why(

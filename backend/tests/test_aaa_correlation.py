@@ -224,6 +224,43 @@ class TestUnregisteredDevices:
         assert report.unregistered_devices == []
         assert any("cannot tell which devices are registered" in n for n in report.limitations)
 
+    async def test_a_server_with_an_unreadable_client_list_withholds_the_verdict(
+        self, session: AsyncSession, actor: Principal
+    ) -> None:
+        """A device registered only on a server whose client list failed to parse must not
+        be flagged unregistered on the strength of the other servers alone.
+
+        Server B (ISE) is collected but its client list comes back empty/unparsed. A device
+        that authenticates only against it appears on no readable list, so an analysis that
+        silently drops B and judges on server A alone reports that device — a real client —
+        as unregistered/HIGH. The verdict must be withheld and the gap stated instead.
+        """
+        radius = await add_device(
+            session, actor, ip="10.100.0.60", hostname="radius-01", platform="cisco_ios"
+        )
+        ise = await add_device(
+            session, actor, ip="10.100.0.61", hostname="ise-07", platform="cisco_ise"
+        )
+        only_on_b = await add_device(
+            session, actor, ip="198.51.100.42", hostname="only-on-ise"
+        )
+
+        await snapshot(
+            session, radius, server_ncm("freeradius", [client("some-sw", "198.51.100.99")])
+        )
+        # Collected, but the client list is empty/unparsed — unknown, not absent.
+        await snapshot(session, ise, server_ncm("ise", []))
+        await snapshot(session, only_on_b, client_ncm([]))
+
+        report = await AaaCorrelationService(session).correlate()
+
+        assert report.servers_with_unreadable_clients == ["ise-07"]
+        assert report.registration_reliable is False
+        assert report.registration_analysed is True, "server A was still examined"
+        assert "only-on-ise" not in [d.hostname for d in report.unregistered_devices]
+        assert report.unregistered_devices == []
+        assert any("no readable client list" in n for n in report.limitations)
+
     async def test_the_aaa_server_itself_is_not_reported_as_unregistered(
         self, session: AsyncSession, actor: Principal
     ) -> None:
