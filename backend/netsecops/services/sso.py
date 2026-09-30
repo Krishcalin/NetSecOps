@@ -328,10 +328,17 @@ class SSOService:
             )
         ).scalar_one_or_none()
 
-        if user is None and identity.email:
+        if user is None and identity.email and identity.email_verified:
             # First sign-in for an account an administrator has already created. Matched
             # on email, case-insensitively, because directories and humans disagree
             # about capitalisation and nothing else in the assertion is stable enough.
+            #
+            # Only when the provider asserted `email_verified: true`. Many providers let a
+            # user set an arbitrary, unverified profile email, so matching (and then
+            # linking the subject to) an existing account on an unverified address is
+            # account takeover: an attacker sets their IdP email to a Super Admin's
+            # address and is handed that account. An unverified email is treated as no
+            # match — the account must be pre-linked by subject or linked by an admin.
             user = (
                 await self.session.execute(
                     select(User).where(func.lower(User.email) == identity.email.strip().lower())

@@ -709,7 +709,14 @@ class AuthService:
         return Principal(
             id=owner.id,
             username=owner.username,
-            roles=owner.role_set or frozenset({Role.API_SERVICE}),
+            # The owner's actual roles — no fallback. `or frozenset({Role.API_SERVICE})`
+            # re-granted the API_SERVICE permission ceiling to an owner whose roles had
+            # been deliberately stripped to disable the token, so the "disabled" token kept
+            # working with escalated rights (2026-09-30 audit). A role-less owner now
+            # yields no permissions (permissions = union of role perms & token_scopes),
+            # so the token authenticates but can do nothing; re-enable it by assigning a
+            # role, disable it by revoking the token.
+            roles=owner.role_set,
             scope=await self.scope_for_user(owner),
             is_service_account=True,
             token_id=stored.id,
@@ -721,7 +728,13 @@ class AuthService:
     async def scope_for_user(self, user: User) -> Scope:
         """Resolve object-level visibility for a user (FR-AUTH-05)."""
         roles = user.role_set
-        if not roles or not roles.issubset(GROUP_SCOPED_ROLES):
+        if not roles:
+            # No role grants no visibility. Folding this into the `Scope.all()` branch
+            # below meant a user (or service account) whose roles were all stripped saw
+            # the entire estate — the escalation the 2026-09-30 audit found. A role-less
+            # principal sees nothing.
+            return Scope(unrestricted=False, device_group_ids=frozenset())
+        if not roles.issubset(GROUP_SCOPED_ROLES):
             # Any unrestricted role (Super Admin, Security Analyst) lifts group scoping.
             return Scope.all()
         return Scope(
