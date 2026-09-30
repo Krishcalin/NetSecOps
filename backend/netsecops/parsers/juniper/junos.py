@@ -561,62 +561,124 @@ class JunosParser(ConfigParser):
                     elif rest[3] not in existing.members:
                         existing.members.append(rest[3])
 
+    @staticmethod
+    def _apply_policy_tail(rule: SecurityRule, tail: list[str], inactive: bool) -> None:
+        """Apply one `match ...` or `then ...` fragment of a policy to its rule."""
+        if tail[:1] == ["match"] and len(tail) > 2:
+            field, values = tail[1], _values(tail[2:])
+            if field == "source-address":
+                rule.src.extend(values)
+            elif field == "destination-address":
+                rule.dst.extend(values)
+            elif field == "application":
+                rule.applications.extend(values)
+        elif tail[:1] == ["then"] and len(tail) > 1:
+            action = tail[1]
+            if action in {"permit", "deny", "reject"}:
+                rule.action = "allow" if action == "permit" else action
+            elif action == "log":
+                rule.log_start = "session-init" in tail
+                rule.log_end = "session-close" in tail
+        if inactive:
+            rule.enabled = False
+
     def _policies(self, statements: list[tuple[int, list[str], bool]], result: ParseResult) -> None:
         ncm = result.ncm
         rules: dict[tuple[str, str, str], SecurityRule] = {}
-        lines: dict[tuple[str, str, str], int] = {}
+        global_rules: dict[str, SecurityRule] = {}
+        lines: dict[object, int] = {}
+        default_action: str | None = None
+        default_line: int | None = None
 
         for line, tokens, inactive in self._under(statements, "security", "policies"):
             # `from-zone trust to-zone untrust policy allow-web match source-address any`
-            if tokens[:1] != ["from-zone"] or len(tokens) < 6:
-                continue
-            if tokens[2] != "to-zone" or tokens[4] != "policy":
-                continue
+            if (
+                tokens[:1] == ["from-zone"]
+                and len(tokens) >= 6
+                and tokens[2] == "to-zone"
+                and tokens[4] == "policy"
+            ):
+                src_zone, dst_zone, name = tokens[1], tokens[3], tokens[5]
+                key = (src_zone, dst_zone, name)
+                rule = rules.get(key)
+                if rule is None:
+                    rule = SecurityRule(
+                        order=len(rules) + 1,
+                        name=name,
+                        rulebase=f"{src_zone}->{dst_zone}",
+                        src_zones=[src_zone],
+                        dst_zones=[dst_zone],
+                        # Junos has no implicit permit: a policy with no `then` is not a
+                        # permit, so the default here is the safe one and is overwritten
+                        # only by an explicit action below.
+                        action="deny",
+                        enabled=not inactive,
+                    )
+                    rules[key] = rule
+                    lines[key] = line
+                self._apply_policy_tail(rule, tokens[6:], inactive)
 
-            src_zone, dst_zone, name = tokens[1], tokens[3], tokens[5]
-            key = (src_zone, dst_zone, name)
+            # `global policy allow-any match ... then permit` — applies to any zone pair
+            # and is evaluated after the zone-specific rulebases. Empty src/dst zones mean
+            # "any zone" to the matcher (firewall/analysis.py:559), which is the semantics.
+            elif tokens[:1] == ["global"] and len(tokens) >= 3 and tokens[1] == "policy":
+                name = tokens[2]
+                rule = global_rules.get(name)
+                if rule is None:
+                    rule = SecurityRule(
+                        order=0,  # assigned below, after the zone-pair rules
+                        name=name,
+                        rulebase="global",
+                        src_zones=[],
+                        dst_zones=[],
+                        action="deny",
+                        enabled=not inactive,
+                    )
+                    global_rules[name] = rule
+                    lines[("global", name)] = line
+                self._apply_policy_tail(rule, tokens[3:], inactive)
 
-            rule = rules.get(key)
-            if rule is None:
-                rule = SecurityRule(
-                    order=len(rules) + 1,
-                    name=name,
-                    rulebase=f"{src_zone}->{dst_zone}",
-                    src_zones=[src_zone],
-                    dst_zones=[dst_zone],
-                    # Junos has no implicit permit: a policy with no `then` is not a
-                    # permit, so the default here is the safe one and is overwritten
-                    # only by an explicit action below.
-                    action="deny",
-                    enabled=not inactive,
-                )
-                rules[key] = rule
-                lines[key] = line
+            # `default-policy permit-all` / `default-policy deny-all` — the device-wide
+            # action when nothing else matches. Dropping it made a `permit-all` default
+            # read as an implicit deny, so a query over otherwise-unmatched traffic
+            # returned a false `blocked` (audit CRITICAL).
+            elif tokens[:1] == ["default-policy"] and len(tokens) >= 2:
+                default_action = tokens[1]
+                default_line = line
 
-            tail = tokens[6:]
-            if tail[:1] == ["match"] and len(tail) > 2:
-                field, values = tail[1], _values(tail[2:])
-                if field == "source-address":
-                    rule.src.extend(values)
-                elif field == "destination-address":
-                    rule.dst.extend(values)
-                elif field == "application":
-                    rule.applications.extend(values)
-            elif tail[:1] == ["then"] and len(tail) > 1:
-                action = tail[1]
-                if action in {"permit", "deny", "reject"}:
-                    rule.action = "allow" if action == "permit" else action
-                elif action == "log":
-                    rule.log_start = "session-init" in tail
-                    rule.log_end = "session-close" in tail
-            if inactive:
-                rule.enabled = False
+        order = 0
 
-        for key, rule in rules.items():
+        def _emit(rule: SecurityRule, at: int | None) -> None:
+            nonlocal order
+            order += 1
+            rule.order = order
             ncm.firewall.security_rules.append(rule)
             result.record(
                 f"firewall.security_rules.{len(ncm.firewall.security_rules) - 1}",
-                line=lines.get(key),
+                line=at,
+            )
+
+        # Zone-specific first, then global, then the device default — Junos evaluation
+        # order, which is what a first-match connectivity walk depends on.
+        for key, rule in rules.items():
+            _emit(rule, lines.get(key))
+        for gname, rule in global_rules.items():
+            _emit(rule, lines.get(("global", gname)))
+        if default_action is not None:
+            _emit(
+                SecurityRule(
+                    order=0,
+                    name="default-policy",
+                    rulebase="default",
+                    src_zones=[],
+                    dst_zones=[],
+                    src=["any"],
+                    dst=["any"],
+                    applications=["any"],
+                    action="allow" if default_action == "permit-all" else "deny",
+                    enabled=True,
+                ),
+                default_line,
             )
 
     # ──────────────────────────── version ───────────────────────────────
