@@ -14,7 +14,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from netsecops.adapters.policies import CISCO_IOS
+from netsecops.adapters.policies import CISCO_IOS, PANOS
 from netsecops.adapters.readonly import ReadOnlyGuard
 from netsecops.adapters.recorder import AuditingRecorder
 from netsecops.adapters.session import DeviceSession, NullRecorder
@@ -302,3 +302,75 @@ class TestAuditTrail:
 
         result = await audit.verify_chain()
         assert result.valid and result.total >= 3
+
+
+class _FakeHttpTransport:
+    """Minimal HTTP transport for exercising DeviceSession.request without a network.
+
+    Duck-typed rather than a Transport subclass — DeviceSession.request only calls
+    ``request`` on it — so the test stays about recording, not transport plumbing.
+    """
+
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    async def request(self, method, path, *, body=None, timeout=None):
+        self.seen.append(f"{method} {path}")
+        return 200, "<response status='success'><result><key>ISSUED-KEY</key></result></response>"
+
+
+class TestHttpRecordingRedactsCredentials:
+    """A credential in a request URL must never reach the audit log in cleartext.
+
+    PAN-OS keygen-by-password builds `/api/?type=keygen&user=...&password=<cleartext>`,
+    and the recorded command is `METHOD path`, which lands verbatim in the tamper-evident
+    audit log's command_text and is served by GET /api/v1/audit-log. The 2026-09-30 audit
+    found it stored raw; the path is masked before it is ever recorded.
+    """
+
+    async def test_keygen_password_is_redacted_in_the_recorded_command(self) -> None:
+        recorder = NullRecorder()
+        transport = _FakeHttpTransport()
+        session = DeviceSession(
+            transport, ReadOnlyGuard(PANOS), recorder=recorder, device_id=uuid.uuid4()
+        )
+
+        await session.request(
+            "GET", "/api/?type=keygen&user=admin&password=SuperSecret123"
+        )
+
+        assert recorder.commands, "the request was not recorded"
+        recorded = recorder.commands[-1]
+        assert "SuperSecret123" not in recorded
+        assert "password=***REDACTED***" in recorded
+        # The real secret still went on the wire to the device.
+        assert "password=SuperSecret123" in transport.seen[-1]
+
+    async def test_api_key_is_redacted_in_the_recorded_command(self) -> None:
+        recorder = NullRecorder()
+        session = DeviceSession(
+            _FakeHttpTransport(), ReadOnlyGuard(PANOS), recorder=recorder, device_id=uuid.uuid4()
+        )
+
+        await session.request(
+            "GET", "/api/?type=op&cmd=<show><system><info></info></system></show>&key=LEAKED-APIKEY"
+        )
+
+        recorded = recorder.commands[-1]
+        assert "LEAKED-APIKEY" not in recorded
+        assert "key=***REDACTED***" in recorded
+
+    async def test_a_refused_write_over_get_does_not_log_its_query_secret(self) -> None:
+        # Even the violation record (a refused request) must not carry a URL secret.
+        recorder = NullRecorder()
+        session = DeviceSession(
+            _FakeHttpTransport(), ReadOnlyGuard(PANOS), recorder=recorder, device_id=uuid.uuid4()
+        )
+
+        with pytest.raises(ReadOnlyViolationError):
+            await session.request(
+                "GET", "/api/?type=config&action=set&key=LEAKED-APIKEY&element=<x/>"
+            )
+
+        assert recorder.violations
+        assert "LEAKED-APIKEY" not in recorder.violations[-1]

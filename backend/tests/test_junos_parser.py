@@ -347,6 +347,43 @@ class TestSecurityPolicies:
         ncm = parse(text)
         assert ncm.firewall.security_rules[0].action == "deny"
 
+    def test_a_global_policy_is_parsed_and_applies_to_any_zone(self) -> None:
+        # A `global` policy applies regardless of zone. The audit found it silently
+        # dropped, leaving a permit invisible to the connectivity walk.
+        text = (
+            "set security policies global policy allow-any match source-address any\n"
+            "set security policies global policy allow-any match destination-address any\n"
+            "set security policies global policy allow-any then permit\n"
+        )
+        rule = next(r for r in parse(text).firewall.security_rules if r.name == "allow-any")
+        assert rule.rulebase == "global"
+        assert rule.action == "allow"
+        # Empty zone sets mean "any zone" to the matcher (firewall/analysis.py).
+        assert list(rule.src_zones) == [] and list(rule.dst_zones) == []
+
+    def test_a_permit_all_default_policy_becomes_an_allow_rule(self) -> None:
+        # `default-policy permit-all` is the device-wide action when nothing else matches.
+        # Dropping it made a permissive default read as an implicit deny, so a query over
+        # otherwise-unmatched traffic returned a false `blocked` (audit CRITICAL).
+        rules = parse("set security policies default-policy permit-all\n").firewall.security_rules
+        assert rules and rules[-1].name == "default-policy"
+        assert rules[-1].action == "allow"
+        assert list(rules[-1].src) == ["any"] and list(rules[-1].dst) == ["any"]
+
+    def test_a_deny_all_default_policy_becomes_a_deny_rule(self) -> None:
+        rules = parse("set security policies default-policy deny-all\n").firewall.security_rules
+        assert rules[-1].name == "default-policy" and rules[-1].action == "deny"
+
+    def test_evaluation_order_is_zone_then_global_then_default(self) -> None:
+        text = (
+            "set security policies from-zone a to-zone b policy zp then permit\n"
+            "set security policies global policy gp then permit\n"
+            "set security policies default-policy permit-all\n"
+        )
+        rules = parse(text).firewall.security_rules
+        assert [r.name for r in rules] == ["zp", "gp", "default-policy"]
+        assert [r.order for r in rules] == [1, 2, 3]
+
     def test_a_deactivated_policy_is_disabled_not_missing(self, braces: NormalisedConfig) -> None:
         # It is still in the configuration and will come back the moment somebody
         # activates it. Dropped, nobody reviews it; reported as enabled, it is a rule

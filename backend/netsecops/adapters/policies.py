@@ -409,7 +409,12 @@ PANOS = PlatformPolicy(
         HttpRule(
             "GET",
             "/api/",
-            reason="XML API reads are issued as GET where the vendor permits it",
+            reason="XML API reads are issued as GET where the vendor permits it; the "
+            "same type/action/cmd that a POST carries in its body travel in the query "
+            "string over GET, and the API is fully functional over GET (action=set, "
+            "type=commit), so the GET side needs the identical predicate or a write "
+            "refused as POST is permitted as GET (SRS §8.1.3d)",
+            body_predicate="panos_read_only",
         ),
         HttpRule(
             "POST",

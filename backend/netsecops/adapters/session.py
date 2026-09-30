@@ -12,6 +12,7 @@ around the session.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from abc import ABC, abstractmethod
@@ -22,9 +23,27 @@ from typing import Any, Self
 
 from netsecops.adapters.readonly import ReadOnlyGuard
 from netsecops.core.errors import ReadOnlyViolationError
-from netsecops.core.logging import get_logger
+from netsecops.core.logging import REDACTED, get_logger
 
 log = get_logger(__name__)
+
+#: Query-string parameters that carry a credential. PAN-OS keygen-by-password puts the
+#: administrator's password and, elsewhere, the issued API key straight in the URL, so
+#: the recorded command — which is `METHOD path` and lands verbatim in the tamper-evident
+#: audit log's command_text (and is served by GET /api/v1/audit-log) — would otherwise
+#: persist and expose the cleartext secret. The value is masked before the path is ever
+#: recorded or logged; the real value still goes on the wire to the device.
+_SECRET_QUERY_PARAM = re.compile(
+    r"(?i)\b(password|passwd|pwd|secret|api[_-]?key|apikey|key|token)=([^&\s]*)"
+)
+
+
+def redact_query_secrets(path: str) -> str:
+    """Mask credential-bearing query-string values in a request path for the audit log."""
+    base, sep, query = path.partition("?")
+    if not sep:
+        return path
+    return base + sep + _SECRET_QUERY_PARAM.sub(lambda m: f"{m.group(1)}={REDACTED}", query)
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,11 +243,12 @@ class DeviceSession:
     async def request(
         self, method: str, path: str, *, body: Any = None, timeout: int | None = None
     ) -> HttpResult:
+        safe_path = redact_query_secrets(path)
         try:
             self.guard.check_request(method, path, body=body)
         except ReadOnlyViolationError as violation:
             await self.recorder.record_violation(
-                command=f"{method.upper()} {path}",
+                command=f"{method.upper()} {safe_path}",
                 device_id=self.device_id,
                 reason=str(violation),
                 context=violation.extra,
@@ -236,7 +256,7 @@ class DeviceSession:
             log.error(
                 "readonly.violation",
                 method=method,
-                path=path,
+                path=safe_path,
                 device_id=str(self.device_id) if self.device_id else None,
                 platform=self.guard.policy.platform,
             )
@@ -257,7 +277,7 @@ class DeviceSession:
             duration_ms=duration_ms,
         )
         await self.recorder.record(
-            command=f"{result.method} {path}",
+            command=f"{result.method} {safe_path}",
             device_id=self.device_id,
             succeeded=result.succeeded,
             duration_ms=duration_ms,
