@@ -480,7 +480,16 @@ def _evaluate_ncm(
 
     # `None` means the parser did not find it; `[]` means it found none, which is an
     # answer. Conflating them is how a check comes to report confident nonsense.
-    if value is None and logic.assert_.operator not in {"empty", "count_lte", "count_gte"}:
+    #
+    # Every operator honours this, `empty`/`count_*` included. Excluding them (as this
+    # did until the 2026-09-30 audit) let absent data satisfy `empty: true` — the parser
+    # produced no `users` key, `_as_sequence(None)` is `[]`, so "no cleartext users"
+    # read as a confident PASS over a device nothing was collected from. It also
+    # overrode the check's own `missing:` policy: `aaa-server-redundancy` asks for
+    # `not_evaluated` on absent data and got a FAIL. The check's declared policy decides
+    # what absence means — a count check that wants absent-is-a-failure sets
+    # `missing: fail` (ntp/syslog/management-acl already do).
+    if value is None:
         message = (
             f"Not evaluated: the configuration did not state {logic.expression}. "
             "Absence here means the setting was not found, which is not the same as "

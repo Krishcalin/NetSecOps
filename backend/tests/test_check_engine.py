@@ -574,3 +574,79 @@ class TestLibraryAgainstFixtures:
             severity_overrides={"telnet-disabled": Severity.LOW},
         )
         assert results[0].severity is Severity.LOW
+
+
+class TestAbsentOrUnknownDataIsNeverAPass:
+    """Invariant 2 (2026-09-30 audit): an absent, empty-by-absence, or indeterminate
+    input must never render as a confident clean PASS.
+    """
+
+    def test_empty_assertion_on_absent_data_is_not_evaluated(self) -> None:
+        # The base key was never produced by the parser (collection failed / syntax
+        # unrecognised). jmespath returns None; `empty: true` must not read that as
+        # "no cleartext users" and PASS.
+        check = make_check(
+            logic={
+                "type": "ncm",
+                "expression": "users[?secret_type=='cleartext'].name",
+                "assert": {"empty": True},
+            }
+        )
+        assert evaluate(check, {}).outcome is Outcome.NOT_EVALUATED
+
+    def test_empty_assertion_on_present_but_empty_data_still_passes(self) -> None:
+        # Present-and-empty is an answer, not an absence: this must remain a PASS.
+        check = make_check(
+            logic={
+                "type": "ncm",
+                "expression": "users[?secret_type=='cleartext'].name",
+                "assert": {"empty": True},
+            }
+        )
+        assert evaluate(check, {"users": []}).outcome is Outcome.PASS
+
+    def test_count_lte_on_absent_data_is_not_evaluated(self) -> None:
+        check = make_check(
+            logic={"type": "ncm", "expression": "snmp.communities", "assert": {"count_lte": 0}}
+        )
+        assert evaluate(check, {}).outcome is Outcome.NOT_EVALUATED
+
+    def test_aaa_keys_partial_unknown_is_not_evaluated(self) -> None:
+        check = make_check(logic={"type": "python", "function": "aaa_servers_have_keys"})
+        ncm = {
+            "aaa": {
+                "servers": [
+                    {"host": "10.0.0.1", "key_configured": True},
+                    {"host": "10.0.0.2", "key_configured": True},
+                    {"host": "10.0.0.3", "key_configured": None},
+                ]
+            }
+        }
+        assert evaluate(check, ncm).outcome is Outcome.NOT_EVALUATED
+
+    def test_aaa_keys_all_confirmed_still_passes(self) -> None:
+        check = make_check(logic={"type": "python", "function": "aaa_servers_have_keys"})
+        ncm = {"aaa": {"servers": [{"host": "10.0.0.1", "key_configured": True}]}}
+        assert evaluate(check, ncm).outcome is Outcome.PASS
+
+    def test_weak_hashes_partial_unknown_is_not_evaluated(self) -> None:
+        check = make_check(logic={"type": "python", "function": "no_weak_password_hashes"})
+        ncm = {"users": [{"name": "a", "weak_hash": False}, {"name": "b", "weak_hash": None}]}
+        assert evaluate(check, ncm).outcome is Outcome.NOT_EVALUATED
+
+    def test_certificate_expiry_all_undated_is_not_evaluated(self) -> None:
+        check = make_check(logic={"type": "python", "function": "certificates_expiring_30"})
+        # An OpenSSL-style date this does not parse, and a null date — both were silently
+        # dropped, so the check reported "nothing expires" over certs nothing checked.
+        ncm = {
+            "certificates": [
+                {"name": "c1", "not_after": "Feb  3 12:00:00 2026 GMT"},
+                {"name": "c2", "not_after": None},
+            ]
+        }
+        assert evaluate(check, ncm).outcome is Outcome.NOT_EVALUATED
+
+    def test_certificate_expiry_with_readable_future_date_passes(self) -> None:
+        check = make_check(logic={"type": "python", "function": "certificates_expiring_30"})
+        ncm = {"certificates": [{"name": "c", "not_after": "2099-01-01T00:00:00+00:00"}]}
+        assert evaluate(check, ncm).outcome is Outcome.PASS
