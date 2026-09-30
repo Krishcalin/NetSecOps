@@ -12,7 +12,7 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.core.errors import ConflictError, NotFoundError, ValidationProblem
@@ -62,6 +62,31 @@ def members(primary: uuid.UUID, standby: uuid.UUID) -> list[DrMemberInput]:
         DrMemberInput(device_id=primary, role=DrRole.PRIMARY),
         DrMemberInput(device_id=standby, role=DrRole.STANDBY),
     ]
+
+
+class TestMigrationShape:
+    @pytest.mark.parametrize(
+        ("table", "index"),
+        [
+            ("dr_sets", "ix_dr_sets_org_id"),
+            ("dr_set_members", "ix_dr_set_members_org_id"),
+        ],
+    )
+    async def test_the_org_id_index_the_orm_declares_actually_exists(
+        self, session: AsyncSession, table: str, index: str
+    ) -> None:
+        """OrgMixin declares index=True on org_id (DATA-04). Both tables must carry the
+        index or the ORM and the database disagree — an autogenerate diff that fails the
+        C-5 check, and an unindexed tenancy column on a table every scoped query filters.
+        """
+        rows = (
+            await session.execute(
+                text("SELECT indexname FROM pg_indexes WHERE tablename = :t"),
+                {"t": table},
+            )
+        ).scalars().all()
+
+        assert index in rows, f"{table} is missing {index}"
 
 
 class TestTheRecordAndItsInvariants:

@@ -12,6 +12,11 @@ change in the topology service.
 in at most one set" in the database rather than in a service. A partial unique index on
 `dr_set_id WHERE role = 'primary'` enforces "at most one primary per set"; the service
 enforces "at least one", which no column constraint can express.
+
+Both tables inherit `OrgMixin`, whose `org_id` carries `index=True` (DATA-04), so the ORM
+declares `ix_dr_sets_org_id` and `ix_dr_set_members_org_id`. Both are created here — like
+every other tenant-scoped table, and unlike the omission migration 0011 had to correct —
+so the model and the database agree and `alembic check` stays clean (C-5).
 """
 
 from __future__ import annotations
@@ -53,6 +58,7 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id", name="pk_dr_sets"),
         sa.UniqueConstraint("org_id", "name", name="uq_dr_sets_org_id_name"),
     )
+    op.create_index(op.f("ix_dr_sets_org_id"), "dr_sets", ["org_id"], unique=False)
 
     op.create_table(
         "dr_set_members",
@@ -75,6 +81,7 @@ def upgrade() -> None:
         ),
     )
     op.create_index("ix_dr_set_members_dr_set_id", "dr_set_members", ["dr_set_id"])
+    op.create_index(op.f("ix_dr_set_members_org_id"), "dr_set_members", ["org_id"], unique=False)
     # At most one primary per set; any number of standbys.
     op.create_index(
         "uq_dr_set_members_one_primary",
@@ -87,6 +94,8 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("uq_dr_set_members_one_primary", table_name="dr_set_members")
+    op.drop_index(op.f("ix_dr_set_members_org_id"), table_name="dr_set_members")
     op.drop_index("ix_dr_set_members_dr_set_id", table_name="dr_set_members")
     op.drop_table("dr_set_members")
+    op.drop_index(op.f("ix_dr_sets_org_id"), table_name="dr_sets")
     op.drop_table("dr_sets")
