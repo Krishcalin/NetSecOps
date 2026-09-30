@@ -309,6 +309,34 @@ def verify_totp(secret: str, code: str, settings: Settings | None = None) -> boo
     return build_totp(secret, settings).verify(code, valid_window=settings.mfa_totp_valid_window)
 
 
+def matched_totp_step(secret: str, code: str, settings: Settings | None = None) -> int | None:
+    """The absolute time-step a valid code belongs to, or ``None`` if it is not valid.
+
+    ``verify_totp`` answers only yes/no, which is not enough to reject a replay. A code is
+    accepted anywhere in ``[S - window, S + window]``, so it stays valid across several
+    steps; a replay guard that records the *current* step rather than the step the code
+    belongs to leaves the code replayable for the rest of its own window. This returns the
+    step the code actually matched — the value the guard must store and compare against —
+    so a used code cannot be presented again while it is still inside its window.
+    """
+    settings = settings or get_settings()
+    code = code.strip().replace(" ", "")
+    if not code.isdigit() or len(code) != settings.mfa_totp_digits:
+        return None
+
+    totp = build_totp(secret, settings)
+    period = settings.mfa_totp_period_seconds
+    current_step = int(datetime.now(UTC).timestamp()) // period
+    window = settings.mfa_totp_valid_window
+
+    matched: int | None = None
+    for offset in range(-window, window + 1):
+        step = current_step + offset
+        if totp.verify(code, for_time=step * period, valid_window=0):
+            matched = step  # ascending, so the highest matching step wins
+    return matched
+
+
 def generate_recovery_codes(count: int = 10) -> list[str]:
     """Single-use recovery codes, issued alongside TOTP enrolment."""
     return [f"{secrets.token_hex(4)}-{secrets.token_hex(4)}" for _ in range(count)]

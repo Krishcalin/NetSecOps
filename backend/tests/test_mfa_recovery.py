@@ -95,6 +95,28 @@ class TestBreakGlassReset:
         assert user.mfa_enabled is False
 
 
+class TestTotpReplay:
+    async def test_a_totp_code_cannot_be_used_twice(self, session: AsyncSession, vault) -> None:
+        """A single intercepted code must not yield a second session while still valid.
+
+        The guard records the step the code belongs to, so the same six digits presented
+        again — a fresh challenge relayed a moment later — are refused. Recording the
+        current step instead would accept the replay one step on, inside the code's window.
+        """
+        auth = AuthService(session, vault=vault)
+        user = await make_user(session, username="totp_replay")
+        secret = await enrol(auth, user)
+        code = pyotp.TOTP(secret).now()
+
+        first = await auth.authenticate(user.username, TEST_PASSWORD)
+        signed_in = await auth.complete_mfa(first.mfa_token, code)  # type: ignore[union-attr]
+        assert hasattr(signed_in, "access_token")
+
+        second = await auth.authenticate(user.username, TEST_PASSWORD)
+        with pytest.raises(AuthenticationError, match="already been used"):
+            await auth.complete_mfa(second.mfa_token, code)  # type: ignore[union-attr]
+
+
 class TestReEnrolmentAfterReset:
     async def test_can_enrol_again_with_a_fresh_secret(self, session: AsyncSession, vault) -> None:
         auth = AuthService(session, vault=vault)

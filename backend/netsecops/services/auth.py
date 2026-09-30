@@ -38,6 +38,7 @@ from netsecops.core.security import (
     generate_recovery_codes,
     hash_password,
     hash_token,
+    matched_totp_step,
     mfa_provisioning_uri,
     mfa_qr_svg,
     needs_rehash,
@@ -264,7 +265,8 @@ class AuthService:
 
         secret = self.vault.open(secret_row.encrypted_secret, aad=str(user.id)).decode("utf-8")
 
-        if not verify_totp(secret, code, self.settings):
+        matched_step = matched_totp_step(secret, code, self.settings)
+        if matched_step is None:
             if not await self._consume_recovery_code(secret_row, user, code):
                 await self._register_failure(user, ip_address, user_agent, reason="bad_totp")
                 await self.audit.record(
@@ -277,11 +279,16 @@ class AuthService:
                 )
                 raise AuthenticationError("Invalid verification code.")
         else:
-            # Reject replay of a code that is still inside its validity window.
-            step = int(datetime.now(UTC).timestamp()) // self.settings.mfa_totp_period_seconds
-            if secret_row.last_used_step is not None and step <= secret_row.last_used_step:
+            # Reject replay by the step the code actually belongs to, not the current one.
+            # A code for step S is accepted through step S + window, so recording the
+            # current step would let it be replayed for the rest of its own window: a
+            # single intercepted code would yield a second session one step later.
+            if (
+                secret_row.last_used_step is not None
+                and matched_step <= secret_row.last_used_step
+            ):
                 raise AuthenticationError("This verification code has already been used.")
-            secret_row.last_used_step = step
+            secret_row.last_used_step = matched_step
 
         return await self._complete_login(user, ip_address=ip_address, user_agent=user_agent)
 
