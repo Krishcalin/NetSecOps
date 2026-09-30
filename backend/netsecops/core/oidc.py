@@ -102,6 +102,10 @@ class VerifiedIdentity:
 
     subject: str
     email: str | None
+    #: Whether the provider asserted `email_verified: true`. An unverified email is one
+    #: the signing-in user set themselves at many providers, so it must not be trusted to
+    #: match or link an existing account. Absent claim → False (default-deny).
+    email_verified: bool
     full_name: str | None
     groups: tuple[str, ...]
     #: Every claim, for the audit record. Read by nothing that makes a decision.
@@ -380,6 +384,7 @@ def verify_id_token(
     return VerifiedIdentity(
         subject=subject,
         email=_claim_str(claims, "email"),
+        email_verified=_claim_bool(claims, "email_verified"),
         full_name=_claim_str(claims, "name") or _claim_str(claims, "preferred_username"),
         groups=_groups(claims, settings.oidc_group_claim),
         claims=claims,
@@ -389,6 +394,21 @@ def verify_id_token(
 def _claim_str(claims: dict[str, Any], key: str) -> str | None:
     value = claims.get(key)
     return value.strip() or None if isinstance(value, str) else None
+
+
+def _claim_bool(claims: dict[str, Any], key: str) -> bool:
+    """A boolean claim, true only when the provider affirmatively asserts it.
+
+    OIDC defines `email_verified` as a boolean, but some providers render it as the
+    string "true"/"false". Anything else — absent, null, a non-affirmative value — is
+    False, so a missing claim never reads as verified.
+    """
+    value = claims.get(key)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() == "true"
+    return False
 
 
 def _groups(claims: dict[str, Any], claim_name: str) -> tuple[str, ...]:

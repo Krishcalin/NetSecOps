@@ -78,6 +78,7 @@ def id_token(**overrides: Any) -> str:
         "iat": now,
         "exp": now + 300,
         "email": "dana@example.com",
+        "email_verified": True,
         "name": "Dana Okafor",
         "groups": ["net-admins"],
         "nonce": "NONCE",
@@ -455,6 +456,41 @@ class TestTheProviderSaysWhoNotWhether:
         await session.refresh(user)
 
         assert user.external_idp_subject == "idp-subject-001"
+
+    @pytest.mark.anyio
+    async def test_an_unverified_email_does_not_take_over_an_account(
+        self, service, idp, session
+    ) -> None:
+        """A provider that lets a user set an arbitrary, unverified profile email must not
+        let an attacker match — and permanently link their subject to — an existing
+        account by claiming its address. The email fallback requires email_verified."""
+        user = await _seed_dana(session)  # external_idp_subject is None
+        begun, row = await _begin(service)
+        idp.token_response = {
+            "id_token": id_token(nonce=row.nonce, sub="attacker-sub", email_verified=False)
+        }
+
+        with pytest.raises(AuthenticationError):
+            await service.complete(code="c", state=begun.state)
+
+        await session.refresh(user)
+        assert user.external_idp_subject is None  # not linked to the attacker
+
+    @pytest.mark.anyio
+    async def test_a_missing_email_verified_claim_is_treated_as_unverified(
+        self, service, idp, session
+    ) -> None:
+        user = await _seed_dana(session)
+        begun, row = await _begin(service)
+        idp.token_response = {
+            "id_token": id_token(nonce=row.nonce, sub="attacker-sub", email_verified=None)
+        }
+
+        with pytest.raises(AuthenticationError):
+            await service.complete(code="c", state=begun.state)
+
+        await session.refresh(user)
+        assert user.external_idp_subject is None
 
     @pytest.mark.anyio
     async def test_a_second_subject_claiming_a_linked_address_is_refused(
