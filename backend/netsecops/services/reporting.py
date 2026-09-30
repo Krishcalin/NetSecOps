@@ -396,7 +396,14 @@ class ReportingService:
         evidence, details and a duplicated device row apiece — and then count them in
         Python to produce a dozen integers and a top-ten list.
         """
-        stmt = select(Finding).where(Finding.status.in_(FindingStatus.active_values()))
+        # Bound to this org first. The restricted branch below narrows further by visible
+        # group, but the unrestricted branch (a super-admin) otherwise aggregated active
+        # findings across every org — an executive summary that counts another tenant's
+        # findings. Every other report query here carries the same org bound.
+        stmt = select(Finding).where(
+            Finding.org_id == self.org_id,
+            Finding.status.in_(FindingStatus.active_values()),
+        )
         if not scope.unrestricted:
             from netsecops.services.inventory import InventoryService
 

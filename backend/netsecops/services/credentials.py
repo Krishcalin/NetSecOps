@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from netsecops.core.crypto import SecretVault, build_vault
@@ -375,8 +376,26 @@ class CredentialService:
             group_id=group_id,
             priority=priority,
         )
-        self.session.add(assignment)
-        await self.session.flush()
+        try:
+            async with self.session.begin_nested():
+                self.session.add(assignment)
+        except IntegrityError:
+            # A concurrent assign() for the same target won the race between the SELECT
+            # above and this INSERT. The partial unique index now rejects the duplicate;
+            # honour the upsert contract by updating the winner's priority rather than
+            # surfacing a 500. Without this the loser's insert would be an unhandled error.
+            existing = (
+                await self.session.execute(
+                    select(CredentialAssignment).where(
+                        CredentialAssignment.credential_id == credential.id,
+                        CredentialAssignment.device_id == device_id,
+                        CredentialAssignment.group_id == group_id,
+                    )
+                )
+            ).scalar_one()
+            existing.priority = priority
+            await self.session.flush()
+            return existing
 
         await self.audit.record(
             AuditAction.CREDENTIAL_UPDATED,

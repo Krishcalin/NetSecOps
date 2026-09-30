@@ -210,6 +210,17 @@ describe('LoginPage', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent(/did not complete/i);
     });
 
+    it('falls back for a reason that collides with an Object prototype member', async () => {
+      // A crafted ?sso_error=toString must not resolve to Object.prototype.toString and
+      // reach React as a child (which throws and, with no ErrorBoundary, unmounts the app).
+      // It takes the same fallback as any unknown reason.
+      for (const reason of ['toString', 'constructor', 'hasOwnProperty']) {
+        const { unmount } = renderLogin(`/login?sso_error=${reason}`);
+        expect(await screen.findByRole('alert')).toHaveTextContent(/did not complete/i);
+        unmount();
+      }
+    });
+
     it('still asks for the second factor after single sign-on', async () => {
       // The decision this deployment made: the provider replaces the password, not the
       // authenticator. The pending token arrives in the query string because a redirect

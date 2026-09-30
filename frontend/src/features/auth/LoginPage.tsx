@@ -17,15 +17,24 @@ import { useAuth } from './useAuth';
 import type { SSOStatus } from './types';
 
 /** Why a sign-in came back unfinished. The callback sends a short code rather than the
- *  provider's own message, which quotes back whatever it was handed. */
-const SSO_ERRORS: Record<string, string> = {
-  provider_denied: 'Your identity provider did not complete the sign-in.',
-  incomplete: 'The sign-in came back incomplete. Please try again.',
-  denied:
+ *  provider's own message, which quotes back whatever it was handed.
+ *
+ *  A Map, not an object literal: `sso_error` is attacker-controlled (it is reflected from
+ *  the query string), and indexing a plain object with `toString` / `constructor` /
+ *  `hasOwnProperty` resolves to the inherited Object.prototype member — a *function* — so
+ *  `?? fallback` never fires and the function reaches React as a child, which throws and
+ *  (there is no ErrorBoundary) unmounts the whole app. `Map.get` only ever returns an own
+ *  entry or undefined. */
+const SSO_ERRORS = new Map<string, string>([
+  ['provider_denied', 'Your identity provider did not complete the sign-in.'],
+  ['incomplete', 'The sign-in came back incomplete. Please try again.'],
+  [
+    'denied',
     'No NetSecOps account matches that sign-in, or the account cannot be used. Contact an administrator.',
-  locked: 'This account is temporarily locked after repeated failed sign-in attempts.',
-  provider_unreachable: 'NetSecOps could not reach the identity provider. Try again shortly.',
-};
+  ],
+  ['locked', 'This account is temporarily locked after repeated failed sign-in attempts.'],
+  ['provider_unreachable', 'NetSecOps could not reach the identity provider. Try again shortly.'],
+]);
 
 export function LoginPage() {
   const { login, verifyMfa, resumeMfa, mfaToken, cancelMfa } = useAuth();
@@ -54,7 +63,7 @@ export function LoginPage() {
     if (!failure && !pending) return;
 
     if (failure) {
-      setError(SSO_ERRORS[failure] ?? 'The single sign-on attempt did not complete.');
+      setError(SSO_ERRORS.get(failure) ?? 'The single sign-on attempt did not complete.');
     }
     if (pending) {
       resumeMfa(pending);
