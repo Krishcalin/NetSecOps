@@ -50,6 +50,12 @@ class Fingerprint:
     devices_changed_at: str | None
     snapshots: int
     snapshots_changed_at: str | None
+    #: DR sets collapse devices into one logical node, so a change to them changes the
+    #: graph without touching a device or snapshot row. Counted and timestamped for the
+    #: same reason as the pairs above: a set created as another is deleted leaves the
+    #: count unmoved, and the timestamp closes it.
+    dr_members: int = 0
+    dr_changed_at: str | None = None
 
 
 @dataclass(slots=True)

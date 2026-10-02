@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from netsecops.core.config import get_settings
 from netsecops.core.logging import get_logger
 from netsecops.db.models.collection import Finding, FindingStatus, Snapshot
+from netsecops.db.models.dr import DrRole, DrSet, DrSetMember
 from netsecops.db.models.inventory import Device, DeviceStatus, Site
 from netsecops.ncm.models import Neighbour, Route
 from netsecops.parsers.routes import interface_network
@@ -201,6 +202,16 @@ class TopologyService:
                     select(func.max(Snapshot.created_at))
                     .where(Snapshot.org_id == self.org_id)
                     .scalar_subquery(),
+                    # DR sets change the graph — they collapse two nodes into one —
+                    # without touching a device or snapshot row, so the graph would be
+                    # served stale from cache after a set was declared or removed.
+                    select(func.count())
+                    .select_from(DrSetMember)
+                    .where(DrSetMember.org_id == self.org_id)
+                    .scalar_subquery(),
+                    select(func.max(DrSet.updated_at))
+                    .where(DrSet.org_id == self.org_id)
+                    .scalar_subquery(),
                 )
             )
         ).one()
@@ -213,6 +224,8 @@ class TopologyService:
             devices_changed_at=row[1].isoformat() if row[1] else None,
             snapshots=int(row[2] or 0),
             snapshots_changed_at=row[3].isoformat() if row[3] else None,
+            dr_members=int(row[4] or 0),
+            dr_changed_at=row[5].isoformat() if row[5] else None,
         )
 
     async def _nodes(self) -> list[DeviceNode]:
@@ -252,7 +265,77 @@ class TopologyService:
             for device in devices
         }
         self._site_ids = {device.id: device.site_id for device in devices}
-        return [_node_from(device, *snapshots.get(device.id, (None, None))) for device in devices]
+        nodes = [
+            _node_from(device, *snapshots.get(device.id, (None, None))) for device in devices
+        ]
+
+        membership = await self._dr_membership()
+        return self._collapse_dr_sets(nodes, membership) if membership else nodes
+
+    async def _dr_membership(self) -> dict[uuid.UUID, list[uuid.UUID]]:
+        """`{primary_device_id: [standby_device_ids]}` for every DR set in the org.
+
+        A set with no primary or no standby is dropped: it collapses nothing, and a
+        primary with no standby is just a device. The primary carries the logical node's
+        configuration, so a set missing one has nothing to build the node from.
+        """
+        rows = await self.session.execute(
+            select(DrSetMember.dr_set_id, DrSetMember.device_id, DrSetMember.role).where(
+                DrSetMember.org_id == self.org_id
+            )
+        )
+        sets: dict[uuid.UUID, dict[str, Any]] = {}
+        for dr_set_id, device_id, role in rows.all():
+            entry = sets.setdefault(dr_set_id, {"primary": None, "standbys": []})
+            if role == DrRole.PRIMARY.value:
+                entry["primary"] = device_id
+            else:
+                entry["standbys"].append(device_id)
+        return {
+            entry["primary"]: entry["standbys"]
+            for entry in sets.values()
+            if entry["primary"] is not None and entry["standbys"]
+        }
+
+    def _collapse_dr_sets(
+        self, nodes: list[DeviceNode], membership: dict[uuid.UUID, list[uuid.UUID]]
+    ) -> list[DeviceNode]:
+        """Fold each set's standbys into its primary and drop them as separate nodes.
+
+        The primary's routes and rulebase *are* the logical device — the standby is
+        passive — so those are left untouched. What is merged is the standby's
+        **interface addresses**: they are the graph's join key (`graph.add` maps each to
+        its owner), so unless a next hop pointing at the standby's address, or a floating
+        VIP the pair shares, resolves to this one node, the collapse would turn a real
+        path into a false `unreachable` at the very device it removed. Its networks and
+        zones come with them, so an ingress arriving at the standby still finds its zone.
+
+        The standby is also removed from the metadata and site maps, so the estate is one
+        device here everywhere — the graph, the map, and the counts agree.
+        """
+        by_id = {node.device_id: node for node in nodes}
+        dropped: set[uuid.UUID] = set()
+        for primary_id, standby_ids in membership.items():
+            primary = by_id.get(primary_id)
+            if primary is None:
+                # The primary is archived or otherwise not an active node; there is
+                # nothing to collapse onto, so the standbys stay as they are rather than
+                # vanish with their addresses.
+                continue
+            for standby_id in standby_ids:
+                standby = by_id.get(standby_id)
+                if standby is None or standby_id in dropped:
+                    continue
+                primary.interface_addresses |= standby.interface_addresses
+                primary.interface_networks.extend(standby.interface_networks)
+                for interface, zone in standby.zones.items():
+                    primary.zones.setdefault(interface, zone)
+                dropped.add(standby_id)
+
+        for standby_id in dropped:
+            self._meta.pop(standby_id, None)
+            self._site_ids.pop(standby_id, None)
+        return [node for node in nodes if node.device_id not in dropped]
 
     async def summary(self) -> GraphSummary:
         graph = await self.graph()
