@@ -85,6 +85,8 @@ class AuditAction(StrEnum):
     DEVICE_CREATED = "device.created"
     DEVICE_UPDATED = "device.updated"
     DEVICE_DELETED = "device.deleted"
+    DR_SET_CREATED = "dr_set.created"
+    DR_SET_DELETED = "dr_set.deleted"
     JOB_STARTED = "job.started"
     JOB_CANCELLED = "job.cancelled"
     JOB_COMPLETED = "job.completed"

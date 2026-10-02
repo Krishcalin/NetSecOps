@@ -12,6 +12,7 @@ from netsecops.api.v1 import (
     credentials,
     devices,
     discovery,
+    dr,
     firewall,
     jobs,
     managers,
@@ -42,6 +43,7 @@ api_v1_router.include_router(managers.router)
 
 # Phase 1 — inventory, credential vault, job engine
 api_v1_router.include_router(devices.router)
+api_v1_router.include_router(dr.router)
 api_v1_router.include_router(credentials.router)
 api_v1_router.include_router(jobs.router)
 
